@@ -16,7 +16,7 @@ export default defineConfig({
 		timeout: 180_000,
 		reuseExistingServer: !!process.env.PW_REUSE_SERVER,
 		// Keeps e2e runs out of the real run history.
-		env: { TEST_APP_DATA_DIR: '.data-e2e' }
+		env: { TEST_APP_DATA_DIR: '.data-e2e', DEV_HTTP: '1' }
 	},
 	use: {
 		baseURL: 'http://localhost:4173',

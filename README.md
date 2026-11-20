@@ -34,17 +34,27 @@ Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright al
 ```bash
 bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
 cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
-bun run dev            # http://localhost:5173
+bun run setup:cert     # optional, once: HTTPS + HTTP/2 via mkcert (brew install mkcert)
+bun run dev            # https://localhost:5173 with a cert, otherwise http://localhost:5173
 ```
+
+HTTPS is there for HTTP/2, not for security: each live run or flow view holds a streaming request
+open, and HTTP/1.1 allows only six connections per host, so a few open tabs stall the app. With
+`app/cert/` present, `dev`, `preview` and `start` serve HTTPS + HTTP/2 (`start` through a small patch
+to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference app). Without it, or with
+`DEV_HTTP=1` (e2e tests, CI), they stay on plain HTTP.
 
 | Root script | Does |
 | --- | --- |
-| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun) |
+| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `app/cert/` exists) |
+| `setup:cert` | Creates `app/cert/` with mkcert (trusted local certificate for localhost) |
 | `check` | svelte-check for the app, `tsc` for sap-tests |
 | `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint for the app, oxlint/oxfmt for sap-tests |
 | `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
+| `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
 | `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
 | `codegen`, `report` | Playwright-SAP recorder and HTML report |
+| `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
 | `ci` | Everything CI runs, in order |
 | `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
 

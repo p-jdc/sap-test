@@ -11,27 +11,31 @@
 		"build": "bunx --bun vite build",
 		"preview": "bunx --bun vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "bun run lint:light && eslint .",
 		"format": "oxfmt && prettier --write \"**/*.svelte\"",
-		"start": "bun build/index.js",
+		"start": "if [ -f cert/cert.pem ] && [ -f cert/key.pem ]; then export HTTP_2=true TLS_CERT_FILE=cert/cert.pem TLS_KEY_FILE=cert/key.pem; fi; bun build/index.js",
 		"test:unit": "vitest",
 		"test": "vitest --run",
 		"test:e2e": "playwright test",
 		"lint:light": "oxlint --type-aware --deny-warnings && oxfmt --check && prettier --check \"**/*.svelte\" && knip",
 		"format:check": "oxfmt --check && prettier --check \"**/*.svelte\"",
-		"knip": "knip"
+		"knip": "knip",
+		"setup:cert": "bun scripts/setup-cert.ts",
+		"test:coverage": "vitest --run --coverage"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
 		"@playwright/test": "1.63.0",
 		"@rsvelte/oxlint-plugin": "0.2.6",
-		"@sveltejs/adapter-bun": "^1.0.1",
+		"@sveltejs/adapter-bun": "1.0.2",
 		"@sveltejs/kit": "^3.4.0",
 		"@sveltejs/vite-plugin-svelte": "^7.3.1",
 		"@types/node": "^22",
+		"@typescript/native-preview": "7.0.0-dev.20260707.2",
 		"@vitest/browser-playwright": "5.1.1",
+		"@vitest/coverage-v8": "5.1.1",
 		"eslint": "^10.15.0",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-oxlint": "1.94.0",
@@ -59,5 +63,8 @@
 		"@ui5/webcomponents-icons": "^2.16.0",
 		"@xyflow/svelte": "2.0.2",
 		"zod": "^4.6.7"
+	},
+	"patchedDependencies": {
+		"@sveltejs/adapter-bun@1.0.2": "patches/@sveltejs%2Fadapter-bun@1.0.2.patch"
 	}
 }
