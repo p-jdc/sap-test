@@ -25,11 +25,12 @@
 	const busy = $derived(!!runs.current?.active);
 
 	function onFilter(e: CustomEvent<{ selectedItems: HTMLElement[] }>) {
-		filter = (e.detail.selectedItems[0]?.dataset.value ?? 'all') as typeof filter;
+		const value = e.detail.selectedItems[0]?.dataset.value;
+		filter = FILTERS.find((f) => f === value) ?? 'all';
 	}
 
-	async function run(files: string[]) {
-		error = await runAndOpen({ files });
+	async function run(specFiles: string[]) {
+		error = await runAndOpen({ files: specFiles });
 	}
 </script>
 

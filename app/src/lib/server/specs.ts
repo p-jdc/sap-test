@@ -13,7 +13,7 @@ function walk(dir: string, match: (f: string) => boolean): string[] {
 		if (entry.isDirectory()) out.push(...walk(full, match));
 		else if (match(entry.name)) out.push(full);
 	}
-	return out.sort();
+	return out.toSorted();
 }
 
 const cache = new Map<string, { mtime: number; helpersKey: string; parsed: SpecFile }>();

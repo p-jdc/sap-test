@@ -76,7 +76,7 @@ describe('overlaySteps', () => {
 		);
 		expect(o.a).toMatchObject({ status: 'passed', duration: 10 });
 		expect(o.b).toMatchObject({ status: 'passed', duration: 12, calls: ['fill okCode', 'press'] });
-		expect(o.d.status).toBe('passed');
+		expect(o.d?.status).toBe('passed');
 	});
 
 	test('marks the failing line and later steps as not reached', () => {
@@ -108,11 +108,11 @@ describe('overlaySteps', () => {
 				]
 			})
 		);
-		expect(o.a.status).toBe('passed');
+		expect(o.a?.status).toBe('passed');
 		// no call recorded before the failure: left pending rather than guessed
-		expect(o.b.status).toBe('pending');
+		expect(o.b?.status).toBe('pending');
 		expect(o.c).toMatchObject({ status: 'failed', error: 'boom' });
-		expect(o.d.status).toBe('skipped');
+		expect(o.d?.status).toBe('skipped');
 	});
 
 	test('shows a step as running while its call is open', () => {
@@ -132,7 +132,7 @@ describe('overlaySteps', () => {
 				]
 			})
 		);
-		expect(o.a.status).toBe('running');
-		expect(o.c.status).toBe('pending');
+		expect(o.a?.status).toBe('running');
+		expect(o.c?.status).toBe('pending');
 	});
 });

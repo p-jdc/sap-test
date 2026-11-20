@@ -16,7 +16,7 @@ permissions:
 # browsers on newer Ubuntu releases (ubuntu-latest is 26.04). Revisit after the fork upgrade (guide §6).
 jobs:
   sap-tests:
-    name: sap-tests (types + spec discovery)
+    name: sap-tests (types, lint, format, spec discovery)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
@@ -31,6 +31,9 @@ jobs:
           cache-dependency-path: sap-tests/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      # Type-aware: flags a missing `await` in a recorded flow (typescript/no-floating-promises).
+      - run: npm run lint
+      - run: npm run format:check
       # Loads every spec with the Playwright-SAP fork without running it: catches syntax and
       # import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
       - run: npx playwright test --list
@@ -68,9 +71,18 @@ jobs:
       - name: Type check
         working-directory: app
         run: bun run check
+      # One step per tool, like `bun run lint`, but every tool runs and each failure is its own
+      # log group. Runs after the type check: oxlint --type-aware needs .svelte-kit/types.
       - name: Lint
         working-directory: app
-        run: bun run lint
+        run: |
+          fail=0
+          echo "::group::oxlint (type-aware)"; bunx oxlint --type-aware --deny-warnings || fail=1; echo "::endgroup::"
+          echo "::group::oxfmt (check)";       bunx oxfmt --check                       || fail=1; echo "::endgroup::"
+          echo "::group::prettier (svelte)";   bunx prettier --check "**/*.svelte"      || fail=1; echo "::endgroup::"
+          echo "::group::knip";                bunx knip                                || fail=1; echo "::endgroup::"
+          echo "::group::eslint";              bunx eslint .                            || fail=1; echo "::endgroup::"
+          exit $fail
       - name: Unit and component tests
         working-directory: app
         run: bun run test

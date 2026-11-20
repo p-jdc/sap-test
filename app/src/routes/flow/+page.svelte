@@ -39,6 +39,7 @@
 
 	let selectedId = $state<string | null>(null);
 	const selected = $derived(test?.steps.find((s) => s.id === selectedId));
+	const selectedOverlay = $derived(selected ? overlay[selected.id] : undefined);
 	let error = $state<string | null>(null);
 
 	let nodes = $state.raw<Node[]>([]);
@@ -70,18 +71,19 @@
 				position: { x: 0, y: (steps.length + 1) * ROW },
 				data: {
 					label: end ? `Test ${end}` : 'End',
-					sub: runTest?.duration !== undefined ? duration(runTest.duration) : undefined,
+					sub: runTest?.duration === undefined ? undefined : duration(runTest.duration),
 					status: end
 				},
 				draggable: false
 			}
 		];
 		const ids = ['start', ...steps.map((s) => s.id), 'end'];
-		edges = ids.slice(1).map((target, i) => {
-			const src = ids[i];
+		edges = ids.flatMap((src, i) => {
+			const target = ids[i + 1];
+			if (!target) return [];
 			const status = src === 'start' ? (runTest ? 'passed' : undefined) : overlay[src]?.status;
 			const next = target === 'end' ? undefined : overlay[target]?.status;
-			return {
+			const edge: Edge = {
 				id: `${src}-${target}`,
 				source: src,
 				target,
@@ -93,16 +95,19 @@
 							? 'stroke: var(--sapNegativeColor); stroke-width: 2px'
 							: 'stroke-dasharray: 4 4'
 			};
+			return [edge];
 		});
 	});
 
 	const sourceLines = $derived(source?.current?.split('\n') ?? []);
 	const highlight = $derived(
-		selected ? [selected.line, selected.endLine] : test ? [test.line, test.line] : [0, 0]
+		selected
+			? { from: selected.line, to: selected.endLine }
+			: { from: test?.line ?? 0, to: test?.line ?? 0 }
 	);
 	let codeEl = $state<HTMLElement | null>(null);
 	$effect(() => {
-		const line = highlight[0];
+		const line = highlight.from;
 		codeEl
 			?.querySelector(`[data-line="${line}"]`)
 			?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -237,17 +242,17 @@
 						<dd>
 							{selected.line}{selected.endLine !== selected.line ? `–${selected.endLine}` : ''}
 						</dd>
-						{#if overlay[selected.id]}
+						{#if selectedOverlay}
 							<dt>Result</dt>
 							<dd>
-								<StatusTag status={overlay[selected.id].status} />
-								{duration(overlay[selected.id].duration)}
+								<StatusTag status={selectedOverlay.status} />
+								{duration(selectedOverlay.duration)}
 							</dd>
-							{#if overlay[selected.id].calls.length}
+							{#if selectedOverlay.calls.length}
 								<dt>Playwright calls</dt>
 								<dd>
 									<ul class="calls">
-										{#each overlay[selected.id].calls as c, i (i)}<li class="mono">{c}</li>{/each}
+										{#each selectedOverlay.calls as c, i (i)}<li class="mono">{c}</li>{/each}
 									</ul>
 								</dd>
 							{/if}
@@ -281,7 +286,7 @@
 			<section class="code" bind:this={codeEl}>
 				{#each sourceLines as text, i (i)}
 					{@const n = i + 1}
-					<div class="line" class:hl={n >= highlight[0] && n <= highlight[1]} data-line={n}>
+					<div class="line" class:hl={n >= highlight.from && n <= highlight.to} data-line={n}>
 						<span class="no">{n}</span><span class="txt">{text || ' '}</span>
 					</div>
 				{/each}

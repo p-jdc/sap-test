@@ -13,10 +13,9 @@ export type LocatorKind =
 	| 'xpath'
 	| 'other';
 
-export type StepKind =
-	'navigate' | 'login' | 'action' | 'assert' | 'wait' | 'helper' | 'group' | 'other';
+type StepKind = 'navigate' | 'login' | 'action' | 'assert' | 'wait' | 'helper' | 'group' | 'other';
 
-export type Severity = 'error' | 'warning' | 'info';
+type Severity = 'error' | 'warning' | 'info';
 
 export interface Issue {
 	rule: string;

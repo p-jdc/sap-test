@@ -3,9 +3,17 @@ import { startTestRun } from '#lib/remote/runs.remote.js';
 import { runHref } from './links.js';
 
 export function errorMessage(e: unknown): string {
-	if (e && typeof e === 'object' && 'body' in e) {
-		const body = (e as { body?: { message?: string } }).body;
-		if (body?.message) return body.message;
+	// SvelteKit's HttpError carries `{ body: { message } }`.
+	if (typeof e === 'object' && e !== null && 'body' in e) {
+		const { body } = e;
+		if (
+			typeof body === 'object' &&
+			body !== null &&
+			'message' in body &&
+			typeof body.message === 'string' &&
+			body.message
+		)
+			return body.message;
 	}
 	return e instanceof Error ? e.message : String(e);
 }

@@ -18,11 +18,9 @@
 
 	let collapsed = $state(false);
 	const current = $derived(
-		NAV.slice()
-			.reverse()
-			.find((n) =>
-				n.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(n.href)
-			)?.href ?? (page.url.pathname.startsWith('/flow') ? '/tests' : '/')
+		NAV.toReversed().find((n) =>
+			n.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(n.href)
+		)?.href ?? (page.url.pathname.startsWith('/flow') ? '/tests' : '/')
 	);
 
 	function onSelect(e: CustomEvent<{ item: HTMLElement }>) {

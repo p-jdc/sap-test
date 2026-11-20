@@ -74,12 +74,34 @@ bun run test       # Vitest, two projects (like the reference app):
 bun run test:unit  # same, in watch mode
 bun run test:e2e   # Playwright: builds + previews the app, drives dashboard, flows, rule check
                    # and a real live run of the _demo tests (uses .data-e2e, not your run history)
-bun run lint
+bun run lint:light # oxlint (type-aware) + oxfmt + prettier (.svelte) + knip – fast, use while iterating
+bun run lint       # lint:light + eslint
+bun run format     # oxfmt + prettier for .svelte
 ```
 
-CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, lint,
-unit/component and e2e tests for the app, plus a type check and spec discovery (`playwright test --list`)
-for `sap-tests`. The SAP flows themselves need a test system and are not run in CI.
+### Lint and format
+
+Same layout as the reference app, but stricter:
+
+- **oxlint** (`app/.oxlintrc.json`) does almost all linting, type-aware through `oxlint-tsgolint`,
+  with Svelte rules from `@rsvelte/oxlint-plugin`. Instead of a hand-picked rule list, the whole
+  `correctness`, `suspicious`, `perf` and `pedantic` categories are errors, and the scripts run with
+  `--deny-warnings`, so the app stays at zero findings. The few pedantic rules that do not fit are
+  turned off in the config, each with its reason.
+- **TypeScript** runs with `noUncheckedIndexedAccess`, so `arr[i]` and `record[key]` are typed as
+  possibly missing and have to be checked.
+- **oxfmt** formats TS/JS/JSON/Markdown/YAML; **Prettier** only formats `.svelte` files.
+- **knip** reports unused files, exports and dependencies.
+- **ESLint** keeps only what oxlint cannot do (eslint-plugin-svelte, incl.
+  `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
+- **sap-tests** has its own `npm run lint` (oxlint, type-aware). Its main job is
+  `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
+  It also bans `waitForTimeout` (guide §5.2). `npm run format` uses oxfmt with the same style.
+
+CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
+lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
+lint, format check and spec discovery (`playwright test --list`) for `sap-tests`. The SAP flows
+themselves need a test system and are not run in CI.
 
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 fork in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.

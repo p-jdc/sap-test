@@ -47,8 +47,9 @@
 	}
 	function bars(t: RunTest) {
 		const steps = topSteps(t);
-		if (!steps.length) return [];
-		const t0 = Date.parse(steps[0].startTime);
+		const first = steps[0];
+		if (!first) return [];
+		const t0 = Date.parse(first.startTime);
 		const end = Math.max(...steps.map((s) => Date.parse(s.startTime) + (s.duration ?? 0)), t0 + 1);
 		const total = end - t0;
 		return steps.map((s) => {

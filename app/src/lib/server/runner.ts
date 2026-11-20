@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { EventEmitter } from 'node:events';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { childEnv, playwrightCommand } from './node-cli.js';
@@ -9,19 +8,21 @@ import type { Attachment, RunState, RunStatus, RunTest, TestStatus } from '#lib/
 
 const PREFIX = '@@pwlive@@';
 const LOG_TAIL = 400;
-// eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+// Strips terminal colour codes from Playwright output; matching ESC is the point.
+// oxlint-disable-next-line no-control-regex
+const ANSI = /\u001B\[[0-9;?]*[A-Za-z]/g;
 
-type Live = { state: RunState; proc: ChildProcess; emitter: EventEmitter; dir: string };
+type Live = { state: RunState; proc: ChildProcess; updates: EventTarget; dir: string };
 let active: Live | null = null;
 
 export function activeRunId(): string | null {
 	return active?.state.status === 'running' ? active.state.id : null;
 }
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
 function newId() {
 	const d = new Date();
-	const pad = (n: number) => String(n).padStart(2, '0');
 	return (
 		`${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-` +
 		`${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-` +
@@ -38,7 +39,7 @@ function specRel(file: string | undefined): string | undefined {
 type Loc = { file: string; line: number; column: number };
 type ReporterError = { message: string; stack?: string; location?: Loc };
 
-/** Line protocol of reporter/live-reporter.cjs (one JSON object per `@@pwlive@@` line). */
+/** Line protocol of reporter/live-reporter.ts (one JSON object per `@@pwlive@@` line). */
 type ReporterEvent =
 	| {
 			type: 'begin';
@@ -116,7 +117,7 @@ function apply(live: Live, ev: ReporterEvent) {
 		case 'stepEnd': {
 			const s = test(ev.testId)?.steps.find((x) => x.stepId === ev.stepId);
 			if (s)
-				Object.assign(s, { duration: ev.duration, error: ev.error?.message?.replace(ANSI, '') });
+				Object.assign(s, { duration: ev.duration, error: ev.error?.message.replaceAll(ANSI, '') });
 			break;
 		}
 		case 'testEnd': {
@@ -127,7 +128,7 @@ function apply(live: Live, ev: ReporterEvent) {
 			t.duration = ev.duration;
 			t.error = ev.error
 				? {
-						message: ev.error.message.replace(ANSI, ''),
+						message: ev.error.message.replaceAll(ANSI, ''),
 						line: ev.error.location?.line,
 						file: specRel(ev.error.location?.file)
 					}
@@ -179,7 +180,7 @@ export function startRun(
 		};
 	}
 	const files = (input.files ?? []).filter((f) => {
-		const [path] = f.split(':');
+		const [path = ''] = f.split(':');
 		return within(TESTS_DIR, path) !== null;
 	});
 	const id = newId();
@@ -208,7 +209,7 @@ export function startRun(
 	const live: Live = {
 		dir,
 		proc,
-		emitter: new EventEmitter(),
+		updates: new EventTarget(),
 		state: {
 			id,
 			startedAt: new Date().toISOString(),
@@ -221,7 +222,6 @@ export function startRun(
 			hasReport: false
 		}
 	};
-	live.emitter.setMaxListeners(50);
 	active = live;
 	persist(live);
 
@@ -235,13 +235,15 @@ export function startRun(
 			for (const raw of lines) {
 				if (raw.startsWith(PREFIX)) {
 					try {
+						// The line comes from reporter/live-reporter.ts in this repo, so its shape is trusted.
+						// oxlint-disable-next-line typescript/no-unsafe-type-assertion
 						apply(live, JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent);
 						recount(live.state);
 					} catch {
 						// a malformed line must not kill the run
 					}
 				} else {
-					const line = raw.replace(ANSI, '').replace(/\r/g, '');
+					const line = raw.replaceAll(ANSI, '').replaceAll('\r', '');
 					if (!line.trim()) continue;
 					appendFileSync(logFile, line + '\n');
 					live.state.log.push(line);
@@ -249,16 +251,18 @@ export function startRun(
 						live.state.log.splice(0, live.state.log.length - LOG_TAIL);
 				}
 			}
-			live.emitter.emit('update');
+			notify(live);
 		};
 	};
-	proc.stdout?.on('data', onData());
-	proc.stderr?.on('data', onData());
+	proc.stdout.on('data', onData());
+	proc.stderr.on('data', onData());
 	proc.on('error', (e) => {
 		live.state.log.push(`Failed to start: ${e.message}`);
 		finish(live, null, 'error');
 	});
-	proc.on('close', (code) => finish(live, code));
+	proc.on('close', (code) => {
+		finish(live, code);
+	});
 	return { ok: true, id };
 }
 
@@ -283,7 +287,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	state.hasReport = existsSync(join(live.dir, 'report/index.html'));
 	persist(live);
 	rememberFinished(state.id);
-	live.emitter.emit('update');
+	notify(live);
 }
 
 export function stopRun(id: string): boolean {
@@ -296,7 +300,14 @@ export function getLiveState(id: string): RunState | null {
 	return active && active.state.id === id ? active.state : null;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function notify(live: Live) {
+	live.updates.dispatchEvent(new Event('update'));
+}
+
+const sleep = (ms: number) =>
+	new Promise<void>((done) => {
+		setTimeout(done, ms);
+	});
 
 /** Snapshot stream for query.live: yields on change (throttled), ends when the run finishes. */
 export async function* watchRun(id: string): AsyncGenerator<RunState> {
@@ -312,16 +323,25 @@ export async function* watchRun(id: string): AsyncGenerator<RunState> {
 		dirty = true;
 		wake?.();
 	};
-	live.emitter.on('update', onUpdate);
+	const nextUpdate = () =>
+		new Promise<void>((done) => {
+			wake = done;
+		});
+	// A call, so TypeScript does not keep the narrowing from above across the yields.
+	const running = () => live.state.status === 'running';
+	live.updates.addEventListener('update', onUpdate);
 	try {
 		for (;;) {
-			if (!dirty) await new Promise<void>((r) => (wake = r));
+			// Sequential on purpose: one snapshot per change, throttled.
+			// oxlint-disable-next-line no-await-in-loop
+			if (!dirty) await nextUpdate();
 			dirty = false;
 			yield structuredClone(live.state);
-			if (live.state.status !== 'running') return;
+			if (!running()) return;
+			// oxlint-disable-next-line no-await-in-loop
 			await sleep(200);
 		}
 	} finally {
-		live.emitter.off('update', onUpdate);
+		live.updates.removeEventListener('update', onUpdate);
 	}
 }

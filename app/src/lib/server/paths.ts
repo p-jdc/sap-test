@@ -11,7 +11,7 @@ export const HELPERS_DIR = resolve(TESTS_ROOT, 'helpers');
 export const DATA_DIR = resolve(process.env.TEST_APP_DATA_DIR || resolve(process.cwd(), '.data'));
 export const RUNS_DIR = resolve(DATA_DIR, 'runs');
 
-export const LIVE_REPORTER = resolve(process.cwd(), 'reporter/live-reporter.cjs');
+export const LIVE_REPORTER = resolve(process.cwd(), 'reporter/live-reporter.ts');
 
 /** Resolves `rel` under `root`, or null when it would escape it (path traversal). */
 export function within(root: string, rel: string): string | null {

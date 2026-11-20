@@ -6,7 +6,7 @@ const ORDER_NUMBER = '4711';
 
 test('display sales order (WebGUI)', async ({ page }) => {
 	requireEnv('SAP_URL', 'SAP_USERNAME', 'SAP_PASSWORD');
-	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL!);
+	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);
 	await runTransaction(page, 'VA03');
 	await field(page, 'VBAK-VBELN').fill(ORDER_NUMBER);
 	await page.locateSID('wnd[0]/tbar[1]/btn[8]').click();

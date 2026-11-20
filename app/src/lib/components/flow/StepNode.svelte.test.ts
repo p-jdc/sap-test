@@ -24,7 +24,7 @@ test('shows action, locator kind, value and line', async () => {
 	const { container } = await render(Harness, { data: { step } });
 	const node = () => container.querySelector('.svelte-flow__node .node');
 	await expect.poll(node).not.toBeNull();
-	const text = node()!.textContent ?? '';
+	const text = node()!.textContent;
 	expect(text).toContain('fill');
 	expect(text).toContain('UI5');
 	expect(text).toContain('input("Sold-To Party")');

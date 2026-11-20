@@ -52,8 +52,10 @@
 	<ui5-label for="surface" show-colon>Surface</ui5-label>
 	<ui5-segmented-button
 		id="surface"
-		onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) =>
-			(surface = e.detail.selectedItems[0].dataset.value as typeof surface)}
+		onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) => {
+			const value = e.detail.selectedItems[0]?.dataset.value;
+			if (value === 'fiori' || value === 'webgui' || value === 'ariba') surface = value;
+		}}
 	>
 		<ui5-segmented-button-item data-value="fiori" selected={surface === 'fiori' || undefined}>
 			Fiori / UI5

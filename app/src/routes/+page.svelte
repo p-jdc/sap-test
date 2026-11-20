@@ -18,10 +18,10 @@
 	const lastRun = $derived(runs.current?.runs[0]);
 	const tests = $derived(specs.current?.flatMap((f) => f.tests) ?? []);
 	const bySurface = $derived(
-		tests.reduce<Record<string, number>>(
-			(acc, t) => ((acc[t.surface] = (acc[t.surface] ?? 0) + 1), acc),
-			{}
-		)
+		tests.reduce<Record<string, number>>((acc, t) => {
+			acc[t.surface] = (acc[t.surface] ?? 0) + 1;
+			return acc;
+		}, {})
 	);
 	const issueCount = $derived(
 		tests.reduce((n, t) => n + t.issues.filter((i) => i.severity !== 'info').length, 0)

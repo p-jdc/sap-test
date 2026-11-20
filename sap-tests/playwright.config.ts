@@ -19,7 +19,7 @@ export default defineConfig({
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure',
-		launchOptions: executablePath ? { executablePath } : {},
+		launchOptions: executablePath ? { executablePath } : {}
 	},
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
 });

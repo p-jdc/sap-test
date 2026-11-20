@@ -2,11 +2,13 @@
 	"extends": "$app/tsconfig",
 	"compilerOptions": {
 		"strict": true,
-		"types": ["$app/types", "node", "bun"]
+		"noUncheckedIndexedAccess": true,
+		"types": ["$app/types", "node"]
 	},
 	"include": [
 		"src",
 		"e2e",
+		"reporter",
 		"vite.config.ts",
 		"playwright.config.ts",
 		"prettier.config.js",

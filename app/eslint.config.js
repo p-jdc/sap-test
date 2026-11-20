@@ -1,6 +1,7 @@
 import prettier from 'eslint-config-prettier';
 import path from 'node:path';
 import js from '@eslint/js';
+import oxlint from 'eslint-plugin-oxlint';
 import svelte from 'eslint-plugin-svelte';
 import { defineConfig, includeIgnoreFile } from 'eslint/config';
 import globals from 'globals';
@@ -8,15 +9,23 @@ import ts from 'typescript-eslint';
 
 const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 
+// oxlint (.oxlintrc.json) does the heavy lifting, including all type-aware rules. ESLint stays
+// for what oxlint cannot do yet: the Svelte template rules of eslint-plugin-svelte, notably
+// svelte/no-navigation-without-resolve. The oxlint config at the end turns off every rule
+// oxlint already runs, so nothing is reported twice.
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
+	{ ignores: ['.data/', '.data-e2e/', 'playwright-report/', 'test-results/'] },
 	js.configs.recommended,
-	ts.configs.recommendedTypeChecked,
+	ts.configs.recommended,
 	svelte.configs.recommended,
 	prettier,
 	svelte.configs.prettier,
 	{
+		linterOptions: { reportUnusedDisableDirectives: 'error' },
 		languageOptions: {
+			// svelte/no-navigation-without-resolve reads types to accept the ResolvedPathname helpers
+			// in src/lib/client/links.ts, in .ts files (goto) as well as .svelte files.
 			parserOptions: { projectService: true },
 			globals: { ...globals.browser, ...globals.node }
 		},
@@ -34,17 +43,11 @@ export default defineConfig(
 				extraFileExtensions: ['.svelte'],
 				parser: ts.parser
 			}
+		},
+		rules: {
+			'svelte/no-navigation-without-resolve': 'error'
 		}
 	},
-	{
-		// The live reporter is loaded by Playwright inside sap-tests as plain CommonJS; it is outside
-		// the TS project, so lint it without type information.
-		files: ['reporter/**/*.cjs'],
-		extends: [ts.configs.disableTypeChecked]
-	},
-	{
-		// Override or add rule settings here, such as:
-		// 'svelte/button-has-type': 'error'
-		rules: {}
-	}
+	// Must stay last.
+	...oxlint.buildFromOxlintConfigFile('./.oxlintrc.json')
 );

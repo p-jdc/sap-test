@@ -11,15 +11,18 @@ export function overlaySteps(
 	steps: FlowStep[],
 	run: RunTest | undefined
 ): Record<string, StepOverlay> {
-	const out: Record<string, StepOverlay> = {};
-	if (!run) return out;
-	for (const s of steps)
-		out[s.id] = {
-			status: run.status === 'skipped' ? 'skipped' : 'pending',
-			duration: 0,
-			calls: []
-		};
-	if (run.status === 'skipped') return out;
+	if (!run) return {};
+	const fresh = (): StepOverlay => ({
+		status: run.status === 'skipped' ? 'skipped' : 'pending',
+		duration: 0,
+		calls: []
+	});
+	const entries = steps.map((s) => ({ id: s.id, overlay: fresh() }));
+	// One overlay per step, index-aligned with `steps`.
+	const overlays = entries.map((e) => e.overlay);
+	const result = (): Record<string, StepOverlay> =>
+		Object.fromEntries(entries.map((e) => [e.id, e.overlay]));
+	if (run.status === 'skipped') return result();
 
 	const byLine = (line: number) => steps.findIndex((s) => line >= s.line && line <= s.endLine);
 	const mapped = new Map<string, number>();
@@ -38,10 +41,10 @@ export function overlaySteps(
 			else if (steps[pointer + 1]?.kind === 'helper') idx = pointer + 1;
 		}
 		if (rs.line !== undefined) inHelper = outside && idx >= 0;
-		if (idx < 0) continue;
+		const o = overlays[idx];
+		if (!o) continue;
 		pointer = Math.max(pointer, idx);
 		mapped.set(rs.stepId, idx);
-		const o = out[steps[idx].id];
 		o.calls.push(rs.title);
 		const nestedInSame = rs.parentId !== undefined && mapped.get(rs.parentId) === idx;
 		if (rs.duration !== undefined && !nestedInSame) o.duration += rs.duration;
@@ -60,29 +63,28 @@ export function overlaySteps(
 	// A step whose last call finished is passed even if an earlier call left it marked running.
 	for (const rs of run.steps) {
 		const idx = mapped.get(rs.stepId);
-		if (idx === undefined) continue;
-		const o = out[steps[idx].id];
+		const o = idx === undefined ? undefined : overlays[idx];
+		if (!o) continue;
 		const open = run.steps.some((x) => mapped.get(x.stepId) === idx && x.duration === undefined);
 		if (o.status === 'running' && !open) o.status = 'passed';
 	}
 
 	if (run.status && run.status !== 'passed') {
 		let failIdx = run.error?.line && run.error.file === run.file ? byLine(run.error.line) : -1;
-		if (failIdx < 0) failIdx = steps.findIndex((s) => out[s.id].status === 'running');
+		if (failIdx < 0) failIdx = overlays.findIndex((o) => o.status === 'running');
 		if (failIdx < 0) failIdx = Math.max(pointer, 0);
-		if (steps[failIdx]) {
-			const o = out[steps[failIdx].id];
-			o.status = 'failed';
-			o.error ??= run.error?.message;
+		const failed = overlays[failIdx];
+		if (failed) {
+			failed.status = 'failed';
+			failed.error ??= run.error?.message;
 		}
-		for (let i = failIdx + 1; i < steps.length; i++) {
-			if (out[steps[i].id].status === 'pending') out[steps[i].id].status = 'skipped';
+		for (const o of overlays.slice(failIdx + 1)) {
+			if (o.status === 'pending') o.status = 'skipped';
 		}
 	}
 	if (run.status) {
-		for (const s of steps)
-			if (out[s.id].status === 'running')
-				out[s.id].status = run.status === 'passed' ? 'passed' : 'failed';
+		for (const o of overlays)
+			if (o.status === 'running') o.status = run.status === 'passed' ? 'passed' : 'failed';
 	}
-	return out;
+	return result();
 }

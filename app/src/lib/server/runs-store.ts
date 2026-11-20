@@ -10,20 +10,31 @@ export function rememberFinished(id: string) {
 	finished.delete(id);
 }
 
-function readJson<T>(path: string): T | null {
+/** meta.json / state.json are written by runner.ts in this app, so their shape is trusted. */
+function readRunFile(path: string): unknown {
 	try {
-		return JSON.parse(readFileSync(path, 'utf8')) as T;
+		return JSON.parse(readFileSync(path, 'utf8'));
 	} catch {
 		return null;
 	}
 }
 
+function readMeta(path: string): RunMeta | null {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
+	return readRunFile(path) as RunMeta | null;
+}
+
+function readState(path: string): RunState | null {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
+	return readRunFile(path) as RunState | null;
+}
+
 export function listRuns(): RunMeta[] {
 	if (!existsSync(RUNS_DIR)) return [];
 	return readdirSync(RUNS_DIR)
-		.map((id) => readJson<RunMeta>(join(RUNS_DIR, id, 'meta.json')))
+		.map((id) => readMeta(join(RUNS_DIR, id, 'meta.json')))
 		.filter((m): m is RunMeta => m !== null)
-		.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+		.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
 export function readRunState(id: string): RunState | null {
@@ -31,7 +42,7 @@ export function readRunState(id: string): RunState | null {
 	if (!dir) return null;
 	const hit = finished.get(id);
 	if (hit) return hit;
-	const state = readJson<RunState>(join(dir, 'state.json'));
+	const state = readState(join(dir, 'state.json'));
 	if (!state) return null;
 	const log = existsSync(join(dir, 'output.log'))
 		? readFileSync(join(dir, 'output.log'), 'utf8').split('\n').slice(-400)
@@ -46,7 +57,7 @@ export const PILOT_STREAK = 10;
 
 export function stability(): StabilityRow[] {
 	const rows = new Map<string, StabilityRow>();
-	for (const meta of listRuns().reverse()) {
+	for (const meta of listRuns().toReversed()) {
 		if (meta.status === 'running') continue;
 		const state = readRunState(meta.id);
 		for (const t of state?.tests ?? []) {
@@ -64,10 +75,8 @@ export function stability(): StabilityRow[] {
 	}
 	for (const row of rows.values()) {
 		row.lastStatus = row.history.at(-1)?.status;
-		let streak = 0;
-		for (let i = row.history.length - 1; i >= 0 && row.history[i].status === 'passed'; i--)
-			streak++;
-		row.streak = streak;
+		const lastNonPass = row.history.findLastIndex((h) => h.status !== 'passed');
+		row.streak = row.history.length - 1 - lastNonPass;
 	}
-	return [...rows.values()].sort((a, b) => a.key.localeCompare(b.key));
+	return [...rows.values()].toSorted((a, b) => a.key.localeCompare(b.key));
 }

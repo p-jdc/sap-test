@@ -8,10 +8,10 @@ import { TESTS_ROOT } from './paths.js';
  * under Bun and silently exit. Resolve a real node instead, and strip the shim from the child's PATH.
  */
 function isShim(dir: string) {
-	return /bun-node-/.test(dir);
+	return dir.includes('bun-node-');
 }
 
-export function realNode(): string {
+function realNode(): string {
 	if (process.env.PLAYWRIGHT_NODE) return process.env.PLAYWRIGHT_NODE;
 	for (const dir of (process.env.PATH ?? '').split(delimiter)) {
 		if (!dir || isShim(dir)) continue;

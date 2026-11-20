@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { must } from '../../test/must.js';
 import { parseHelpers, parseSpec } from './spec-parser.js';
 
 const helpers = parseHelpers([
@@ -26,7 +27,7 @@ test('create order', async ({ page }) => {
 });`,
 			helpers
 		);
-		const [t] = spec.tests;
+		const t = must(spec.tests[0]);
 		expect(t.key).toBe('fiori/order.spec.ts::create order');
 		expect(t.surface).toBe('fiori');
 		expect(t.steps.map((s) => [s.kind, s.action, s.locator?.kind, s.value])).toEqual([
@@ -35,7 +36,7 @@ test('create order', async ({ page }) => {
 			['action', 'click', 'ui5', undefined],
 			['assert', 'toBeVisible', 'text', undefined]
 		]);
-		expect(t.steps[2].locator?.helper).toBe('button');
+		expect(t.steps[2]?.locator?.helper).toBe('button');
 		expect(t.issues).toEqual([]);
 	});
 
@@ -47,7 +48,7 @@ test('create order', async ({ page }) => {
 	test('a', async ({ page }) => { await expect(page.getByRole('heading')).toBeVisible(); });
 });`
 		);
-		const [t] = spec.tests;
+		const t = must(spec.tests[0]);
 		expect(t.titlePath).toEqual(['group', 'a']);
 		expect(t.steps[0]).toMatchObject({ kind: 'navigate', hook: true, value: '/start' });
 	});
@@ -63,7 +64,9 @@ test('create order', async ({ page }) => {
 	await page.getByRoleUI5('Button', { text: 'Save' }).click();
 });`
 		);
-		const rules = spec.tests[0].issues.map((i) => i.rule).sort();
+		const rules = must(spec.tests[0])
+			.issues.map((i) => i.rule)
+			.toSorted();
 		expect(rules).toEqual(
 			[
 				'assert-after-change',
@@ -73,7 +76,7 @@ test('create order', async ({ page }) => {
 				'no-literal-secret',
 				'prefer-sap-locator',
 				'ui5-single-property'
-			].sort()
+			].toSorted()
 		);
 	});
 
@@ -83,12 +86,13 @@ test('create order', async ({ page }) => {
 			`test('t', async ({ page }) => { await runTransaction(page, 'VA03'); });`,
 			helpers
 		);
-		expect(spec.tests[0].steps[0]).toMatchObject({
+		const step = must(must(spec.tests[0]).steps[0]);
+		expect(step).toMatchObject({
 			kind: 'helper',
 			action: 'runTransaction',
 			value: 'VA03'
 		});
-		expect(spec.tests[0].steps[0].locator?.kind).toBe('sid');
+		expect(step.locator?.kind).toBe('sid');
 	});
 
 	test('warns on AI-generated tests without a named reviewer', () => {
