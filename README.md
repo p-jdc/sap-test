@@ -125,9 +125,10 @@ lookups.
 - SSR is off (`app/src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
   import time and have no server renderer. Remote functions and `+server` routes still run on the server.
 - UI5 loads its "72" font from a CDN by default; behind a strict proxy the app falls back to system fonts.
-- Bun installs everything, but Playwright runs on Node. Bun 1.4 can run `playwright test` itself, but
-  not with the Playwright-SAP fork (1.53): under `bun --bun` it exits 0 without loading any test. The
-  app therefore starts the fork's CLI with the first real `node` on PATH (`PLAYWRIGHT_NODE` overrides).
-  Re-check after the fork upgrade (guide §6).
+- Bun installs everything. Stock Playwright runs on Bun 1.4 (the app's own Playwright 1.63 lists and
+  runs its e2e tests under `bun --bun`), but the Playwright-SAP fork (1.53) does not: under `bun --bun`
+  it exits 0 without loading any test. The app therefore starts the fork's CLI with the first real
+  `node` on PATH (`PLAYWRIGHT_NODE` overrides), which is why Node 22 is still required. Re-check after
+  the fork upgrade (guide §6); with a newer base the whole repo may run on Bun alone.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.
