@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { parseHelpers, parseSpec } from './spec-parser.js';
 
 const helpers = parseHelpers([
