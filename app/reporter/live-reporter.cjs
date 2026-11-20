@@ -1,0 +1,91 @@
+// Playwright reporter loaded by the Test-App into the sap-tests run (by absolute path).
+// It runs inside the Playwright-SAP process, so it must stay dependency-free CommonJS
+// and only use reporter API that exists in Playwright 1.53.
+// Every event is one stdout line prefixed with PREFIX; the app parses those and ignores the rest.
+const PREFIX = '@@pwlive@@';
+const KEEP = new Set(['pw:api', 'expect', 'test.step']);
+
+function emit(event) {
+	process.stdout.write(PREFIX + JSON.stringify(event) + '\n');
+}
+
+function loc(l) {
+	return l ? { file: l.file, line: l.line, column: l.column } : undefined;
+}
+
+function err(e) {
+	if (!e) return undefined;
+	return { message: e.message || e.value || String(e), stack: e.stack, location: loc(e.location) };
+}
+
+class LiveReporter {
+	constructor() {
+		this.stepIds = new WeakMap();
+		this.seq = 0;
+	}
+	printsToStdio() {
+		return false;
+	}
+	onBegin(config, suite) {
+		emit({
+			type: 'begin',
+			rootDir: config.rootDir,
+			tests: suite.allTests().map((t) => ({
+				id: t.id,
+				title: t.title,
+				titlePath: t.titlePath().slice(3),
+				location: loc(t.location)
+			}))
+		});
+	}
+	onTestBegin(test, result) {
+		emit({ type: 'testBegin', testId: test.id, retry: result.retry, startTime: result.startTime });
+	}
+	onStepBegin(test, result, step) {
+		if (!KEEP.has(step.category)) return;
+		const id = 's' + ++this.seq;
+		this.stepIds.set(step, id);
+		let parent = step.parent;
+		while (parent && !this.stepIds.has(parent)) parent = parent.parent;
+		emit({
+			type: 'stepBegin',
+			testId: test.id,
+			stepId: id,
+			parentId: parent ? this.stepIds.get(parent) : undefined,
+			title: step.title,
+			category: step.category,
+			location: loc(step.location),
+			startTime: step.startTime
+		});
+	}
+	onStepEnd(test, result, step) {
+		const id = this.stepIds.get(step);
+		if (!id) return;
+		emit({
+			type: 'stepEnd',
+			testId: test.id,
+			stepId: id,
+			duration: step.duration,
+			error: err(step.error)
+		});
+	}
+	onTestEnd(test, result) {
+		emit({
+			type: 'testEnd',
+			testId: test.id,
+			status: result.status,
+			expectedStatus: test.expectedStatus,
+			duration: result.duration,
+			retry: result.retry,
+			error: err(result.error),
+			attachments: result.attachments
+				.filter((a) => a.path)
+				.map((a) => ({ name: a.name, contentType: a.contentType, path: a.path }))
+		});
+	}
+	onEnd(result) {
+		emit({ type: 'end', status: result.status, duration: result.duration });
+	}
+}
+
+module.exports = LiveReporter;

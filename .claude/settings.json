@@ -1,0 +1,11 @@
+{
+	"enabledMcpjsonServers": ["svelte"],
+	"permissions": {
+		"allow": [
+			"mcp__svelte__list-sections",
+			"mcp__svelte__get-documentation",
+			"mcp__svelte__svelte-autofixer"
+		],
+		"deny": ["Edit(./sap-tests/.env)", "Write(./sap-tests/.env)", "Read(./sap-tests/.env)"]
+	}
+}

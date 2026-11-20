@@ -1,0 +1,8 @@
+{
+	"name": "sap-test-mcp-runner",
+	"private": true,
+	"description": "Isolated, lockfile-pinned install of the Svelte MCP server used by .mcp.json. Not an app dependency: @sveltejs/mcp has its own eslint requirement and the app must not inherit it. Update: edit the pin, run `bun install --cwd .claude/mcp`, commit both files.",
+	"dependencies": {
+		"@sveltejs/mcp": "0.1.31"
+	}
+}
