@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { TESTS_ROOT } from './paths.js';
@@ -39,14 +40,18 @@ export function readTestEnv(): Record<string, string> {
 	return { ...fromFile, ...merged };
 }
 
+const PackageSchema = z.object({ name: z.string().optional(), version: z.string().optional() });
+
 export function envStatus(): EnvStatus {
 	const values = readTestEnv();
 	let playwrightVersion: string | undefined;
 	let playwrightSap = false;
 	try {
-		const pkg = JSON.parse(
-			readFileSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test/package.json'), 'utf8')
-		) as { name?: string; version?: string };
+		const pkg = PackageSchema.parse(
+			JSON.parse(
+				readFileSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test/package.json'), 'utf8')
+			)
+		);
 		playwrightVersion = pkg.version;
 		playwrightSap = pkg.name === '@playwright-sap/test';
 	} catch {

@@ -1,32 +1,50 @@
 // Playwright reporter loaded by the Test-App into the sap-tests run (by absolute path).
-// It runs inside the Playwright-SAP process, so it must stay dependency-free CommonJS
-// and only use reporter API that exists in Playwright 1.53.
+// It runs inside the Playwright-SAP process (Playwright 1.53), which transpiles it: type-only
+// imports, no runtime dependencies, and only reporter API that exists in 1.53.
 // Every event is one stdout line prefixed with PREFIX; the app parses those and ignores the rest.
+import type {
+	FullConfig,
+	FullResult,
+	Location,
+	Reporter,
+	Suite,
+	TestCase,
+	TestError,
+	TestResult,
+	TestStep
+} from '@playwright/test/reporter';
+
 const PREFIX = '@@pwlive@@';
 const KEEP = new Set(['pw:api', 'expect', 'test.step']);
 
-function emit(event) {
+function emit(event: Record<string, unknown>) {
 	process.stdout.write(PREFIX + JSON.stringify(event) + '\n');
 }
 
-function loc(l) {
+function loc(l: Location | undefined) {
 	return l ? { file: l.file, line: l.line, column: l.column } : undefined;
 }
 
-function err(e) {
-	if (!e) return undefined;
-	return { message: e.message || e.value || String(e), stack: e.stack, location: loc(e.location) };
+function err(e: TestError | undefined) {
+	return e
+		? {
+				// JSON, not String(e): a TestError is a plain object and would print as [object Object].
+				message: e.message || e.value || JSON.stringify(e),
+				stack: e.stack,
+				location: loc(e.location)
+			}
+		: undefined;
 }
 
-class LiveReporter {
-	constructor() {
-		this.stepIds = new WeakMap();
-		this.seq = 0;
-	}
+export default class LiveReporter implements Reporter {
+	private stepIds = new WeakMap<TestStep, string>();
+	private seq = 0;
+
 	printsToStdio() {
 		return false;
 	}
-	onBegin(config, suite) {
+
+	onBegin(config: FullConfig, suite: Suite) {
 		emit({
 			type: 'begin',
 			rootDir: config.rootDir,
@@ -38,10 +56,12 @@ class LiveReporter {
 			}))
 		});
 	}
-	onTestBegin(test, result) {
+
+	onTestBegin(test: TestCase, result: TestResult) {
 		emit({ type: 'testBegin', testId: test.id, retry: result.retry, startTime: result.startTime });
 	}
-	onStepBegin(test, result, step) {
+
+	onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
 		if (!KEEP.has(step.category)) return;
 		const id = 's' + ++this.seq;
 		this.stepIds.set(step, id);
@@ -58,7 +78,8 @@ class LiveReporter {
 			startTime: step.startTime
 		});
 	}
-	onStepEnd(test, result, step) {
+
+	onStepEnd(test: TestCase, _result: TestResult, step: TestStep) {
 		const id = this.stepIds.get(step);
 		if (!id) return;
 		emit({
@@ -69,7 +90,8 @@ class LiveReporter {
 			error: err(step.error)
 		});
 	}
-	onTestEnd(test, result) {
+
+	onTestEnd(test: TestCase, result: TestResult) {
 		emit({
 			type: 'testEnd',
 			testId: test.id,
@@ -78,14 +100,13 @@ class LiveReporter {
 			duration: result.duration,
 			retry: result.retry,
 			error: err(result.error),
-			attachments: result.attachments
-				.filter((a) => a.path)
-				.map((a) => ({ name: a.name, contentType: a.contentType, path: a.path }))
+			attachments: result.attachments.flatMap((a) =>
+				a.path ? [{ name: a.name, contentType: a.contentType, path: a.path }] : []
+			)
 		});
 	}
-	onEnd(result) {
+
+	onEnd(result: FullResult) {
 		emit({ type: 'end', status: result.status, duration: result.duration });
 	}
 }
-
-module.exports = LiveReporter;

@@ -1,4 +1,4 @@
-import type { LocatorKind, RunStatus, StepStatus, Surface, TestStatus } from './types';
+import type { LocatorKind, Surface } from './types';
 
 export function duration(ms: number | undefined): string {
 	if (ms === undefined) return '–';
@@ -11,22 +11,19 @@ export function when(iso: string | undefined): string {
 	return iso ? new Date(iso).toLocaleString() : '–';
 }
 
-/** UI5 Tag design for a status. */
-export function statusDesign(status: TestStatus | RunStatus | StepStatus | undefined): string {
-	switch (status) {
-		case 'passed':
-			return 'Positive';
-		case 'failed':
-		case 'timedOut':
-		case 'error':
-			return 'Negative';
-		case 'interrupted':
-			return 'Critical';
-		case 'running':
-			return 'Information';
-		default:
-			return 'Neutral';
-	}
+/** Keyed by TestStatus | RunStatus | StepStatus values. */
+const DESIGNS = new Map<string, string>([
+	['passed', 'Positive'],
+	['failed', 'Negative'],
+	['timedOut', 'Negative'],
+	['error', 'Negative'],
+	['interrupted', 'Critical'],
+	['running', 'Information']
+]);
+
+/** UI5 Tag design for a status; anything else (pending, skipped, not run) is Neutral. */
+export function statusDesign(status: string | undefined): string {
+	return DESIGNS.get(status ?? '') ?? 'Neutral';
 }
 
 export const SURFACE_LABEL: Record<Surface, string> = {

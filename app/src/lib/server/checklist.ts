@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DATA_DIR } from './paths.js';
@@ -43,12 +44,11 @@ export const CHECKLIST: { phase: string; items: { id: string; text: string }[] }
 ];
 
 const FILE = join(DATA_DIR, 'checklist.json');
+const CheckedSchema = z.record(z.string(), z.boolean());
 
 export function readChecked(): Record<string, boolean> {
 	try {
-		return existsSync(FILE)
-			? (JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, boolean>)
-			: {};
+		return existsSync(FILE) ? CheckedSchema.parse(JSON.parse(readFileSync(FILE, 'utf8'))) : {};
 	} catch {
 		return {};
 	}

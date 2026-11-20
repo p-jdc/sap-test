@@ -5,8 +5,8 @@
 </script>
 
 <ui5-tag
-	design={statusDesign(status as never)}
-	hide-state-icon={statusDesign(status as never) === 'Neutral' || status === 'running' || undefined}
+	design={statusDesign(status)}
+	hide-state-icon={statusDesign(status) === 'Neutral' || status === 'running' || undefined}
 >
 	{label ?? status ?? 'not run'}
 </ui5-tag>

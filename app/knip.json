@@ -1,0 +1,9 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": ["src/**/*.remote.ts", "reporter/*.ts", "e2e/**/*.ts"],
+	"project": ["src/**/*.{ts,svelte}", "reporter/**/*.ts", "e2e/**/*.ts"],
+	"ignoreIssues": {
+		// `$app/tsconfig` is SvelteKit 3's generated base config, not an npm package.
+		"tsconfig.json": ["unlisted"]
+	}
+}

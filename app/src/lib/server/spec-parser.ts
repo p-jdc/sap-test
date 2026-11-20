@@ -54,9 +54,9 @@ const WAITS = new Set([
 const DATA_CHANGING =
 	/\b(save|post|submit|confirm|approve|delete|sichern|speichern|buchen|löschen|genehmigen)\b/i;
 
-const SAP_SURFACES: Surface[] = ['fiori', 'webgui'];
+const SAP_SURFACES = new Set<Surface>(['fiori', 'webgui']);
 
-export function surfaceFromPath(file: string): Surface | undefined {
+function surfaceFromPath(file: string): Surface | undefined {
 	const top = file.split('/')[0];
 	if (top === 'fiori' || top === 'webgui' || top === 'ariba') return top;
 	if (top === '_demo') return 'demo';
@@ -80,8 +80,7 @@ function argText(ctx: Ctx, node: ts.Expression): string {
 	if (ts.isNumericLiteral(node)) return node.text;
 	if (ts.isNonNullExpression(node)) return argText(ctx, node.expression);
 	if (ts.isIdentifier(node)) {
-		const v = ctx.consts.get(node.text);
-		return v !== undefined ? v : node.text;
+		return ctx.consts.get(node.text) ?? node.text;
 	}
 	if (
 		ts.isPropertyAccessExpression(node) &&
@@ -96,7 +95,8 @@ function argText(ctx: Ctx, node: ts.Expression): string {
 	return node.getText(ctx.sf);
 }
 
-type Segment = { name: string; args: readonly ts.Expression[]; node: ts.CallExpression };
+/** `node` is absent for property-access segments such as `keyboard` in `page.keyboard.press()`. */
+type Segment = { name: string; args: readonly ts.Expression[]; node?: ts.CallExpression };
 
 /**
  * Flattens `page.getByRoleUI5('Button', {...}).click()` into
@@ -113,7 +113,7 @@ function flatten(expr: ts.Expression): { root: ts.Expression; segments: Segment[
 			cur = cur.expression.expression;
 		} else if (ts.isPropertyAccessExpression(cur)) {
 			// `page.keyboard.press` – keep the property as an argument-less segment
-			segments.unshift({ name: cur.name.text, args: [], node: undefined as never });
+			segments.unshift({ name: cur.name.text, args: [] });
 			cur = cur.expression;
 		} else {
 			break;
@@ -152,11 +152,11 @@ function describeLocator(
 				display: seg.node
 					.getText(ctx.sf)
 					.replace(/^page\./, '')
-					.replace(/\s+/g, ' ')
+					.replaceAll(/\s+/g, ' ')
 			};
 			// Strip trailing action from display: `getByLabel('X').fill('1')` → `getByLabel('X')`
 			const idx = info.display.lastIndexOf(').');
-			if (idx > -1 && ACTIONS.has(info.display.slice(idx + 2).split('(')[0])) {
+			if (idx > -1 && ACTIONS.has(info.display.slice(idx + 2).split('(')[0] ?? '')) {
 				info.display = info.display.slice(0, idx + 1);
 			}
 		} else if (kind && seg.name === 'locator' && info) {
@@ -179,7 +179,7 @@ function makeStep(
 		id: `s${++ctx.seq}`,
 		line: lineOf(ctx, stmt.getStart(ctx.sf)),
 		endLine: lineOf(ctx, stmt.getEnd()),
-		code: stmt.getText(ctx.sf).replace(/\s+/g, ' ').trim(),
+		code: stmt.getText(ctx.sf).replaceAll(/\s+/g, ' ').trim(),
 		issues: [],
 		...partial
 	};
@@ -188,7 +188,7 @@ function makeStep(
 /** Turns one awaited expression into a flow step, or undefined if it is not test-relevant. */
 function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | undefined {
 	const { root, segments } = flatten(expr);
-	const last = segments[segments.length - 1];
+	const last = segments.at(-1);
 
 	// expect(locator).toBeVisible() / expect.soft(...)
 	if (
@@ -206,20 +206,19 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 			};
 		}
 		const matchers = segments.filter((s) => s.name !== 'not');
-		const matcher = matchers[matchers.length - 1];
+		const matcher = matchers.at(-1);
+		const firstArg = matcher?.args[0];
 		const negated = segments.some((s) => s.name === 'not');
 		return makeStep(ctx, stmt, {
 			kind: 'assert',
 			action: (negated ? 'not.' : '') + (matcher?.name ?? 'expect'),
 			locator,
 			value:
-				matcher?.args[0] && !ts.isObjectLiteralExpression(matcher.args[0])
-					? argText(ctx, matcher.args[0])
-					: undefined
+				firstArg && !ts.isObjectLiteralExpression(firstArg) ? argText(ctx, firstArg) : undefined
 		});
 	}
 
-	// test.step('title', async () => { ... }) is handled by the caller (group)
+	// test.step groups are handled by the caller (collectSteps).
 
 	// Bare helper call: runTransaction(page, 'VA03')
 	if (segments.length === 0 && ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
@@ -247,7 +246,7 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	if (WAITS.has(last.name) && segments.length === 1) {
 		return makeStep(ctx, stmt, { kind: 'wait', action: last.name, value: lastArgs[0] });
 	}
-	if (segments.length === 2 && segments[0].name === 'keyboard') {
+	if (segments.length === 2 && segments[0]?.name === 'keyboard') {
 		return makeStep(ctx, stmt, {
 			kind: 'action',
 			action: 'keyboard.' + last.name,
@@ -277,7 +276,10 @@ function collectSteps(ctx: Ctx, body: ts.ConciseBody | undefined, out: FlowStep[
 		else if (ts.isIfStatement(stmt) || ts.isForOfStatement(stmt) || ts.isTryStatement(stmt)) {
 			// Control flow inside a test is rare in recordings; show it as one opaque node.
 			out.push(
-				makeStep(ctx, stmt, { kind: 'other', action: stmt.getText(ctx.sf).split(/[\s(]/)[0] })
+				makeStep(ctx, stmt, {
+					kind: 'other',
+					action: stmt.getText(ctx.sf).split(/[\s(]/)[0] ?? ''
+				})
 			);
 			continue;
 		}
@@ -307,9 +309,8 @@ function testCallKind(
 ): 'test' | 'describe' | 'beforeEach' | undefined {
 	const callee = call.expression.getText(ctx.sf);
 	if (/^test(\.(only|skip|fixme|fail|slow))?$/.test(callee)) {
-		return call.arguments.length >= 2 && ts.isStringLiteralLike(call.arguments[0])
-			? 'test'
-			: undefined;
+		const [title, fn] = call.arguments;
+		return title && fn && ts.isStringLiteralLike(title) ? 'test' : undefined;
 	}
 	if (/^test\.describe(\.(only|skip|serial|parallel|fixme))*$/.test(callee)) return 'describe';
 	if (callee === 'test.beforeEach') return 'beforeEach';
@@ -317,7 +318,7 @@ function testCallKind(
 }
 
 function fnArg(call: ts.CallExpression) {
-	const fn = call.arguments[call.arguments.length - 1];
+	const fn = call.arguments.at(-1);
 	return fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ? fn : undefined;
 }
 
@@ -331,9 +332,9 @@ function detectSurface(file: string, steps: FlowStep[]): Surface {
 }
 
 /** Guide §5.2 / §9 rules, applied per test. */
-export function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
+function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
 	const issues: Issue[] = [];
-	const sap = SAP_SURFACES.includes(test.surface);
+	const sap = SAP_SURFACES.has(test.surface);
 	const add = (step: FlowStep, rule: string, severity: Issue['severity'], message: string) => {
 		const issue = { rule, severity, message, line: step.line };
 		step.issues.push(issue);
@@ -358,9 +359,9 @@ export function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
 				`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
 			);
 		}
-		if (kind === 'ui5' && /getByRoleUI5\(/.test(step.code)) {
-			const m = step.code.match(/getByRoleUI5\([^,]+,\s*\{([^}]*)\}/);
-			if (m && m[1].split(',').filter((p) => p.includes(':')).length > 1) {
+		if (kind === 'ui5' && step.code.includes('getByRoleUI5(')) {
+			const props = /getByRoleUI5\([^,]+,\s*\{([^}]*)\}/.exec(step.code)?.[1];
+			if (props && props.split(',').filter((p) => p.includes(':')).length > 1) {
 				add(
 					step,
 					'ui5-single-property',
@@ -369,7 +370,7 @@ export function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
 				);
 			}
 		}
-		if (/\.nth\(/.test(step.code)) {
+		if (step.code.includes('.nth(')) {
 			add(
 				step,
 				'avoid-nth',
@@ -409,8 +410,8 @@ export function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
 			}
 		}
 	});
-	if (actionable.length > 0 && !actionable.some((s) => s.kind === 'assert')) {
-		const last = actionable[actionable.length - 1];
+	const last = actionable.at(-1);
+	if (last && !actionable.some((s) => s.kind === 'assert')) {
 		add(last, 'has-assertion', 'warning', 'Test has no assertion.');
 	}
 	return issues;
@@ -446,6 +447,8 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 			if (testCallKind(ctx, stmt.expression) === 'beforeEach') {
 				const steps: FlowStep[] = [];
 				collectSteps(ctx, fnArg(stmt.expression)?.body, steps);
+				// Copies on purpose: every test gets its own step objects (checkRules mutates issues).
+				// oxlint-disable-next-line oxc/no-map-spread
 				scopeHooks.push(...steps.map((s) => ({ ...s, hook: true })));
 			}
 		}
@@ -462,7 +465,10 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 				if (fn && ts.isBlock(fn.body))
 					walk(fn.body.statements, title ? [...titles, title] : titles, scopeHooks);
 			} else if (kind === 'test') {
-				const title = (call.arguments[0] as ts.StringLiteral).text;
+				const first = call.arguments[0];
+				if (!first || !ts.isStringLiteralLike(first)) continue;
+				const title = first.text;
+				// oxlint-disable-next-line oxc/no-map-spread -- per-test copies, see scopeHooks above
 				const steps: FlowStep[] = scopeHooks.map((h) => ({ ...h, issues: [] }));
 				collectSteps(ctx, fnArg(call)?.body, steps);
 				const titlePath = [...titles, title];
@@ -485,8 +491,9 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 	walk(sf.statements, [], []);
 
 	const fileIssues: Issue[] = [];
-	const marker = source.match(/KI-generiert,\s*geprüft von:\s*(.*)/);
-	if (marker && (!marker[1].trim() || /<name>/i.test(marker[1]))) {
+	const marker = /KI-generiert,\s*geprüft von:\s*(.*)/.exec(source);
+	const reviewer = marker?.[1]?.trim() ?? '';
+	if (marker && (!reviewer || /<name>/i.test(reviewer))) {
 		const line = source.slice(0, marker.index).split('\n').length;
 		fileIssues.push({
 			rule: 'ai-review',
@@ -510,8 +517,8 @@ export function parseHelpers(files: { file: string; source: string }[]): HelperM
 			const visit = (n: ts.Node) => {
 				if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
 					const m = n.expression.name.text;
-					if (!locator && LOCATOR_METHODS[m])
-						locator = m === 'locator' ? 'css' : LOCATOR_METHODS[m];
+					const kind = LOCATOR_METHODS[m];
+					if (!locator && kind) locator = kind;
 					if (ACTIONS.has(m)) isAction = true;
 				}
 				ts.forEachChild(n, visit);

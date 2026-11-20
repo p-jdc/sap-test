@@ -39,8 +39,8 @@ export function startRecording(
 	const slug = input.name
 		.trim()
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-|-$/g, '');
+		.replaceAll(/[^a-z0-9]+/g, '-')
+		.replaceAll(/^-|-$/g, '');
 	if (!slug) return { ok: false, error: 'Give the flow a name.' };
 	const file = `${input.surface}/${slug}.spec.ts`;
 	const full = within(TESTS_DIR, file);

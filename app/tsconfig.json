@@ -3,11 +3,12 @@
 	"compilerOptions": {
 		"strict": true,
 		"noUncheckedIndexedAccess": true,
-		"types": ["$app/types", "node", "bun"]
+		"types": ["$app/types", "node"]
 	},
 	"include": [
 		"src",
 		"e2e",
+		"reporter",
 		"vite.config.ts",
 		"playwright.config.ts",
 		"prettier.config.js",

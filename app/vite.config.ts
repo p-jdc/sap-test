@@ -18,7 +18,7 @@ export default defineConfig({
 				// checks (written for native non-interactive elements like <div>) are noise for them.
 				warningFilter: (w) =>
 					!(
-						/`<ui5-/.test(w.message) &&
+						w.message.includes('`<ui5-') &&
 						/^a11y_(click_events_have_key_events|no_static_element_interactions)$/.test(w.code)
 					)
 			},
