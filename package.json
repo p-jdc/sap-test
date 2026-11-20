@@ -1,0 +1,25 @@
+{
+	"name": "sap-test",
+	"private": true,
+	"description": "Run from the repo root. Deliberately not a workspace: app/ (Bun) and sap-tests/ (npm + Node, Playwright-SAP aliased as @playwright/test) must keep separate dependency trees, or the fork's @playwright/test alias and the app's own Playwright collide when hoisted.",
+	"scripts": {
+		"setup": "bun install --cwd app && cd sap-tests && npm ci && npx playwright install chromium && cd ../app && bunx playwright install chromium",
+		"setup:mcp": "bun install --cwd .claude/mcp --frozen-lockfile",
+		"dev": "cd app && bun run dev",
+		"build": "cd app && bun run build",
+		"preview": "cd app && bun run preview",
+		"start": "cd app && bun run start",
+		"check": "cd app && bun run check && cd ../sap-tests && npm run typecheck",
+		"lint": "cd app && bun run lint && cd ../sap-tests && npm run lint && npm run format:check",
+		"lint:light": "cd app && bun run lint:light && cd ../sap-tests && npm run lint",
+		"format": "cd app && bun run format && cd ../sap-tests && npm run format",
+		"test": "cd app && bun run test",
+		"test:unit": "cd app && bun run test:unit",
+		"test:e2e": "cd app && bun run test:e2e",
+		"test:sap": "cd sap-tests && npm test",
+		"test:sap:list": "cd sap-tests && npx playwright test --list",
+		"codegen": "cd sap-tests && npm run codegen",
+		"report": "cd sap-tests && npm run report",
+		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"
+	}
+}

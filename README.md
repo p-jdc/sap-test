@@ -29,22 +29,27 @@ Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
 ## Setup
 
-Requirements: Node 22 (Playwright-SAP), Bun ≥ 1.4 (app).
+Requirements: Node 22 (Playwright-SAP) and Bun ≥ 1.4 (app). Run everything from the repo root:
 
 ```bash
-cd sap-tests
-npm install
-npx playwright install chromium
-cp .env.example .env   # fill SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system only, user without MFA)
-```
-
-```bash
-cd app
-bun install
+bun run setup          # installs app/ (bun) and sap-tests/ (npm) plus both Chromium builds
+cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
 bun run dev            # http://localhost:5173
 ```
 
-Production: `bun run build && bun run start` (adapter-bun).
+| Root script | Does |
+| --- | --- |
+| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun) |
+| `check` | svelte-check for the app, `tsc` for sap-tests |
+| `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint for the app, oxlint/oxfmt for sap-tests |
+| `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
+| `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
+| `codegen`, `report` | Playwright-SAP recorder and HTML report |
+| `ci` | Everything CI runs, in order |
+| `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
+
+The root is deliberately not a workspace: `app/` (Bun) and `sap-tests/` (npm, Playwright-SAP aliased as
+`@playwright/test`) keep separate dependency trees so the fork and the app's own Playwright never collide.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One
