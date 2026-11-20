@@ -12,10 +12,12 @@ concurrency:
 permissions:
   contents: read
 
+# Pinned to 24.04: the Playwright-SAP fork is based on Playwright 1.53, which cannot install
+# browsers on newer Ubuntu releases (ubuntu-latest is 26.04). Revisit after the fork upgrade (guide §6).
 jobs:
   sap-tests:
     name: sap-tests (types + spec discovery)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -35,7 +37,7 @@ jobs:
 
   app:
     name: app (check, lint, unit, e2e)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
