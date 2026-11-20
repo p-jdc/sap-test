@@ -46,7 +46,7 @@ export function envStatus(): EnvStatus {
 	try {
 		const pkg = JSON.parse(
 			readFileSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test/package.json'), 'utf8')
-		);
+		) as { name?: string; version?: string };
 		playwrightVersion = pkg.version;
 		playwrightSap = pkg.name === '@playwright-sap/test';
 	} catch {

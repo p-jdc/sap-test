@@ -96,11 +96,6 @@ function argText(ctx: Ctx, node: ts.Expression): string {
 	return node.getText(ctx.sf);
 }
 
-function objectProps(node: ts.Expression | undefined): string[] {
-	if (!node || !ts.isObjectLiteralExpression(node)) return [];
-	return node.properties.map((p) => (p.name && ts.isIdentifier(p.name) ? p.name.text : '?'));
-}
-
 type Segment = { name: string; args: readonly ts.Expression[]; node: ts.CallExpression };
 
 /**
@@ -230,13 +225,12 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	if (segments.length === 0 && ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
 		const name = root.expression.text;
 		const args = root.arguments.slice(1).map((a) => argText(ctx, a));
+		const helperLocator = ctx.helpers[name]?.locator;
 		return makeStep(ctx, stmt, {
 			kind: 'helper',
 			action: name,
 			value: args.join(', ') || undefined,
-			locator: ctx.helpers[name]?.locator
-				? { kind: ctx.helpers[name].locator!, display: name, helper: name }
-				: undefined
+			locator: helperLocator ? { kind: helperLocator, display: name, helper: name } : undefined
 		});
 	}
 

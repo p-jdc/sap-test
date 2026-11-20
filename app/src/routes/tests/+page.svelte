@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import StatusTag from '#lib/components/StatusTag.svelte';
+	import { flowHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { SURFACE_LABEL } from '#lib/shared/format.js';
 	import { getSpecs } from '#lib/remote/specs.remote.js';
@@ -23,9 +24,8 @@
 	);
 	const busy = $derived(!!runs.current?.active);
 
-	function onFilter(e: CustomEvent) {
-		filter = ((e.detail.selectedItems?.[0] as HTMLElement | undefined)?.dataset.value ??
-			'all') as typeof filter;
+	function onFilter(e: CustomEvent<{ selectedItems: HTMLElement[] }>) {
+		filter = (e.detail.selectedItems[0]?.dataset.value ?? 'all') as typeof filter;
 	}
 
 	async function run(files: string[]) {
@@ -73,7 +73,7 @@
 				disabled={busy || undefined}
 				onclick={(e: Event) => {
 					e.stopPropagation();
-					run([file.file]);
+					void run([file.file]);
 				}}
 			>
 				Run file
@@ -104,7 +104,7 @@
 				<ui5-table-row>
 					<ui5-table-cell>
 						<div>
-							<a href="/flow?key={encodeURIComponent(test.key)}">{test.title}</a>
+							<a href={flowHref(test.key)}>{test.title}</a>
 							<div class="muted">line {test.line}</div>
 						</div>
 					</ui5-table-cell>
@@ -120,10 +120,7 @@
 					<ui5-table-cell><StatusTag status={lastStatus.get(test.key)} /></ui5-table-cell>
 					<ui5-table-cell>
 						<div class="row">
-							<ui5-button
-								icon="process"
-								onclick={() => goto(`/flow?key=${encodeURIComponent(test.key)}`)}
-							>
+							<ui5-button icon="process" onclick={() => goto(flowHref(test.key))}>
 								Flow
 							</ui5-button>
 							<ui5-button

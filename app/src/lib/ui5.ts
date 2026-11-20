@@ -63,4 +63,4 @@ import '@ui5/webcomponents-icons/dist/sys-help.js';
 import '@ui5/webcomponents-icons/dist/warning.js';
 import '@ui5/webcomponents-icons/dist/error.js';
 
-setTheme('sap_horizon');
+void setTheme('sap_horizon');

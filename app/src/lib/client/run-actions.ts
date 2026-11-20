@@ -1,5 +1,6 @@
 import { goto } from '$app/navigation';
 import { startTestRun } from '#lib/remote/runs.remote.js';
+import { runHref } from './links.js';
 
 export function errorMessage(e: unknown): string {
 	if (e && typeof e === 'object' && 'body' in e) {
@@ -16,7 +17,7 @@ export async function runAndOpen(
 ): Promise<string | null> {
 	try {
 		const { id } = await startTestRun(input);
-		if (open) await goto(`/runs/${id}`);
+		if (open) await goto(runHref(id));
 		return null;
 	} catch (e) {
 		return errorMessage(e);

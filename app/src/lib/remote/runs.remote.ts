@@ -6,13 +6,13 @@ import { listRuns, PILOT_STREAK, readRunState, stability } from '#lib/server/run
 
 const runId = z.string().regex(/^[0-9]{8}-[0-9]{6}-[a-z0-9]{4}$/);
 
-export const getRuns = query(async () => ({ runs: listRuns(), active: activeRunId() }));
+export const getRuns = query(() => ({ runs: listRuns(), active: activeRunId() }));
 
-export const getRun = query(runId, async (id) => getLiveState(id) ?? readRunState(id));
+export const getRun = query(runId, (id) => getLiveState(id) ?? readRunState(id));
 
 export const watchRunLive = query.live(runId, (id) => watchRun(id));
 
-export const getStability = query(async () => ({ rows: stability(), target: PILOT_STREAK }));
+export const getStability = query(() => ({ rows: stability(), target: PILOT_STREAK }));
 
 export const startTestRun = command(
 	z.object({
@@ -27,4 +27,4 @@ export const startTestRun = command(
 	}
 );
 
-export const stopTestRun = command(runId, async (id) => ({ stopped: stopRun(id) }));
+export const stopTestRun = command(runId, (id) => ({ stopped: stopRun(id) }));

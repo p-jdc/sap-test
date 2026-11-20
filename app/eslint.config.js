@@ -37,6 +37,12 @@ export default defineConfig(
 		}
 	},
 	{
+		// The live reporter is loaded by Playwright inside sap-tests as plain CommonJS; it is outside
+		// the TS project, so lint it without type information.
+		files: ['reporter/**/*.cjs'],
+		extends: [ts.configs.disableTypeChecked]
+	},
+	{
 		// Override or add rule settings here, such as:
 		// 'svelte/button-has-type': 'error'
 		rules: {}

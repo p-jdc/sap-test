@@ -46,7 +46,9 @@ const FILE = join(DATA_DIR, 'checklist.json');
 
 export function readChecked(): Record<string, boolean> {
 	try {
-		return existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8')) : {};
+		return existsSync(FILE)
+			? (JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, boolean>)
+			: {};
 	} catch {
 		return {};
 	}

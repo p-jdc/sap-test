@@ -2,17 +2,18 @@
 	import '#lib/ui5.js';
 	import '../app.css';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 
 	const NAV = [
-		{ href: '/', text: 'Dashboard', icon: 'home' },
-		{ href: '/tests', text: 'Tests & Flows', icon: 'process' },
-		{ href: '/runs', text: 'Runs', icon: 'history' },
-		{ href: '/recorder', text: 'Recorder', icon: 'record' },
-		{ href: '/checklist', text: 'Checklist', icon: 'checklist' }
+		{ href: '/', link: resolve('/'), text: 'Dashboard', icon: 'home' },
+		{ href: '/tests', link: resolve('/tests'), text: 'Tests & Flows', icon: 'process' },
+		{ href: '/runs', link: resolve('/runs'), text: 'Runs', icon: 'history' },
+		{ href: '/recorder', link: resolve('/recorder'), text: 'Recorder', icon: 'record' },
+		{ href: '/checklist', link: resolve('/checklist'), text: 'Checklist', icon: 'checklist' }
 	];
 
 	let collapsed = $state(false);
@@ -24,9 +25,9 @@
 			)?.href ?? (page.url.pathname.startsWith('/flow') ? '/tests' : '/')
 	);
 
-	function onSelect(e: CustomEvent) {
-		const href = (e.detail.item as HTMLElement).dataset.href;
-		if (href && href !== page.url.pathname) goto(href);
+	function onSelect(e: CustomEvent<{ item: HTMLElement }>) {
+		const item = NAV.find((n) => n.href === e.detail.item.dataset.href);
+		if (item && item.link !== page.url.pathname) void goto(item.link);
 	}
 </script>
 

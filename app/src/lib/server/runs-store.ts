@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNS_DIR, within } from './paths.js';
-import type { RunMeta, RunState, StabilityRow, TestStatus } from '#lib/shared/types.js';
+import type { RunMeta, RunState, StabilityRow } from '#lib/shared/types.js';
 
 /** Finished runs never change, so their parsed state is cached by id. */
 const finished = new Map<string, RunState>();
@@ -58,7 +58,7 @@ export function stability(): StabilityRow[] {
 				history: [],
 				streak: 0
 			};
-			row.history.push({ runId: meta.id, status: t.status as TestStatus });
+			row.history.push({ runId: meta.id, status: t.status });
 			rows.set(t.key, row);
 		}
 	}

@@ -35,14 +35,46 @@ function specRel(file: string | undefined): string | undefined {
 	return rel.startsWith('..') ? undefined : rel;
 }
 
-type ReporterEvent = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Loc = { file: string; line: number; column: number };
+type ReporterError = { message: string; stack?: string; location?: Loc };
+
+/** Line protocol of reporter/live-reporter.cjs (one JSON object per `@@pwlive@@` line). */
+type ReporterEvent =
+	| {
+			type: 'begin';
+			rootDir: string;
+			tests: { id: string; title: string; titlePath: string[]; location?: Loc }[];
+	  }
+	| { type: 'testBegin'; testId: string; retry: number; startTime: string }
+	| {
+			type: 'stepBegin';
+			testId: string;
+			stepId: string;
+			parentId?: string;
+			title: string;
+			category: string;
+			location?: Loc;
+			startTime: string;
+	  }
+	| { type: 'stepEnd'; testId: string; stepId: string; duration: number; error?: ReporterError }
+	| {
+			type: 'testEnd';
+			testId: string;
+			status: TestStatus;
+			expectedStatus: TestStatus;
+			duration: number;
+			retry: number;
+			error?: ReporterError;
+			attachments: Attachment[];
+	  }
+	| { type: 'end'; status: string; duration: number };
 
 function apply(live: Live, ev: ReporterEvent) {
 	const { state } = live;
 	const test = (id: string) => state.tests.find((t) => t.testId === id);
 	switch (ev.type) {
 		case 'begin':
-			state.tests = ev.tests.map((t: ReporterEvent): RunTest => {
+			state.tests = ev.tests.map((t): RunTest => {
 				const file = specRel(t.location?.file) ?? '';
 				return {
 					testId: t.id,
@@ -91,16 +123,16 @@ function apply(live: Live, ev: ReporterEvent) {
 			const t = test(ev.testId);
 			if (!t) break;
 			t.running = false;
-			t.status = ev.status as TestStatus;
+			t.status = ev.status;
 			t.duration = ev.duration;
 			t.error = ev.error
 				? {
-						message: String(ev.error.message).replace(ANSI, ''),
+						message: ev.error.message.replace(ANSI, ''),
 						line: ev.error.location?.line,
 						file: specRel(ev.error.location?.file)
 					}
 				: undefined;
-			t.attachments = (ev.attachments as Attachment[]).flatMap((a) => {
+			t.attachments = ev.attachments.flatMap((a) => {
 				const rel = relative(live.dir, a.path);
 				return rel.startsWith('..') ? [] : [{ ...a, path: rel }];
 			});
@@ -203,7 +235,7 @@ export function startRun(
 			for (const raw of lines) {
 				if (raw.startsWith(PREFIX)) {
 					try {
-						apply(live, JSON.parse(raw.slice(PREFIX.length)));
+						apply(live, JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent);
 						recount(live.state);
 					} catch {
 						// a malformed line must not kill the run

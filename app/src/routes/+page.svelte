@@ -1,6 +1,7 @@
 <script lang="ts">
 	import HistoryDots from '#lib/components/HistoryDots.svelte';
 	import StatusTag from '#lib/components/StatusTag.svelte';
+	import { flowHref, runHref, testsHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { duration, SURFACE_LABEL, when } from '#lib/shared/format.js';
 	import { getEnvStatus, getSpecs } from '#lib/remote/specs.remote.js';
@@ -58,7 +59,7 @@
 {/if}
 {#if runs.current?.active}
 	<ui5-message-strip design="Information" hide-close-button>
-		A run is in progress. <a href="/runs/{runs.current.active}">Watch it live</a>
+		A run is in progress. <a href={runHref(runs.current.active)}>Watch it live</a>
 	</ui5-message-strip>
 {/if}
 
@@ -118,7 +119,7 @@
 					status={issueCount ? 'interrupted' : 'passed'}
 					label="{issueCount} rule findings"
 				/>
-				<a href="/tests">Open tests & flows</a>
+				<a href={testsHref()}>Open tests & flows</a>
 			</div>
 		</div>
 	</ui5-card>
@@ -142,7 +143,7 @@
 						? duration(Date.parse(lastRun.finishedAt) - Date.parse(lastRun.startedAt))
 						: 'running…'}
 				</span>
-				<a href="/runs/{lastRun.id}">Open run</a>
+				<a href={runHref(lastRun.id)}>Open run</a>
 			{:else}
 				<span class="muted">Start with “Run demo” to see a live run.</span>
 			{/if}
@@ -167,7 +168,7 @@
 				<ui5-table-row>
 					<ui5-table-cell>
 						<div>
-							<a href="/flow?key={encodeURIComponent(row.key)}">{row.title}</a>
+							<a href={flowHref(row.key)}>{row.title}</a>
 							<div class="muted mono">{row.file}</div>
 						</div>
 					</ui5-table-cell>

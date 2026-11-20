@@ -6,6 +6,7 @@
 	import StatusTag from '#lib/components/StatusTag.svelte';
 	import StepNode from '#lib/components/flow/StepNode.svelte';
 	import TerminalNode from '#lib/components/flow/TerminalNode.svelte';
+	import { flowHref, runFileHref, runHref, testsHref, traceHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { overlaySteps } from '#lib/shared/flow-overlay.js';
 	import { duration, LOCATOR_LABEL, SURFACE_LABEL, when } from '#lib/shared/format.js';
@@ -111,15 +112,14 @@
 		if (!test) return;
 		try {
 			const { id } = await startTestRun({ files: [`${test.file}:${test.line}`] });
-			await goto(`/flow?key=${encodeURIComponent(key)}&run=${id}`, { replace: true });
+			await goto(flowHref(key, id), { replace: true });
 		} catch (e) {
 			error = errorMessage(e);
 		}
 	}
 
-	function pickRun(e: CustomEvent) {
-		const id = (e.detail.selectedOption as HTMLElement).dataset.id;
-		goto(`/flow?key=${encodeURIComponent(key)}${id ? `&run=${id}` : ''}`, { replace: true });
+	function pickRun(e: CustomEvent<{ selectedOption: HTMLElement }>) {
+		void goto(flowHref(key, e.detail.selectedOption.dataset.id), { replace: true });
 	}
 
 	const screenshot = $derived(runTest?.attachments.find((a) => a.contentType.startsWith('image/')));
@@ -128,7 +128,7 @@
 
 {#if specs.current && !test}
 	<ui5-illustrated-message name="NoSearchResults" title-text="Test not found">
-		<span slot="subtitle"><a href="/tests">Back to tests</a></span>
+		<span slot="subtitle"><a href={testsHref()}>Back to tests</a></span>
 	</ui5-illustrated-message>
 {:else if test}
 	<div class="page-head">
@@ -188,7 +188,7 @@
 						<span class="muted">
 							{duration(runTest.duration)}{runTest.retry ? ` · retry ${runTest.retry}` : ''}
 						</span>
-						<a href="/runs/{run?.id}">Open run</a>
+						{#if run}<a href={runHref(run.id)}>Open run</a>{/if}
 					</div>
 					{#if runTest.error}
 						<pre class="log">{runTest.error.message}</pre>
@@ -196,18 +196,12 @@
 					{#if screenshot || trace}
 						<div class="row">
 							{#if trace && run?.hasReport}
-								<a
-									target="_blank"
-									rel="noreferrer"
-									href="/runs/{run.id}/files/report/trace/index.html?trace={encodeURIComponent(
-										`${location.origin}/runs/${run.id}/files/${trace.path}`
-									)}"
-								>
+								<a target="_blank" rel="noreferrer" href={traceHref(run.id, trace.path)}>
 									Open trace
 								</a>
 							{/if}
-							{#if screenshot}
-								<a target="_blank" rel="noreferrer" href="/runs/{run?.id}/files/{screenshot.path}">
+							{#if screenshot && run}
+								<a target="_blank" rel="noreferrer" href={runFileHref(run.id, screenshot.path)}>
 									Screenshot
 								</a>
 							{/if}

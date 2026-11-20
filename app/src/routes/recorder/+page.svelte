@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { testsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { getRecorder, startRecorder, stopRecorder } from '#lib/remote/recorder.remote.js';
@@ -15,7 +16,7 @@
 	const recording = $derived(rec.current?.status === 'recording');
 	$effect(() => {
 		if (!recording) return;
-		const t = setInterval(() => rec.refresh(), 1000);
+		const t = setInterval(() => void rec.refresh(), 1000);
 		return () => clearInterval(t);
 	});
 
@@ -51,8 +52,8 @@
 	<ui5-label for="surface" show-colon>Surface</ui5-label>
 	<ui5-segmented-button
 		id="surface"
-		onselection-change={(e: CustomEvent) =>
-			(surface = (e.detail.selectedItems[0] as HTMLElement).dataset.value as typeof surface)}
+		onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) =>
+			(surface = e.detail.selectedItems[0].dataset.value as typeof surface)}
 	>
 		<ui5-segmented-button-item data-value="fiori" selected={surface === 'fiori' || undefined}>
 			Fiori / UI5
@@ -125,7 +126,7 @@
 		{#if rec.current.status === 'saved' && rec.current.file}
 			<ui5-message-strip design="Positive" hide-close-button>
 				Saved. Next: clean it up with the AI assistant (guide §4.7), then
-				<a href="/tests">open it in Tests & Flows</a> to check the rules and run it.
+				<a href={testsHref()}>open it in Tests & Flows</a> to check the rules and run it.
 			</ui5-message-strip>
 		{/if}
 		<pre class="log">{rec.current.log.join('\n')}</pre>

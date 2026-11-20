@@ -3,7 +3,7 @@ import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import { recorderState, startRecording, stopRecording } from '#lib/server/recorder.js';
 
-export const getRecorder = query(async () => recorderState());
+export const getRecorder = query(() => recorderState());
 
 export const startRecorder = command(
 	z.object({

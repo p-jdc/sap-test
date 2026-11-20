@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import StatusTag from '#lib/components/StatusTag.svelte';
+	import { flowHref, runFileHref, traceHref } from '#lib/client/links.js';
 	import { errorMessage, runAndOpen } from '#lib/client/run-actions.js';
 	import { duration, when } from '#lib/shared/format.js';
 	import {
@@ -24,8 +25,8 @@
 	$effect(() => {
 		const running = run?.status === 'running';
 		if (wasRunning && !running) {
-			runs.refresh();
-			getStability().refresh();
+			void runs.refresh();
+			void getStability().refresh();
 		}
 		wasRunning = running;
 	});
@@ -59,7 +60,7 @@
 	function traceUrl(t: RunTest) {
 		const trace = t.attachments.find((a) => a.name === 'trace');
 		if (!trace || !run?.hasReport) return null;
-		return `/runs/${id}/files/report/trace/index.html?trace=${encodeURIComponent(`${location.origin}/runs/${id}/files/${trace.path}`)}`;
+		return traceHref(id, trace.path);
 	}
 
 	async function stop() {
@@ -165,7 +166,7 @@
 			</div>
 			<div class="test-body">
 				<div class="row">
-					<a href="/flow?key={encodeURIComponent(t.key)}&run={id}">View flow</a>
+					<a href={flowHref(t.key, id)}>View flow</a>
 					{#if tr}<a href={tr} target="_blank" rel="noreferrer">Open trace</a>{/if}
 					{#if !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
 						<ui5-button
@@ -204,14 +205,14 @@
 					<div class="attachments">
 						{#each t.attachments as a (a.path)}
 							{#if a.contentType.startsWith('image/')}
-								<a href="/runs/{id}/files/{a.path}" target="_blank" rel="noreferrer">
-									<img src="/runs/{id}/files/{a.path}" alt="{a.name} of {t.title}" />
+								<a href={runFileHref(id, a.path)} target="_blank" rel="noreferrer">
+									<img src={runFileHref(id, a.path)} alt="{a.name} of {t.title}" />
 								</a>
 							{:else if a.contentType.startsWith('video/')}
 								<!-- svelte-ignore a11y_media_has_caption -->
-								<video src="/runs/{id}/files/{a.path}" controls preload="metadata"></video>
+								<video src={runFileHref(id, a.path)} controls preload="metadata"></video>
 							{:else}
-								<a href="/runs/{id}/files/{a.path}" download>{a.name}</a>
+								<a href={runFileHref(id, a.path)} download>{a.name}</a>
 							{/if}
 						{/each}
 					</div>

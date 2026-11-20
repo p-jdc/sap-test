@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { runHref } from '#lib/client/links.js';
 	import type { TestStatus } from '#lib/shared/types.js';
 
 	let { history, max = 15 }: { history: { runId: string; status: TestStatus }[]; max?: number } =
@@ -8,7 +9,7 @@
 
 <span class="dots" aria-label="Run history, oldest to newest">
 	{#each shown as h (h.runId)}
-		<a href="/runs/{h.runId}" class="dot {h.status}" title="{h.runId}: {h.status}"></a>
+		<a href={runHref(h.runId)} class="dot {h.status}" title="{h.runId}: {h.status}"></a>
 	{/each}
 </span>
 
