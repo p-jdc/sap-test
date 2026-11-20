@@ -1,0 +1,56 @@
+diff --git a/src/env.js b/src/env.js
+index e556df3ab9c26e850ca74598b9fa8c28d8b2f742..762d160c3f57f30c5a8c1ff09960e7df213d0c4d 100644
+--- a/src/env.js
++++ b/src/env.js
+@@ -16,7 +16,13 @@ const expected = new Set([
+ 	'ADDRESS_HEADER',
+ 	'PROTOCOL_HEADER',
+ 	'HOST_HEADER',
+-	'PORT_HEADER'
++	'PORT_HEADER',
++	// local patch (patches/@sveltejs%2Fadapter-bun@1.0.2.patch): read by src/index.js
++	'TLS_CERT_FILE',
++	'TLS_KEY_FILE',
++	'TLS_CA_FILE',
++	'TLS_PASSPHRASE',
++	'HTTP_2'
+ ]);
+ 
+ if (env_prefix) {
+@@ -150,7 +156,9 @@ export function bytes_env(name, fallback) {
+  */
+ export function origin_env(name) {
+ 	const value = env(name);
+-	if (value === undefined) return;
++	// local patch: an empty ORIGIN counts as unset; unpatched, `new URL('')` throws at import
++	// and the server never boots.
++	if (value === undefined || value.trim() === '') return;
+ 
+ 	/** @type {URL} */
+ 	let url;
+diff --git a/src/index.js b/src/index.js
+index 5f8c776d393f621358b49fc27eeaa590a7c948f8..762b7a6ffe1230ce87da1de1cbc4fe1461044772 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -52,6 +52,21 @@ options.maxRequestBodySize = bytes_env('BODY_SIZE_LIMIT', options.maxRequestBody
+ 
+ const shutdown_timeout = number_env('SHUTDOWN_TIMEOUT', 30);
+ 
++// local patch: TLS and HTTP/2 from env, so `bun run start` can serve over HTTP/2 like dev and
++// preview (live views each hold a streaming request; HTTP/1.1 allows six per host).
++const tls_cert = env('TLS_CERT_FILE');
++const tls_key = env('TLS_KEY_FILE');
++if (tls_cert && tls_key) {
++	const tls_ca = env('TLS_CA_FILE');
++	options.tls = {
++		cert: Bun.file(tls_cert),
++		key: Bun.file(tls_key),
++		ca: tls_ca ? Bun.file(tls_ca) : undefined,
++		passphrase: env('TLS_PASSPHRASE')
++	};
++}
++if (boolean_env('HTTP_2')) options.http2 = true;
++
+ options.fetch = handler;
+ options.routes = routes;
+ 

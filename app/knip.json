@@ -1,7 +1,11 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"entry": ["src/**/*.remote.ts", "reporter/*.ts", "e2e/**/*.ts"],
-	"project": ["src/**/*.{ts,svelte}", "reporter/**/*.ts", "e2e/**/*.ts"],
+	"entry": ["src/**/*.remote.ts", "reporter/*.ts", "scripts/*.ts", "e2e/**/*.ts"],
+	"project": ["src/**/*.{ts,svelte}", "reporter/**/*.ts", "scripts/**/*.ts", "e2e/**/*.ts"],
+	// Used only through the --tsgo flag of svelte-check (package.json "check").
+	"ignoreDependencies": ["@typescript/native-preview"],
+	// Installed by the developer (brew install mkcert), called by scripts/setup-cert.ts.
+	"ignoreBinaries": ["mkcert"],
 	"ignoreIssues": {
 		// `$app/tsconfig` is SvelteKit 3's generated base config, not an npm package.
 		"tsconfig.json": ["unlisted"]
