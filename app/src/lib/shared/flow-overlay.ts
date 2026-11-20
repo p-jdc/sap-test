@@ -24,7 +24,20 @@ export function overlaySteps(
 		Object.fromEntries(entries.map((e) => [e.id, e.overlay]));
 	if (run.status === 'skipped') return result();
 
-	const byLine = (line: number) => steps.findIndex((s) => line >= s.line && line <= s.endLine);
+	// The narrowest step containing the line: a `test.step` group spans the steps inside it, and
+	// those must win over the group.
+	const byLine = (line: number) => {
+		let best = -1;
+		let bestSpan = Infinity;
+		steps.forEach((s, i) => {
+			const span = s.endLine - s.line;
+			if (line >= s.line && line <= s.endLine && span < bestSpan) {
+				best = i;
+				bestSpan = span;
+			}
+		});
+		return best;
+	};
 	const mapped = new Map<string, number>();
 	let pointer = -1;
 	let inHelper = false;

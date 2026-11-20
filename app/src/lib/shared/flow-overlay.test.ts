@@ -27,6 +27,24 @@ function runTest(partial: Partial<RunTest>): RunTest {
 	};
 }
 
+// A `test.step` group spans the lines of the steps inside it.
+const grouped: FlowStep[] = [
+	{ ...step('g', 3, 'group'), endLine: 6 },
+	step('g1', 4),
+	step('g2', 5),
+	step('after', 7, 'assert')
+];
+const call = (stepId: string, line: number, extra: Partial<RunTest['steps'][number]> = {}) => ({
+	stepId,
+	title: stepId,
+	category: 'pw:api',
+	file: 'f.spec.ts',
+	line,
+	startTime: '',
+	duration: 5,
+	...extra
+});
+
 describe('overlaySteps', () => {
 	test('maps reporter steps by line and helper steps to the next helper call', () => {
 		const o = overlaySteps(
@@ -134,5 +152,41 @@ describe('overlaySteps', () => {
 		);
 		expect(o.a?.status).toBe('running');
 		expect(o.c?.status).toBe('pending');
+	});
+
+	test('maps calls inside a test.step group to the inner steps, not the group', () => {
+		const o = overlaySteps(
+			grouped,
+			runTest({
+				status: 'passed',
+				steps: [
+					call('1', 3, { duration: 12 }),
+					call('2', 4, { parentId: '1' }),
+					call('3', 5, { parentId: '1' }),
+					call('4', 7)
+				]
+			})
+		);
+		expect(Object.values(o).map((x) => x.status)).toEqual(['passed', 'passed', 'passed', 'passed']);
+		expect(o.g?.calls).toEqual(['1']);
+		expect(o.g1?.calls).toEqual(['2']);
+		expect(o.g2?.calls).toEqual(['3']);
+	});
+
+	test('a failure inside a group marks the inner step and skips what follows', () => {
+		const o = overlaySteps(
+			grouped,
+			runTest({
+				status: 'failed',
+				error: { message: 'boom', line: 4, file: 'f.spec.ts' },
+				steps: [call('1', 3, { error: 'boom' }), call('2', 4, { parentId: '1', error: 'boom' })]
+			})
+		);
+		expect(Object.values(o).map((x) => x.status)).toEqual([
+			'failed',
+			'failed',
+			'skipped',
+			'skipped'
+		]);
 	});
 });

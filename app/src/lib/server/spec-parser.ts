@@ -63,11 +63,27 @@ function surfaceFromPath(file: string): Surface | undefined {
 	return undefined;
 }
 
+/**
+ * What the rule check needs to know about a step beyond its display fields, read from the syntax
+ * tree instead of the code text. Kept out of FlowStep so it never reaches the client.
+ */
+type Facts = {
+	/** A password given as a literal (or a literal constant) instead of an env value. */
+	literalSecret: boolean;
+	/** A `getByRoleUI5` call whose options object has more than one property. */
+	ui5MultiProperty: boolean;
+	nth: boolean;
+	/** Steps inside a control-flow statement, which the flow shows as one opaque node. */
+	inner: FlowStep[];
+};
+
 type Ctx = {
 	sf: ts.SourceFile;
 	consts: Map<string, string>;
 	helpers: HelperMap;
 	seq: number;
+	/** Keyed by step id. */
+	facts: Map<string, Facts>;
 };
 
 function lineOf(ctx: Ctx, pos: number) {
@@ -93,6 +109,47 @@ function argText(ctx: Ctx, node: ts.Expression): string {
 		return argText(ctx, node.left) + argText(ctx, node.right);
 	}
 	return node.getText(ctx.sf);
+}
+
+/** True when the value is written into the spec: a literal, or a constant holding one. */
+function isLiteral(ctx: Ctx, node: ts.Expression | undefined): boolean {
+	if (!node) return false;
+	if (
+		ts.isNonNullExpression(node) ||
+		ts.isParenthesizedExpression(node) ||
+		ts.isAsExpression(node)
+	) {
+		return isLiteral(ctx, node.expression);
+	}
+	if (ts.isStringLiteralLike(node)) return node.text !== '';
+	if (ts.isIdentifier(node)) return Boolean(ctx.consts.get(node.text));
+	if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+		return isLiteral(ctx, node.left) && isLiteral(ctx, node.right);
+	}
+	return false;
+}
+
+/** Finds the calls inside one statement that the per-step rules care about. */
+function scanCalls(node: ts.Node): Pick<Facts, 'ui5MultiProperty' | 'nth'> {
+	const found = { ui5MultiProperty: false, nth: false };
+	const visit = (n: ts.Node) => {
+		if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+			const name = n.expression.name.text;
+			const options = n.arguments[1];
+			if (name === 'nth') found.nth = true;
+			if (
+				name === 'getByRoleUI5' &&
+				options &&
+				ts.isObjectLiteralExpression(options) &&
+				options.properties.length > 1
+			) {
+				found.ui5MultiProperty = true;
+			}
+		}
+		ts.forEachChild(n, visit);
+	};
+	visit(node);
+	return found;
 }
 
 /** `node` is absent for property-access segments such as `keyboard` in `page.keyboard.press()`. */
@@ -173,10 +230,19 @@ function describeLocator(
 function makeStep(
 	ctx: Ctx,
 	stmt: ts.Node,
-	partial: Omit<FlowStep, 'id' | 'line' | 'endLine' | 'code' | 'issues'>
+	partial: Omit<FlowStep, 'id' | 'line' | 'endLine' | 'code' | 'issues'>,
+	facts: { literalSecret?: boolean; inner?: FlowStep[] } = {}
 ): FlowStep {
+	const id = `s${++ctx.seq}`;
+	// A group or control-flow statement contains other steps, which are scanned on their own.
+	const container = partial.kind === 'group' || facts.inner !== undefined;
+	ctx.facts.set(id, {
+		literalSecret: facts.literalSecret ?? false,
+		inner: facts.inner ?? [],
+		...(container ? { ui5MultiProperty: false, nth: false } : scanCalls(stmt))
+	});
 	return {
-		id: `s${++ctx.seq}`,
+		id,
 		line: lineOf(ctx, stmt.getStart(ctx.sf)),
 		endLine: lineOf(ctx, stmt.getEnd()),
 		code: stmt.getText(ctx.sf).replaceAll(/\s+/g, ' ').trim(),
@@ -185,18 +251,40 @@ function makeStep(
 	};
 }
 
+/**
+ * Recognises an assertion chain: `expect(x).…`, `expect.soft(x).…` and `expect.poll(fn).…`.
+ * Returns what is asserted on and the matcher segments after it.
+ */
+function expectChain(
+	root: ts.Expression,
+	segments: Segment[]
+): { target: ts.Expression | undefined; matchers: Segment[] } | undefined {
+	if (ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
+		return root.expression.text === 'expect'
+			? { target: root.arguments[0], matchers: segments }
+			: undefined;
+	}
+	const [first, ...rest] = segments;
+	if (
+		ts.isIdentifier(root) &&
+		root.text === 'expect' &&
+		first?.node &&
+		(first.name === 'soft' || first.name === 'poll')
+	) {
+		return { target: first.args[0], matchers: rest };
+	}
+	return undefined;
+}
+
 /** Turns one awaited expression into a flow step, or undefined if it is not test-relevant. */
 function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | undefined {
 	const { root, segments } = flatten(expr);
 	const last = segments.at(-1);
 
-	// expect(locator).toBeVisible() / expect.soft(...)
-	if (
-		ts.isCallExpression(root) &&
-		ts.isIdentifier(root.expression) &&
-		root.expression.text === 'expect'
-	) {
-		const target = root.arguments[0];
+	// expect(locator).toBeVisible() / expect.soft(...) / expect.poll(...)
+	const assertion = expectChain(root, segments);
+	if (assertion) {
+		const { target } = assertion;
 		let locator: LocatorInfo | undefined;
 		if (target) {
 			const inner = flatten(target);
@@ -205,10 +293,9 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 				display: target.getText(ctx.sf)
 			};
 		}
-		const matchers = segments.filter((s) => s.name !== 'not');
-		const matcher = matchers.at(-1);
+		const matcher = assertion.matchers.findLast((s) => s.name !== 'not');
 		const firstArg = matcher?.args[0];
-		const negated = segments.some((s) => s.name === 'not');
+		const negated = assertion.matchers.some((s) => s.name === 'not');
 		return makeStep(ctx, stmt, {
 			kind: 'assert',
 			action: (negated ? 'not.' : '') + (matcher?.name ?? 'expect'),
@@ -237,7 +324,13 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	const lastArgs = last.args.map((a) => argText(ctx, a));
 
 	if (last.name === 'SAPLogin') {
-		return makeStep(ctx, stmt, { kind: 'login', action: 'SAPLogin', value: lastArgs[0] });
+		// SAPLogin(username, password, url)
+		return makeStep(
+			ctx,
+			stmt,
+			{ kind: 'login', action: 'SAPLogin', value: lastArgs[0] },
+			{ literalSecret: isLiteral(ctx, last.args[1]) }
+		);
 	}
 	if (NAVIGATION.has(last.name) && segments.length === 1) {
 		const value = last.name === 'setContent' ? 'inline HTML' : lastArgs[0];
@@ -255,36 +348,81 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	}
 	if (ACTIONS.has(last.name)) {
 		const locator = describeLocator(ctx, root, segments.slice(0, -1));
-		return makeStep(ctx, stmt, {
-			kind: 'action',
-			action: last.name,
-			locator,
-			value: ['fill', 'press', 'type', 'pressSequentially', 'selectOption'].includes(last.name)
-				? lastArgs[0]
-				: undefined
-		});
+		const literalSecret =
+			last.name === 'fill' &&
+			/pass|kennwort/i.test(locator?.display ?? '') &&
+			isLiteral(ctx, last.args[0]);
+		return makeStep(
+			ctx,
+			stmt,
+			{
+				kind: 'action',
+				action: last.name,
+				locator,
+				value: ['fill', 'press', 'type', 'pressSequentially', 'selectOption'].includes(last.name)
+					? lastArgs[0]
+					: undefined
+			},
+			{ literalSecret }
+		);
 	}
 	return makeStep(ctx, stmt, { kind: 'other', action: last.name });
 }
 
+function isControlFlow(stmt: ts.Statement): boolean {
+	return (
+		ts.isIfStatement(stmt) ||
+		ts.isIterationStatement(stmt, false) ||
+		ts.isTryStatement(stmt) ||
+		ts.isSwitchStatement(stmt)
+	);
+}
+
+/** The statements a control-flow statement runs, from all of its branches, in source order. */
+function branchStatements(stmt: ts.Statement): ts.Statement[] {
+	const found: ts.Statement[] = [];
+	const visit = (n: ts.Node) => {
+		if (ts.isFunctionLike(n)) return;
+		if (ts.isBlock(n)) found.push(...n.statements);
+		else if (ts.isStatement(n)) found.push(n);
+		else ts.forEachChild(n, visit);
+	};
+	ts.forEachChild(stmt, visit);
+	return found;
+}
+
 function collectSteps(ctx: Ctx, body: ts.ConciseBody | undefined, out: FlowStep[]) {
 	if (!body || !ts.isBlock(body)) return;
-	for (const stmt of body.statements) {
+	collectStatements(ctx, body.statements, out);
+}
+
+function collectStatements(ctx: Ctx, statements: readonly ts.Statement[], out: FlowStep[]) {
+	for (const stmt of statements) {
 		let expr: ts.Expression | undefined;
 		if (ts.isExpressionStatement(stmt)) expr = stmt.expression;
 		else if (ts.isVariableStatement(stmt)) expr = stmt.declarationList.declarations[0]?.initializer;
-		else if (ts.isIfStatement(stmt) || ts.isForOfStatement(stmt) || ts.isTryStatement(stmt)) {
-			// Control flow inside a test is rare in recordings; show it as one opaque node.
+		else if (isControlFlow(stmt)) {
+			// Control flow inside a test is rare in recordings; show it as one opaque node. Its steps
+			// are still collected, so the rule check sees what the node hides.
+			const inner: FlowStep[] = [];
+			collectStatements(ctx, branchStatements(stmt), inner);
 			out.push(
-				makeStep(ctx, stmt, {
-					kind: 'other',
-					action: stmt.getText(ctx.sf).split(/[\s(]/)[0] ?? ''
-				})
+				makeStep(
+					ctx,
+					stmt,
+					{ kind: 'other', action: stmt.getText(ctx.sf).split(/[\s(]/)[0] ?? '' },
+					{ inner }
+				)
 			);
 			continue;
 		}
-		if (!expr || !ts.isAwaitExpression(expr)) continue;
-		const inner = expr.expression;
+		if (!expr) continue;
+		const inner = ts.isAwaitExpression(expr) ? expr.expression : expr;
+		if (!ts.isAwaitExpression(expr)) {
+			// Not awaited: only value assertions such as `expect(await page.title()).toBe('x')` are steps.
+			const chain = flatten(inner);
+			if (!expectChain(chain.root, chain.segments)) continue;
+		}
 		// await test.step('title', async () => { ... })
 		if (
 			ts.isCallExpression(inner) &&
@@ -332,87 +470,86 @@ function detectSurface(file: string, steps: FlowStep[]): Surface {
 }
 
 /** Guide §5.2 / §9 rules, applied per test. */
-function checkRules(test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
+function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[] {
 	const issues: Issue[] = [];
 	const sap = SAP_SURFACES.has(test.surface);
-	const add = (step: FlowStep, rule: string, severity: Issue['severity'], message: string) => {
-		const issue = { rule, severity, message, line: step.line };
-		step.issues.push(issue);
-		issues.push(issue);
-	};
-	const actionable = test.steps.filter((s) => !s.hook);
-	actionable.forEach((step, i) => {
-		const kind = step.locator?.kind;
-		if (step.action === 'waitForTimeout') {
-			add(
-				step,
-				'no-fixed-wait',
-				'error',
-				'Fixed wait. Wait for a control or status message instead.'
-			);
-		}
-		if (sap && (kind === 'css' || kind === 'xpath')) {
-			add(
-				step,
-				'no-css-xpath',
-				'error',
-				`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
-			);
-		}
-		if (kind === 'ui5' && step.code.includes('getByRoleUI5(')) {
-			const props = /getByRoleUI5\([^,]+,\s*\{([^}]*)\}/.exec(step.code)?.[1];
-			if (props && props.split(',').filter((p) => p.includes(':')).length > 1) {
+	// An object, so TypeScript does not narrow it to `false` across the closure below.
+	const seen = { assert: false };
+
+	/**
+	 * `shown` is the flow node that carries the findings: the step itself, or the control-flow node
+	 * it sits in. `after` is the step that follows the enclosing node, for the last step of a branch.
+	 */
+	const check = (steps: FlowStep[], shown?: FlowStep, after?: FlowStep) => {
+		steps.forEach((step, i) => {
+			const node = shown ?? step;
+			const next = steps[i + 1] ?? after;
+			const facts = ctx.facts.get(step.id);
+			const add = (rule: string, severity: Issue['severity'], message: string) => {
+				const issue = { rule, severity, message, line: step.line };
+				node.issues.push(issue);
+				issues.push(issue);
+			};
+			const kind = step.locator?.kind;
+			if (step.kind === 'assert') seen.assert = true;
+			if (step.action === 'waitForTimeout') {
+				add('no-fixed-wait', 'error', 'Fixed wait. Wait for a control or status message instead.');
+			}
+			if (sap && (kind === 'css' || kind === 'xpath')) {
 				add(
-					step,
-					'ui5-single-property',
+					'no-css-xpath',
 					'error',
-					'getByRoleUI5 supports only one property per call.'
+					`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
 				);
 			}
-		}
-		if (step.code.includes('.nth(')) {
-			add(
-				step,
-				'avoid-nth',
-				'info',
-				'.nth() only when no property identifies the control uniquely.'
-			);
-		}
-		if (sap && step.kind === 'action' && (kind === 'role' || kind === 'label' || kind === 'text')) {
-			add(
-				step,
-				'prefer-sap-locator',
-				'info',
-				'Standard locator on an SAP screen. Prefer the SAP locator or a helper.'
-			);
-		}
-		if (
-			step.action === 'fill' &&
-			/pass|kennwort/i.test(step.locator?.display ?? '') &&
-			step.value &&
-			!step.value.startsWith('$')
-		) {
-			add(step, 'no-literal-secret', 'error', 'Password typed as a literal. Read it from .env.');
-		}
-		if (
-			step.kind === 'action' &&
-			step.action === 'click' &&
-			DATA_CHANGING.test(step.locator?.display ?? '')
-		) {
-			const next = actionable[i + 1];
-			if (!next || next.kind !== 'assert') {
+			if (facts?.ui5MultiProperty) {
+				add('ui5-single-property', 'error', 'getByRoleUI5 supports only one property per call.');
+			}
+			if (facts?.nth) {
+				add('avoid-nth', 'info', '.nth() only when no property identifies the control uniquely.');
+			}
+			if (
+				sap &&
+				step.kind === 'action' &&
+				(kind === 'role' || kind === 'label' || kind === 'text')
+			) {
 				add(
-					step,
+					'prefer-sap-locator',
+					'info',
+					'Standard locator on an SAP screen. Prefer the SAP locator or a helper.'
+				);
+			}
+			if (facts?.literalSecret) {
+				add('no-literal-secret', 'error', 'Password typed as a literal. Read it from .env.');
+			}
+			if (
+				step.kind === 'action' &&
+				step.action === 'click' &&
+				DATA_CHANGING.test(step.locator?.display ?? '') &&
+				next?.kind !== 'assert'
+			) {
+				add(
 					'assert-after-change',
 					'warning',
 					'Data-changing step without an assertion right after it.'
 				);
 			}
-		}
-	});
+			if (facts?.inner.length) check(facts.inner, node, next);
+		});
+	};
+
+	const actionable = test.steps.filter((s) => !s.hook);
+	check(actionable);
 	const last = actionable.at(-1);
-	if (last && !actionable.some((s) => s.kind === 'assert')) {
-		add(last, 'has-assertion', 'warning', 'Test has no assertion.');
+	if (last && !seen.assert) {
+		const issue: Issue = {
+			rule: 'has-assertion',
+			severity: 'warning',
+			message: 'Test has no assertion.',
+			line: last.line
+		};
+		last.issues.push(issue);
+		issues.push(issue);
 	}
 	return issues;
 }
@@ -436,7 +573,7 @@ function collectConsts(sf: ts.SourceFile): Map<string, string> {
 
 export function parseSpec(file: string, source: string, helpers: HelperMap = {}): SpecFile {
 	const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-	const ctx: Ctx = { sf, consts: collectConsts(sf), helpers, seq: 0 };
+	const ctx: Ctx = { sf, consts: collectConsts(sf), helpers, seq: 0, facts: new Map() };
 	const tests: SpecTest[] = [];
 
 	const walk = (statements: readonly ts.Statement[], titles: string[], hooks: FlowStep[]) => {
@@ -483,7 +620,7 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 					steps,
 					issues: []
 				};
-				test.issues = checkRules(test);
+				test.issues = checkRules(ctx, test);
 				tests.push(test);
 			}
 		}
