@@ -13,7 +13,7 @@ export const startRecorder = command(
 		saveStorage: z.boolean().optional()
 	}),
 	async (input) => {
-		const result = startRecording({ ...input, url: input.url || undefined });
+		const result = await startRecording({ ...input, url: input.url || undefined });
 		if (!result.ok) error(400, result.error);
 		await getRecorder().refresh();
 		return { file: result.file };

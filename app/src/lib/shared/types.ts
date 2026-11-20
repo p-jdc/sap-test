@@ -141,10 +141,27 @@ export interface StabilityRow {
 	lastStatus?: TestStatus;
 }
 
+/** The settings of the test project: SAP and Ariba access, and an optional browser path. */
+export const SETTING_NAMES = [
+	'SAP_URL',
+	'SAP_USERNAME',
+	'SAP_PASSWORD',
+	'ARIBA_URL',
+	'ARIBA_USER',
+	'ARIBA_PASS',
+	'CHROMIUM_PATH'
+] as const;
+export type SettingName = (typeof SETTING_NAMES)[number];
+
+/** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
+export type SettingSource = 'keychain' | 'file' | 'process';
+
 export interface EnvStatus {
 	testsDir: string;
 	envFile: boolean;
-	vars: { name: string; set: boolean }[];
+	/** Whether the system credential store can be used on this machine. */
+	keychain: boolean;
+	vars: { name: SettingName; set: boolean; source?: SettingSource }[];
 	playwrightVersion?: string;
 	playwrightSap: boolean;
 }

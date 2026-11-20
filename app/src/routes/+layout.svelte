@@ -13,7 +13,8 @@
 		{ href: '/tests', link: resolve('/tests'), text: 'Tests & Flows', icon: 'process' },
 		{ href: '/runs', link: resolve('/runs'), text: 'Runs', icon: 'history' },
 		{ href: '/recorder', link: resolve('/recorder'), text: 'Recorder', icon: 'record' },
-		{ href: '/checklist', link: resolve('/checklist'), text: 'Checklist', icon: 'checklist' }
+		{ href: '/checklist', link: resolve('/checklist'), text: 'Checklist', icon: 'checklist' },
+		{ href: '/settings', link: resolve('/settings'), text: 'Settings', icon: 'action-settings' }
 	];
 
 	let collapsed = $state(false);

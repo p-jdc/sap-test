@@ -24,6 +24,7 @@ in `sap-tests/` with real Node.
 | Runs | Run history; per run: live progress, per-test step timeline, error, screenshot, video, link to the Playwright trace viewer and HTML report |
 | Recorder | Starts `playwright codegen --sap-login` (§4.4) with credentials from `sap-tests/.env`, writes `tests/<surface>/<name>.spec.ts`, optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
+| Settings | SAP and Ariba URL, user and password (and an optional Chromium path), saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows where each value comes from, never the value |
 
 Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
@@ -33,7 +34,7 @@ Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright al
 
 ```bash
 bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
-cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
+cp sap-tests/.env.example sap-tests/.env   # optional: SAP_URL / SAP_USERNAME / SAP_PASSWORD; or enter them on the Settings page
 bun run setup:cert     # optional, once: HTTPS + HTTP/2 via mkcert (brew install mkcert)
 bun run dev            # https://localhost:5180 with a cert, otherwise http://localhost:5180
 ```
@@ -154,5 +155,12 @@ lookups.
 - Tests generated in a loop over literal values are listed one per value. Where the values are not
   in the spec file, the test is listed once with its title pattern and matched to run results by
   file and line.
+- Settings saved in the app live in the system credential store (macOS Keychain, Windows
+  Credential Manager, libsecret on Linux) under the service name `sap-test-lab`. A saved value wins
+  over `sap-tests/.env`, which wins over the app's own environment. Runs and recordings started
+  from the app get the saved values as environment variables; `bun run test:sap` and
+  `bun run codegen` from the terminal do not read the credential store and still need `.env`.
+  Where no credential store exists (CI, headless Linux) the page says so and `.env` is used.
+  Moving a system's URL to another host removes the saved user and password of that system.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { keychainEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
@@ -41,9 +42,13 @@ function persist(live: Live) {
 export type StartRunInput = { files?: string[]; grep?: string };
 
 /** Starts `playwright test` in sap-tests with the live, list and html reporters. One run at a time. */
-export function startRun(
+export async function startRun(
 	input: StartRunInput
-): { ok: true; id: string } | { ok: false; error: string } {
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+	// Settings saved in the app live in the system credential store; the tests get them as
+	// environment variables. Read before the check below: nothing after it yields, so two requests
+	// cannot both start a run.
+	const settings = await keychainEnv();
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
 	if (!existsSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test'))) {
 		return {
@@ -71,6 +76,7 @@ export function startRun(
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
 		env: childEnv({
+			...settings,
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'

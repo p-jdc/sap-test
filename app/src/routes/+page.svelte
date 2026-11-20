@@ -1,7 +1,7 @@
 <script lang="ts">
 	import HistoryDots from '#lib/components/HistoryDots.svelte';
 	import StatusTag from '#lib/components/StatusTag.svelte';
-	import { flowHref, runHref, testsHref } from '#lib/client/links.js';
+	import { flowHref, runHref, settingsHref, testsHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { duration, SURFACE_LABEL, when } from '#lib/shared/format.js';
 	import { getEnvStatus, getSpecs } from '#lib/remote/specs.remote.js';
@@ -97,7 +97,10 @@
 						</ui5-tag>
 					{/each}
 				</div>
-				<span class="muted">Values stay in sap-tests/.env and never reach the browser.</span>
+				<span class="muted">
+					Set them under <a href={settingsHref()}>Settings</a> (system credential store) or in sap-tests/.env.
+					Values never reach the browser.
+				</span>
 			{/if}
 		</div>
 	</ui5-card>

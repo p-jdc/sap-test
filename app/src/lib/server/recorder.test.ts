@@ -19,22 +19,10 @@ beforeEach(() => {
 	for (const name of ['SAP_URL', 'SAP_USERNAME', 'SAP_PASSWORD', 'ARIBA_URL']) vi.stubEnv(name, '');
 });
 
-describe('sameOrigin', () => {
-	test('compares scheme, host and port, not the path', async () => {
-		const { recorder } = await recorderWith(SAP);
-		const { sameOrigin } = recorder;
-		expect(sameOrigin('https://sap.example.com/a', 'https://sap.example.com/b?c')).toBe(true);
-		expect(sameOrigin('https://sap.example.com', 'http://sap.example.com')).toBe(false);
-		expect(sameOrigin('https://sap.example.com:8443', 'https://sap.example.com')).toBe(false);
-		expect(sameOrigin('https://sap.example.com.evil.test', 'https://sap.example.com')).toBe(false);
-		expect(sameOrigin('not a url', 'https://sap.example.com')).toBe(false);
-	});
-});
-
 describe('startRecording refuses', () => {
 	test('a start URL on another host when it would log in with the .env credentials', async () => {
 		const { dir, recorder } = await recorderWith(SAP);
-		const result = recorder.startRecording({
+		const result = await recorder.startRecording({
 			surface: 'fiori',
 			name: 'Create order',
 			url: 'https://evil.example.net/login'
@@ -47,7 +35,7 @@ describe('startRecording refuses', () => {
 
 	test('a name without letters or digits', async () => {
 		const { recorder } = await recorderWith(SAP);
-		expect(recorder.startRecording({ surface: 'fiori', name: ' ../ ' })).toEqual({
+		expect(await recorder.startRecording({ surface: 'fiori', name: ' ../ ' })).toEqual({
 			ok: false,
 			error: 'Give the flow a name.'
 		});
@@ -55,12 +43,9 @@ describe('startRecording refuses', () => {
 
 	test('missing credentials and a missing URL', async () => {
 		const { recorder } = await recorderWith(`SAP_URL=https://sap.example.com\n`);
-		const errorOf = (result: ReturnType<typeof recorder.startRecording>) => JSON.stringify(result);
-		expect(errorOf(recorder.startRecording({ surface: 'webgui', name: 'x' }))).toContain(
-			'SAP_USERNAME / SAP_PASSWORD missing'
-		);
-		expect(errorOf(recorder.startRecording({ surface: 'ariba', name: 'x' }))).toContain(
-			'ARIBA_URL is not set'
-		);
+		const webgui = await recorder.startRecording({ surface: 'webgui', name: 'x' });
+		expect(JSON.stringify(webgui)).toContain('SAP_USERNAME / SAP_PASSWORD missing');
+		const ariba = await recorder.startRecording({ surface: 'ariba', name: 'x' });
+		expect(JSON.stringify(ariba)).toContain('ARIBA_URL is not set');
 	});
 });

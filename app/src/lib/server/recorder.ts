@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
+import { sameOrigin } from './origin.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 
@@ -27,24 +28,17 @@ export type RecordInput = {
 	saveStorage?: boolean;
 };
 
-export function sameOrigin(a: string, b: string): boolean {
-	try {
-		return new URL(a).origin === new URL(b).origin;
-	} catch {
-		return false;
-	}
-}
-
 /**
  * Guide §4.4: `codegen <url> --sap-login <user> <password>` for Fiori/WebGUI (credentials come from
- * sap-tests/.env and are passed as arguments, never through the UI); plain codegen for Ariba.
+ * the settings and are passed as arguments, never back to the UI); plain codegen for Ariba.
  * The browser opens on the machine running this app.
  */
-export function startRecording(
+export async function startRecording(
 	input: RecordInput
-): { ok: true; file: string } | { ok: false; error: string } {
+): Promise<{ ok: true; file: string } | { ok: false; error: string }> {
+	const env = await readTestEnv();
+	// Checked after the await: nothing below yields, so two requests cannot both start a recording.
 	if (state.status === 'recording') return { ok: false, error: 'A recording is already running.' };
-	const env = readTestEnv();
 	const slug = input.name
 		.trim()
 		.toLowerCase()
@@ -60,13 +54,16 @@ export function startRecording(
 	if (!url)
 		return {
 			ok: false,
-			error: `No URL given and ${input.surface === 'ariba' ? 'ARIBA_URL' : 'SAP_URL'} is not set in sap-tests/.env.`
+			error: `No URL given and ${input.surface === 'ariba' ? 'ARIBA_URL' : 'SAP_URL'} is not set (Settings page or sap-tests/.env).`
 		};
 
 	const args = ['codegen', url, '--target', 'playwright-test', '-o', 'tests/' + file];
 	if (input.surface !== 'ariba') {
 		if (!env.SAP_USERNAME || !env.SAP_PASSWORD) {
-			return { ok: false, error: 'SAP_USERNAME / SAP_PASSWORD missing in sap-tests/.env.' };
+			return {
+				ok: false,
+				error: 'SAP_USERNAME / SAP_PASSWORD missing (Settings page or sap-tests/.env).'
+			};
 		}
 		// The recorder types the credentials into the page it opens, so that page must be the
 		// configured system and not any URL a caller sends.
@@ -74,7 +71,7 @@ export function startRecording(
 			return {
 				ok: false,
 				error:
-					'The recorder logs in with the credentials from sap-tests/.env, so the start URL must be on the same host as SAP_URL.'
+					'The recorder logs in with the stored SAP credentials, so the start URL must be on the same host as SAP_URL.'
 			};
 		}
 		args.push('--sap-login', env.SAP_USERNAME, env.SAP_PASSWORD);
