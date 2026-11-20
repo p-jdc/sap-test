@@ -77,6 +77,10 @@ bun run test:e2e   # Playwright: builds + previews the app, drives dashboard, fl
 bun run lint
 ```
 
+CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, lint,
+unit/component and e2e tests for the app, plus a type check and spec discovery (`playwright test --list`)
+for `sap-tests`. The SAP flows themselves need a test system and are not run in CI.
+
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 fork in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
 
