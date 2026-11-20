@@ -35,7 +35,7 @@ Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright al
 bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
 cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
 bun run setup:cert     # optional, once: HTTPS + HTTP/2 via mkcert (brew install mkcert)
-bun run dev            # https://localhost:5173 with a cert, otherwise http://localhost:5173
+bun run dev            # https://localhost:5180 with a cert, otherwise http://localhost:5180
 ```
 
 HTTPS is there for HTTP/2, not for security: each live run or flow view holds a streaming request
@@ -73,6 +73,9 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped) |
+| `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
+| `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
+| `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the fork use an already installed Chromium where
 `playwright install` cannot download.

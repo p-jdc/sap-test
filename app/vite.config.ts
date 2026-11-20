@@ -39,8 +39,10 @@ export default defineConfig({
 			experimental: { remoteFunctions: true }
 		})
 	],
-	server: { https },
-	preview: { https },
+	// Own ports instead of Vite's 5173/4173, so this app and other Vite apps (e.g. the reference app)
+	// can run side by side. strictPort: fail loudly instead of silently moving to the next free port.
+	server: { https, port: Number(process.env.DEV_PORT ?? 5180), strictPort: true },
+	preview: { https, port: Number(process.env.PREVIEW_PORT ?? 4180), strictPort: true },
 	test: {
 		expect: { requireAssertions: true },
 		// `bun run test:coverage`. v8 covers both projects (Chromium's built-in coverage in the

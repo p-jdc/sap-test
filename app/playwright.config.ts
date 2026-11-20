@@ -11,15 +11,15 @@ export default defineConfig({
 	reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
 	forbidOnly: !!process.env.CI,
 	webServer: {
-		command: 'bun run build && bun run preview -- --port 4173 --strictPort',
-		port: 4173,
+		command: 'bun run build && bun run preview',
+		port: 4180,
 		timeout: 180_000,
 		reuseExistingServer: !!process.env.PW_REUSE_SERVER,
 		// Keeps e2e runs out of the real run history.
 		env: { TEST_APP_DATA_DIR: '.data-e2e', DEV_HTTP: '1' }
 	},
 	use: {
-		baseURL: 'http://localhost:4173',
+		baseURL: 'http://localhost:4180',
 		launchOptions: executablePath ? { executablePath } : {}
 	}
 });
