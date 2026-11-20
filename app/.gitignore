@@ -25,3 +25,6 @@ vite.config.ts.timestamp-*
 .data-e2e/
 test-results/
 playwright-report/
+
+# Local TLS certs
+/cert/
