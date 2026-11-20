@@ -5,6 +5,7 @@ import { resolve } from '$app/paths';
 
 export const homeHref = () => resolve('/');
 export const testsHref = () => resolve('/tests');
+export const settingsHref = () => resolve('/settings');
 
 export const runHref = (id: string) => resolve('/runs/[id]', { id });
 

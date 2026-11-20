@@ -37,6 +37,7 @@ import '@ui5/webcomponents-fiori/dist/SideNavigation.js';
 import '@ui5/webcomponents-fiori/dist/SideNavigationItem.js';
 
 import '@ui5/webcomponents-icons/dist/accept.js';
+import '@ui5/webcomponents-icons/dist/action-settings.js';
 import '@ui5/webcomponents-icons/dist/locked.js';
 import '@ui5/webcomponents-icons/dist/validate.js';
 import '@ui5/webcomponents-icons/dist/alert.js';

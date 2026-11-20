@@ -20,7 +20,7 @@ export const startTestRun = command(
 		grep: z.string().max(200).optional()
 	}),
 	async (input) => {
-		const result = startRun(input);
+		const result = await startRun(input);
 		if (!result.ok) error(409, result.error);
 		await getRuns().refresh();
 		return { id: result.id };

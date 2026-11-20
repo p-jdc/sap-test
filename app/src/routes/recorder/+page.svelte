@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { testsHref } from '#lib/client/links.js';
+	import { settingsHref, testsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { getRecorder, startRecorder, stopRecorder } from '#lib/remote/recorder.remote.js';
@@ -44,8 +44,9 @@
 <ui5-message-strip design="Information" hide-close-button>
 	Starts <span class="mono">npx playwright codegen</span> from Playwright-SAP (guide §4.4). The
 	browser and the recorder window open on the machine that runs this app, so record from a local
-	install. Fiori and WebGUI log in automatically with the credentials in
-	<span class="mono">sap-tests/.env</span>; for Ariba you log in by hand.
+	install. Fiori and WebGUI log in automatically with the credentials from
+	<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
+	log in by hand.
 </ui5-message-strip>
 
 <div class="form">
@@ -113,7 +114,9 @@
 			</ui5-button>
 		{/if}
 		{#if !ready && env.current}
-			<span class="muted">Missing settings in sap-tests/.env for this surface.</span>
+			<span class="muted">
+				URL or credentials for this surface are missing. <a href={settingsHref()}>Open Settings</a>
+			</span>
 		{/if}
 	</div>
 </div>

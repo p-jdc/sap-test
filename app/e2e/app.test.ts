@@ -30,3 +30,13 @@ test('running a demo test streams to a finished, passed run', async ({ page }) =
 	await expect(page.getByText('Test passed')).toBeVisible({ timeout: 30_000 });
 	await expect(page.locator('.svelte-flow__node .node.passed')).toHaveCount(5);
 });
+
+test('settings page lists the settings without showing values', async ({ page }) => {
+	await page.goto('/settings');
+	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await expect(page.locator('[data-setting]')).toHaveCount(7);
+	await expect(page.locator('[data-setting="SAP_PASSWORD"] ui5-input')).toHaveAttribute(
+		'type',
+		'Password'
+	);
+});
