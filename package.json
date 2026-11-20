@@ -1,0 +1,28 @@
+{
+	"name": "sap-test",
+	"private": true,
+	"description": "Run from the repo root. Bun installs everything; Playwright itself always runs on Node (its CLI's shebang). Deliberately not a workspace: app/ and sap-tests/ keep separate dependency trees, or the fork's @playwright/test alias (Playwright-SAP 1.53) and the app's own Playwright 1.63 collide when hoisted.",
+	"scripts": {
+		"setup": "bun install --cwd app && cd sap-tests && bun install --frozen-lockfile && bunx playwright install chromium && cd ../app && bunx playwright install chromium",
+		"setup:mcp": "bun install --cwd .claude/mcp --frozen-lockfile",
+		"setup:cert": "cd app && bun run setup:cert",
+		"dev": "cd app && bun run dev",
+		"build": "cd app && bun run build",
+		"preview": "cd app && bun run preview",
+		"start": "cd app && bun run start",
+		"check": "cd app && bun run check && cd ../sap-tests && bun run typecheck",
+		"lint": "cd app && bun run lint && cd ../sap-tests && bun run lint && bun run format:check",
+		"lint:light": "cd app && bun run lint:light && cd ../sap-tests && bun run lint",
+		"format": "cd app && bun run format && cd ../sap-tests && bun run format",
+		"test": "cd app && bun run test",
+		"test:unit": "cd app && bun run test:unit",
+		"test:coverage": "cd app && bun run test:coverage",
+		"test:e2e": "cd app && bun run test:e2e",
+		"test:sap": "cd sap-tests && bun run test",
+		"test:sap:list": "cd sap-tests && bunx playwright test --list",
+		"codegen": "cd sap-tests && bun run codegen",
+		"report": "cd sap-tests && bun run report",
+		"pregate": "bun run check && bun run lint && bun run test && bun run test:sap:list",
+		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"
+	}
+}

@@ -29,22 +29,37 @@ Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
 ## Setup
 
-Requirements: Node 22 (Playwright-SAP), Bun ≥ 1.4 (app).
+Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright always runs on Node). Run everything from the repo root:
 
 ```bash
-cd sap-tests
-npm install
-npx playwright install chromium
-cp .env.example .env   # fill SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system only, user without MFA)
+bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
+cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
+bun run setup:cert     # optional, once: HTTPS + HTTP/2 via mkcert (brew install mkcert)
+bun run dev            # https://localhost:5180 with a cert, otherwise http://localhost:5180
 ```
 
-```bash
-cd app
-bun install
-bun run dev            # http://localhost:5173
-```
+HTTPS is there for HTTP/2, not for security: each live run or flow view holds a streaming request
+open, and HTTP/1.1 allows only six connections per host, so a few open tabs stall the app. With
+`app/cert/` present, `dev`, `preview` and `start` serve HTTPS + HTTP/2 (`start` through a small patch
+to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference app). Without it, or with
+`DEV_HTTP=1` (e2e tests, CI), they stay on plain HTTP.
 
-Production: `bun run build && bun run start` (adapter-bun).
+| Root script | Does |
+| --- | --- |
+| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `app/cert/` exists) |
+| `setup:cert` | Creates `app/cert/` with mkcert (trusted local certificate for localhost) |
+| `check` | svelte-check for the app, `tsc` for sap-tests |
+| `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint for the app, oxlint/oxfmt for sap-tests |
+| `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
+| `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
+| `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
+| `codegen`, `report` | Playwright-SAP recorder and HTML report |
+| `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
+| `ci` | Everything CI runs, in order |
+| `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
+
+The root is deliberately not a workspace: `app/` and `sap-tests/` (Playwright-SAP aliased as
+`@playwright/test`) keep separate dependency trees so the fork and the app's own Playwright never collide.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One
@@ -58,6 +73,9 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped) |
+| `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
+| `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
+| `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the fork use an already installed Chromium where
 `playwright install` cannot download.
@@ -94,9 +112,9 @@ Same layout as the reference app, but stricter:
 - **knip** reports unused files, exports and dependencies.
 - **ESLint** keeps only what oxlint cannot do (eslint-plugin-svelte, incl.
   `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
-- **sap-tests** has its own `npm run lint` (oxlint, type-aware). Its main job is
+- **sap-tests** has its own `bun run lint` (oxlint, type-aware). Its main job is
   `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
-  It also bans `waitForTimeout` (guide §5.2). `npm run format` uses oxfmt with the same style.
+  It also bans `waitForTimeout` (guide §5.2). `bun run format` uses oxfmt with the same style.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
@@ -120,5 +138,10 @@ lookups.
 - SSR is off (`app/src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
   import time and have no server renderer. Remote functions and `+server` routes still run on the server.
 - UI5 loads its "72" font from a CDN by default; behind a strict proxy the app falls back to system fonts.
+- Bun installs everything. Stock Playwright runs on Bun 1.4 (the app's own Playwright 1.63 lists and
+  runs its e2e tests under `bun --bun`), but the Playwright-SAP fork (1.53) does not: under `bun --bun`
+  it exits 0 without loading any test. The app therefore starts the fork's CLI with the first real
+  `node` on PATH (`PLAYWRIGHT_NODE` overrides), which is why Node 22 is still required. Re-check after
+  the fork upgrade (guide §6); with a newer base the whole repo may run on Bun alone.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.

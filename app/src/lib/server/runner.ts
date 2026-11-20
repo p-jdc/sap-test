@@ -176,7 +176,7 @@ export function startRun(
 	if (!existsSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test'))) {
 		return {
 			ok: false,
-			error: `Playwright is not installed in ${TESTS_ROOT}. Run npm install there.`
+			error: `Playwright is not installed in ${TESTS_ROOT}. Run "bun run setup" in the repo root.`
 		};
 	}
 	const files = (input.files ?? []).filter((f) => {
@@ -218,7 +218,7 @@ export function startRun(
 			grep: input.grep,
 			stats: { total: 0, passed: 0, failed: 0, skipped: 0 },
 			tests: [],
-			log: [`$ npx playwright ${args.join(' ')}`],
+			log: [`$ playwright ${args.join(' ')}`],
 			hasReport: false
 		}
 	};

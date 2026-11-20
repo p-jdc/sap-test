@@ -28,3 +28,5 @@ playwright-report/
 
 # Local TLS certs
 /cert/
+cert/
+coverage/
