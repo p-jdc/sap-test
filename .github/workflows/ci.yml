@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sap-tests:
+    name: sap-tests (types + spec discovery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sap-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sap-tests/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Loads every spec with the Playwright-SAP fork without running it: catches syntax and
+      # import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
+      - run: npx playwright test --list
+
+  app:
+    name: app (check, lint, unit, e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # Node runs Playwright (both the fork in sap-tests and the app's own) and Vitest.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sap-tests/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      # The e2e suite starts a real run of the offline _demo tests through the app,
+      # so the fork and its browser are needed here too.
+      - name: Install sap-tests
+        working-directory: sap-tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Install app
+        working-directory: app
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps chromium
+
+      - name: Type check
+        working-directory: app
+        run: bun run check
+      - name: Lint
+        working-directory: app
+        run: bun run lint
+      - name: Unit and component tests
+        working-directory: app
+        run: bun run test
+      - name: End-to-end tests
+        working-directory: app
+        run: bun run test:e2e
+
+      - name: Upload e2e report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-e2e-report
+          path: |
+            app/playwright-report/
+            app/test-results/
+          retention-days: 7

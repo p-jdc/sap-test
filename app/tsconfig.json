@@ -4,5 +4,12 @@
 		"strict": true,
 		"types": ["$app/types", "node", "bun"]
 	},
-	"include": ["src", "e2e", "vite.config.ts", "playwright.config.ts", "prettier.config.js", "eslint.config.js"]
+	"include": [
+		"src",
+		"e2e",
+		"vite.config.ts",
+		"playwright.config.ts",
+		"prettier.config.js",
+		"eslint.config.js"
+	]
 }

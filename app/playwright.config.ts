@@ -7,6 +7,9 @@ const executablePath = process.env.CHROMIUM_PATH || undefined;
 export default defineConfig({
 	testDir: 'e2e',
 	timeout: 60_000,
+	// CI uploads the HTML report as an artifact when the job fails.
+	reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+	forbidOnly: !!process.env.CI,
 	webServer: {
 		command: 'bun run build && bun run preview -- --port 4173 --strictPort',
 		port: 4173,
