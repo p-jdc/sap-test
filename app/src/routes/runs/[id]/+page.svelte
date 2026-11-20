@@ -161,6 +161,7 @@
 					label={t.running ? 'running' : undefined}
 				/>
 				<span class="title">{t.title}</span>
+				{#if t.expectedFailure}<span class="muted">failed as expected (test.fail)</span>{/if}
 				<span class="muted mono">{t.file}:{t.line}</span>
 				<span class="spacer"></span>
 				<span class="muted">{duration(t.duration)}</span>

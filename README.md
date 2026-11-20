@@ -72,10 +72,12 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | --- | --- | --- |
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
+| `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped) |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
+| `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the fork use an already installed Chromium where
 `playwright install` cannot download.
@@ -143,5 +145,14 @@ lookups.
   it exits 0 without loading any test. The app therefore starts the fork's CLI with the first real
   `node` on PATH (`PLAYWRIGHT_NODE` overrides), which is why Node 22 is still required. Re-check after
   the fork upgrade (guide §6); with a newer base the whole repo may run on Bun alone.
+- The recorder passes the SAP password to `codegen --sap-login` as a command-line argument (the
+  fork has no other way), so other users on the same machine can see it in the process list while
+  a recording runs. Record on a machine you do not share. For Fiori/WebGUI the start URL must be on
+  the same host as `SAP_URL`, so the credentials are never typed into another site.
+- A run that was still going when the app stopped is shown as interrupted; the app also stops the
+  Playwright process when it exits.
+- Tests generated in a loop over literal values are listed one per value. Where the values are not
+  in the spec file, the test is listed once with its title pattern and matched to run results by
+  file and line.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.

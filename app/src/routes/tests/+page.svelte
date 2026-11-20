@@ -98,7 +98,7 @@
 				<ui5-table-header-cell>Last result</ui5-table-header-cell>
 				<ui5-table-header-cell min-width="200px"></ui5-table-header-cell>
 			</ui5-table-header-row>
-			{#each file.tests as test (test.key)}
+			{#each file.tests as test, i (test.key + i)}
 				{@const errors = test.issues.filter((i) => i.severity === 'error').length}
 				{@const warnings = test.issues.filter((i) => i.severity === 'warning').length}
 				{@const infos = test.issues.filter((i) => i.severity === 'info').length}
@@ -106,7 +106,9 @@
 					<ui5-table-cell>
 						<div>
 							<a href={flowHref(test.key)}>{test.title}</a>
-							<div class="muted">line {test.line}</div>
+							<div class="muted">
+								line {test.line}{test.dynamic ? ' · title generated at run time' : ''}
+							</div>
 						</div>
 					</ui5-table-cell>
 					<ui5-table-cell>{test.steps.length}</ui5-table-cell>

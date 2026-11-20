@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { readTestEnv } from './env-file.js';
+import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 
@@ -26,6 +27,14 @@ export type RecordInput = {
 	saveStorage?: boolean;
 };
 
+export function sameOrigin(a: string, b: string): boolean {
+	try {
+		return new URL(a).origin === new URL(b).origin;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Guide §4.4: `codegen <url> --sap-login <user> <password>` for Fiori/WebGUI (credentials come from
  * sap-tests/.env and are passed as arguments, never through the UI); plain codegen for Ariba.
@@ -46,7 +55,6 @@ export function startRecording(
 	const full = within(TESTS_DIR, file);
 	if (!full) return { ok: false, error: 'Invalid file name.' };
 	if (existsSync(full)) return { ok: false, error: `${file} already exists.` };
-	mkdirSync(dirname(full), { recursive: true });
 
 	const url = input.url || (input.surface === 'ariba' ? env.ARIBA_URL : env.SAP_URL);
 	if (!url)
@@ -60,8 +68,18 @@ export function startRecording(
 		if (!env.SAP_USERNAME || !env.SAP_PASSWORD) {
 			return { ok: false, error: 'SAP_USERNAME / SAP_PASSWORD missing in sap-tests/.env.' };
 		}
+		// The recorder types the credentials into the page it opens, so that page must be the
+		// configured system and not any URL a caller sends.
+		if (!env.SAP_URL || !sameOrigin(url, env.SAP_URL)) {
+			return {
+				ok: false,
+				error:
+					'The recorder logs in with the credentials from sap-tests/.env, so the start URL must be on the same host as SAP_URL.'
+			};
+		}
 		args.push('--sap-login', env.SAP_USERNAME, env.SAP_PASSWORD);
 	}
+	mkdirSync(dirname(full), { recursive: true });
 	if (input.saveStorage) {
 		mkdirSync(`${TESTS_ROOT}/.auth`, { recursive: true });
 		args.push('--save-storage', `.auth/${input.surface}.json`);
@@ -79,19 +97,29 @@ export function startRecording(
 		env: childEnv(),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
-	const push = (chunk: Buffer) => {
-		// never echo the password back: it is an argument of the spawned process
-		const text = chunk.toString().replaceAll(env.SAP_PASSWORD ?? '\u0000', '***');
-		state.log.push(...text.split('\n').filter(Boolean));
+	const password = env.SAP_PASSWORD;
+	const onLine = (line: string) => {
+		if (!line) return;
+		// Never echo the password back: it is an argument of the spawned process. Masked per whole
+		// line, so a password split between two output chunks is still caught.
+		state.log.push(password ? line.replaceAll(password, '***') : line);
 		state.log = state.log.slice(-200);
 	};
-	proc.stdout?.on('data', push);
-	proc.stderr?.on('data', push);
+	const outputs = [proc.stdout, proc.stderr].flatMap((stream) => {
+		if (!stream) return [];
+		const lines = lineSplitter(onLine);
+		stream.setEncoding('utf8');
+		stream.on('data', (chunk: string) => {
+			lines.push(chunk);
+		});
+		return [lines];
+	});
 	proc.on('error', (e) => {
 		state = { ...state, status: 'error', log: [...state.log, e.message] };
 	});
 	proc.on('close', (code) => {
 		proc = null;
+		for (const lines of outputs) lines.flush();
 		const saved = existsSync(full);
 		state = {
 			...state,
