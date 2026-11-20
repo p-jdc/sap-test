@@ -1,0 +1,22 @@
+import { defineConfig } from '@playwright/test';
+
+// The app's own end-to-end tests (not the SAP suite in ../sap-tests). They build and preview the
+// app, then drive it like a user, including a real run of the offline _demo tests.
+const executablePath = process.env.CHROMIUM_PATH || undefined;
+
+export default defineConfig({
+	testDir: 'e2e',
+	timeout: 60_000,
+	webServer: {
+		command: 'bun run build && bun run preview -- --port 4173 --strictPort',
+		port: 4173,
+		timeout: 180_000,
+		reuseExistingServer: !!process.env.PW_REUSE_SERVER,
+		// Keeps e2e runs out of the real run history.
+		env: { TEST_APP_DATA_DIR: '.data-e2e' }
+	},
+	use: {
+		baseURL: 'http://localhost:4173',
+		launchOptions: executablePath ? { executablePath } : {}
+	}
+});

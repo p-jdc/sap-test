@@ -66,10 +66,19 @@ In `sap-tests/.env`, `CHROMIUM_PATH` lets the fork use an already installed Chro
 
 ```bash
 cd app
-bun run check   # svelte-check
-bun test src    # parser, rules and run-overlay tests
+bun run check      # svelte-check
+bun run test       # Vitest, two projects (like the reference app):
+                   #   server – Node: spec parser, guide rules, run overlay
+                   #   client – real Chromium via @vitest/browser-playwright + vitest-browser-svelte:
+                   #            StatusTag, HistoryDots, StepNode inside a real SvelteFlow
+bun run test:unit  # same, in watch mode
+bun run test:e2e   # Playwright: builds + previews the app, drives dashboard, flows, rule check
+                   # and a real live run of the _demo tests (uses .data-e2e, not your run history)
 bun run lint
 ```
+
+First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
+fork in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
 
 The Svelte MCP server for Claude Code is installed locally and pinned, like in the reference app:
 

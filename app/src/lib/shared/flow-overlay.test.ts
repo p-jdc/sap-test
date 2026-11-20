@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'vitest';
 import { overlaySteps } from './flow-overlay.js';
 import type { FlowStep, RunTest } from './types.js';
 
