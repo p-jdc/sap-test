@@ -258,7 +258,7 @@
 							{/if}
 						{/if}
 					</dl>
-					{#each selected.issues as issue (issue.rule)}
+					{#each selected.issues as issue, i (i)}
 						<ui5-message-strip
 							design={issue.severity === 'error'
 								? 'Negative'
