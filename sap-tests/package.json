@@ -1,18 +1,24 @@
 {
-  "name": "sap-tests",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "report": "playwright show-report",
-    "codegen": "playwright codegen",
-    "typecheck": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "@playwright/test": "npm:@playwright-sap/test@^1.1.6",
-    "@types/node": "^22.10.0",
-    "dotenv": "^16.4.7",
-    "typescript": "^5.9.3"
-  }
+	"name": "sap-tests",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "playwright test",
+		"test:ui": "playwright test --ui",
+		"report": "playwright show-report",
+		"codegen": "playwright codegen",
+		"typecheck": "tsc --noEmit",
+		"lint": "oxlint --type-aware --deny-warnings",
+		"format": "oxfmt",
+		"format:check": "oxfmt --check"
+	},
+	"devDependencies": {
+		"@playwright/test": "npm:@playwright-sap/test@^1.1.6",
+		"@types/node": "^22.10.0",
+		"dotenv": "^16.4.7",
+		"oxfmt": "0.79.0",
+		"oxlint": "1.94.0",
+		"oxlint-tsgolint": "7.0.2007",
+		"typescript": "^5.9.3"
+	}
 }

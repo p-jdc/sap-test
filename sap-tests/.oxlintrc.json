@@ -1,0 +1,44 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	// Recorded flows are where a missing `await` hides: the step runs detached, the test races
+	// ahead and fails somewhere else, intermittently. The type-aware promise rules below catch it.
+	"options": {
+		"reportUnusedDisableDirectives": "error",
+		"typeAware": true
+	},
+	"plugins": ["typescript", "unicorn", "oxc", "promise", "import"],
+	"categories": {
+		"correctness": "error",
+		"suspicious": "error"
+	},
+	"env": {
+		"builtin": true,
+		"node": true,
+		"browser": true
+	},
+	"ignorePatterns": ["**/node_modules", "test-results", "playwright-report", "blob-report"],
+	"rules": {
+		"typescript/no-floating-promises": ["error", { "checkThenables": true }],
+		"typescript/await-thenable": "error",
+		"typescript/no-misused-promises": "error",
+		"typescript/require-await": "error",
+		"typescript/no-explicit-any": "error",
+		// Fixed waits are what the guide's rules file forbids (§5.2); wait for a control instead.
+		"no-restricted-properties": [
+			"error",
+			{
+				"property": "waitForTimeout",
+				"message": "Wait for a control or status message instead (guide §5.2)."
+			}
+		],
+		// dotenv/config is loaded for its side effect by design.
+		"import/no-unassigned-import": ["error", { "allow": ["dotenv/config"] }]
+	},
+	"overrides": [
+		{
+			// Shows what the Test-App's rule check flags; it uses a fixed wait on purpose (test.fixme).
+			"files": ["tests/fiori/rule-findings.example.spec.ts"],
+			"rules": { "no-restricted-properties": "off" }
+		}
+	]
+}

@@ -3,7 +3,7 @@
 import { test } from '@playwright/test';
 
 test.fixme('example: rule findings', async ({ page }) => {
-	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL!);
+	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);
 	await page.locator('#__button3-inner').click();
 	await page.getByRoleUI5('Input', { label: 'Sold-To Party', value: '' }).fill('1000');
 	await page.waitForTimeout(3000);
