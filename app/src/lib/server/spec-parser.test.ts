@@ -248,6 +248,77 @@ test('create order', async ({ page }) => {
 		expect(t.steps.map((s) => s.issues.map((i) => i.rule))).toEqual([[], ['avoid-nth'], []]);
 	});
 
+	test('expands tests generated in a loop over literal values', () => {
+		const spec = parseSpec(
+			'_demo/loop.spec.ts',
+			`const PLANTS = ['1000', '2000'] as const;
+for (const plant of PLANTS) {
+	test(\`stock in \${plant}\`, async ({ page }) => {
+		await page.getByLabel('Plant').fill(plant);
+		await expect(page).toHaveURL('/');
+	});
+}
+['a', 'b'].forEach((n) => test('item ' + n, async ({ page }) => { await expect(page).toHaveURL('/'); }));`
+		);
+		expect(spec.tests.map((t) => [t.key, t.line, t.dynamic])).toEqual([
+			['_demo/loop.spec.ts::stock in 1000', 3, undefined],
+			['_demo/loop.spec.ts::stock in 2000', 3, undefined],
+			['_demo/loop.spec.ts::item a', 8, undefined],
+			['_demo/loop.spec.ts::item b', 8, undefined]
+		]);
+		expect(spec.tests.map((t) => t.steps[0]?.value).slice(0, 2)).toEqual(['1000', '2000']);
+		expect(new Set(spec.tests.flatMap((t) => t.steps.map((s) => s.id))).size).toBe(6);
+	});
+
+	test('lists a test whose title is only known at run time once, marked dynamic', () => {
+		const spec = parseSpec(
+			'_demo/dyn.spec.ts',
+			`const KIND = 'order';
+for (const c of loadCases()) {
+	test(\`\${KIND} \${c.name}\`, async ({ page }) => { await expect(page).toHaveURL('/'); });
+}
+for (let i = 0; i < 3; i++) test('round ' + i, async () => {});
+test.describe(\`suite \${process.env.SYSTEM}\`, () => {
+	test('inside', async () => {});
+});
+test(\`plain \${KIND}\`, async () => {});`
+		);
+		expect(spec.tests.map((t) => [t.title, t.line, t.dynamic])).toEqual([
+			['order ${c.name}', 3, true],
+			['round ${i}', 5, true],
+			['inside', 7, true],
+			['plain order', 9, undefined]
+		]);
+		expect(spec.tests[2]?.titlePath).toEqual(['suite ${process.env.SYSTEM}', 'inside']);
+	});
+
+	test('a loop variable hides a constant of the same name, and is restored after the loop', () => {
+		const spec = parseSpec(
+			'_demo/shadow.spec.ts',
+			`const n = 'outer';
+for (const n of ['x']) test('in ' + n, async () => {});
+for (const n of cases()) test('dyn ' + n, async () => {});
+test('after ' + n, async () => {});`
+		);
+		expect(spec.tests.map((t) => t.title)).toEqual(['in x', 'dyn ${n}', 'after outer']);
+	});
+
+	test('conditional skips and annotations are not tests', () => {
+		const spec = parseSpec(
+			'_demo/skip.spec.ts',
+			`test.skip(({ browserName }) => browserName !== 'chromium', 'chromium only');
+test.describe(() => {
+	test('real', async ({ page }) => {
+		test.skip(!process.env.SAP_URL, 'no system');
+		test.slow();
+		await expect(page).toHaveURL('/');
+	});
+	test.fixme('later', { tag: '@wip' }, async () => {});
+});`
+		);
+		expect(spec.tests.map((t) => t.titlePath)).toEqual([['real'], ['later']]);
+	});
+
 	test('warns on AI-generated tests without a named reviewer', () => {
 		const spec = parseSpec(
 			'fiori/ai.spec.ts',

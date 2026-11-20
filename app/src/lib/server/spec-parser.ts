@@ -80,6 +80,8 @@ type Facts = {
 type Ctx = {
 	sf: ts.SourceFile;
 	consts: Map<string, string>;
+	/** Top-level `const NAMES = ['a', 'b']`, for tests generated in a loop over it. */
+	arrays: Map<string, string[]>;
 	helpers: HelperMap;
 	seq: number;
 	/** Keyed by step id. */
@@ -447,8 +449,12 @@ function testCallKind(
 ): 'test' | 'describe' | 'beforeEach' | undefined {
 	const callee = call.expression.getText(ctx.sf);
 	if (/^test(\.(only|skip|fixme|fail|slow))?$/.test(callee)) {
-		const [title, fn] = call.arguments;
-		return title && fn && ts.isStringLiteralLike(title) ? 'test' : undefined;
+		// `test.skip(condition, 'reason')` and `test.skip(() => condition)` are not tests: a test has
+		// a title first and a function last.
+		const [title] = call.arguments;
+		return title && call.arguments.length > 1 && !ts.isFunctionLike(title) && fnArg(call)
+			? 'test'
+			: undefined;
 	}
 	if (/^test\.describe(\.(only|skip|serial|parallel|fixme))*$/.test(callee)) return 'describe';
 	if (callee === 'test.beforeEach') return 'beforeEach';
@@ -571,12 +577,130 @@ function collectConsts(sf: ts.SourceFile): Map<string, string> {
 	return consts;
 }
 
+function unwrap(node: ts.Expression): ts.Expression {
+	return ts.isAsExpression(node) ||
+		ts.isParenthesizedExpression(node) ||
+		ts.isNonNullExpression(node) ||
+		ts.isSatisfiesExpression(node)
+		? unwrap(node.expression)
+		: node;
+}
+
+/** The values of `['a', 'b']`, or undefined when an element is not a plain literal. */
+function literalElements(node: ts.Expression): string[] | undefined {
+	const array = unwrap(node);
+	if (!ts.isArrayLiteralExpression(array)) return undefined;
+	const values: string[] = [];
+	for (const el of array.elements) {
+		if (!ts.isStringLiteralLike(el) && !ts.isNumericLiteral(el)) return undefined;
+		values.push(el.text);
+	}
+	return values;
+}
+
+function collectArrays(sf: ts.SourceFile): Map<string, string[]> {
+	const arrays = new Map<string, string[]>();
+	for (const stmt of sf.statements) {
+		if (!ts.isVariableStatement(stmt)) continue;
+		for (const d of stmt.declarationList.declarations) {
+			const values = d.initializer && literalElements(d.initializer);
+			if (ts.isIdentifier(d.name) && values) arrays.set(d.name.text, values);
+		}
+	}
+	return arrays;
+}
+
+/**
+ * A test or describe title. Constants and resolved loop variables are filled in; anything else
+ * stays as `${source}` and makes the title dynamic (only known when the test runs).
+ */
+function titleText(ctx: Ctx, node: ts.Expression): { text: string; dynamic: boolean } {
+	const inner = unwrap(node);
+	if (ts.isStringLiteralLike(inner) || ts.isNumericLiteral(inner)) {
+		return { text: inner.text, dynamic: false };
+	}
+	if (ts.isIdentifier(inner)) {
+		const value = ctx.consts.get(inner.text);
+		if (value !== undefined) return { text: value, dynamic: false };
+	}
+	if (ts.isTemplateExpression(inner)) {
+		let text = inner.head.text;
+		let dynamic = false;
+		for (const span of inner.templateSpans) {
+			const part = titleText(ctx, span.expression);
+			text += part.text + span.literal.text;
+			dynamic ||= part.dynamic;
+		}
+		return { text, dynamic };
+	}
+	if (ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+		const left = titleText(ctx, inner.left);
+		const right = titleText(ctx, inner.right);
+		return { text: left.text + right.text, dynamic: left.dynamic || right.dynamic };
+	}
+	return { text: '${' + inner.getText(ctx.sf) + '}', dynamic: true };
+}
+
+/** A loop that may declare tests: its body, and the loop variable with its values when known. */
+type Loop = { body: readonly ts.Statement[]; name?: string; values?: string[] };
+
+function bodyStatements(body: ts.Node): readonly ts.Statement[] {
+	if (ts.isBlock(body)) return body.statements;
+	if (ts.isStatement(body)) return [body];
+	// `(n) => test(...)`: only `.expression` of this statement is read, so it needs no position.
+	return ts.isExpression(body) ? [ts.factory.createExpressionStatement(body)] : [];
+}
+
+function loopOf(ctx: Ctx, stmt: ts.Statement): Loop | undefined {
+	const valuesOf = (list: ts.Expression) => {
+		const node = unwrap(list);
+		return ts.isIdentifier(node) ? ctx.arrays.get(node.text) : literalElements(node);
+	};
+	if (ts.isForOfStatement(stmt)) {
+		const declared =
+			ts.isVariableDeclarationList(stmt.initializer) && stmt.initializer.declarations[0]?.name;
+		const name = declared && ts.isIdentifier(declared) ? declared.text : undefined;
+		return { body: bodyStatements(stmt.statement), name, values: valuesOf(stmt.expression) };
+	}
+	if (ts.isIterationStatement(stmt, false)) return { body: bodyStatements(stmt.statement) };
+	// ['a', 'b'].forEach((n) => { test(...) })
+	if (
+		ts.isExpressionStatement(stmt) &&
+		ts.isCallExpression(stmt.expression) &&
+		ts.isPropertyAccessExpression(stmt.expression.expression) &&
+		stmt.expression.expression.name.text === 'forEach'
+	) {
+		const fn = stmt.expression.arguments[0];
+		if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) return undefined;
+		const param = fn.parameters[0]?.name;
+		return {
+			body: bodyStatements(fn.body),
+			name: param && ts.isIdentifier(param) ? param.text : undefined,
+			values: valuesOf(stmt.expression.expression.expression)
+		};
+	}
+	return undefined;
+}
+
 export function parseSpec(file: string, source: string, helpers: HelperMap = {}): SpecFile {
 	const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-	const ctx: Ctx = { sf, consts: collectConsts(sf), helpers, seq: 0, facts: new Map() };
+	const ctx: Ctx = {
+		sf,
+		consts: collectConsts(sf),
+		arrays: collectArrays(sf),
+		helpers,
+		seq: 0,
+		facts: new Map()
+	};
 	const tests: SpecTest[] = [];
 
-	const walk = (statements: readonly ts.Statement[], titles: string[], hooks: FlowStep[]) => {
+	/** `dynamic`: an enclosing describe title is only known at run time. */
+	const walk = (
+		statements: readonly ts.Statement[],
+		titles: string[],
+		hooks: FlowStep[],
+		dynamic: boolean
+	) => {
 		const scopeHooks = [...hooks];
 		// beforeEach applies to the whole scope regardless of position, so collect hooks first.
 		for (const stmt of statements) {
@@ -590,42 +714,69 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 			}
 		}
 		for (const stmt of statements) {
+			// Tests generated in a loop: one set per value when the values are literals in this file,
+			// otherwise one entry with a dynamic title.
+			const loop = loopOf(ctx, stmt);
+			if (loop) {
+				const { name, values } = loop;
+				if (name && values) {
+					const outer = ctx.consts.get(name);
+					for (const value of values) {
+						ctx.consts.set(name, value);
+						walk(loop.body, titles, scopeHooks, dynamic);
+					}
+					if (outer === undefined) ctx.consts.delete(name);
+					else ctx.consts.set(name, outer);
+				} else {
+					// The loop variable hides a constant of the same name.
+					const outer = name === undefined ? undefined : ctx.consts.get(name);
+					if (name !== undefined) ctx.consts.delete(name);
+					walk(loop.body, titles, scopeHooks, dynamic);
+					if (name !== undefined && outer !== undefined) ctx.consts.set(name, outer);
+				}
+				continue;
+			}
 			if (!ts.isExpressionStatement(stmt) || !ts.isCallExpression(stmt.expression)) continue;
 			const call = stmt.expression;
 			const kind = testCallKind(ctx, call);
+			const first = call.arguments[0];
 			if (kind === 'describe') {
 				const title =
-					call.arguments[0] && ts.isStringLiteralLike(call.arguments[0])
-						? call.arguments[0].text
-						: '';
+					first && !ts.isFunctionLike(first) && !ts.isObjectLiteralExpression(first)
+						? titleText(ctx, first)
+						: { text: '', dynamic: false };
 				const fn = fnArg(call);
 				if (fn && ts.isBlock(fn.body))
-					walk(fn.body.statements, title ? [...titles, title] : titles, scopeHooks);
-			} else if (kind === 'test') {
-				const first = call.arguments[0];
-				if (!first || !ts.isStringLiteralLike(first)) continue;
-				const title = first.text;
+					walk(
+						fn.body.statements,
+						title.text ? [...titles, title.text] : titles,
+						scopeHooks,
+						dynamic || title.dynamic
+					);
+			} else if (kind === 'test' && first) {
+				const title = titleText(ctx, first);
 				// oxlint-disable-next-line oxc/no-map-spread -- per-test copies, see scopeHooks above
 				const steps: FlowStep[] = scopeHooks.map((h) => ({ ...h, issues: [] }));
 				collectSteps(ctx, fnArg(call)?.body, steps);
-				const titlePath = [...titles, title];
+				const titlePath = [...titles, title.text];
 				const surface = detectSurface(file, steps);
 				const test: SpecTest = {
 					key: `${file}::${titlePath.join(' › ')}`,
 					file,
-					title,
+					title: title.text,
 					titlePath,
-					line: lineOf(ctx, stmt.getStart(sf)),
+					line: lineOf(ctx, call.getStart(sf)),
 					surface,
 					steps,
 					issues: []
 				};
+				if (dynamic || title.dynamic) test.dynamic = true;
 				test.issues = checkRules(ctx, test);
 				tests.push(test);
 			}
 		}
 	};
-	walk(sf.statements, [], []);
+	walk(sf.statements, [], [], false);
 
 	const fileIssues: Issue[] = [];
 	const marker = /KI-generiert,\s*geprüft von:\s*(.*)/.exec(source);

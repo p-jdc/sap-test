@@ -80,7 +80,9 @@
 	<ui5-input
 		id="url"
 		value={url}
-		placeholder={surface === 'ariba' ? 'defaults to ARIBA_URL' : 'defaults to SAP_URL'}
+		placeholder={surface === 'ariba'
+			? 'defaults to ARIBA_URL'
+			: 'defaults to SAP_URL (same host only)'}
 		oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 	></ui5-input>
 

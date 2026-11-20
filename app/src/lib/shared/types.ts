@@ -57,6 +57,11 @@ export interface SpecTest {
 	surface: Surface;
 	steps: FlowStep[];
 	issues: Issue[];
+	/**
+	 * The title is computed when the test runs (a loop or a template the parser cannot resolve), so
+	 * `key` does not match a run's key; such a test is matched to runs by file and line.
+	 */
+	dynamic?: boolean;
 }
 
 export interface SpecFile {
@@ -100,6 +105,8 @@ export interface RunTest {
 	running?: boolean;
 	duration?: number;
 	retry?: number;
+	/** A `test.fail()` test that failed as declared; its status is `passed`. */
+	expectedFailure?: boolean;
 	error?: { message: string; line?: number; file?: string };
 	steps: RunStep[];
 	attachments: Attachment[];
@@ -128,7 +135,7 @@ export interface StabilityRow {
 	key: string;
 	file: string;
 	title: string;
-	/** Oldest → newest, skipped runs excluded. */
+	/** Oldest → newest; runs where the test was skipped or interrupted are excluded. */
 	history: { runId: string; status: TestStatus }[];
 	streak: number;
 	lastStatus?: TestStatus;

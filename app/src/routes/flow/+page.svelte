@@ -8,6 +8,7 @@
 	import TerminalNode from '#lib/components/flow/TerminalNode.svelte';
 	import { flowHref, runFileHref, runHref, testsHref, traceHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
+	import { matchFlow } from '#lib/shared/flow-match.js';
 	import { overlaySteps } from '#lib/shared/flow-overlay.js';
 	import { duration, LOCATOR_LABEL, SURFACE_LABEL, when } from '#lib/shared/format.js';
 	import { getSpecSource, getSpecs } from '#lib/remote/specs.remote.js';
@@ -19,8 +20,6 @@
 	const key = $derived(page.url.searchParams.get('key') ?? '');
 	const specs = getSpecs();
 	const runs = getRuns();
-	const test = $derived(specs.current?.flatMap((f) => f.tests).find((t) => t.key === key));
-	const source = $derived(test ? getSpecSource(test.file) : undefined);
 
 	const active = $derived(runs.current?.active ?? null);
 	const runId = $derived(
@@ -29,7 +28,13 @@
 	const live = $derived(runId && runId === active);
 	const runQuery = $derived(runId ? (live ? watchRunLive(runId) : getRun(runId)) : undefined);
 	const run = $derived(runQuery?.current ?? null);
-	const runTest = $derived(run?.tests.find((t) => t.key === key));
+	// Also resolves a test with a generated title, whose key differs between spec and run.
+	const flow = $derived(
+		matchFlow(specs.current?.flatMap((f) => f.tests) ?? [], run?.tests ?? [], key)
+	);
+	const test = $derived(flow.test);
+	const runTest = $derived(flow.runTest);
+	const source = $derived(test ? getSpecSource(test.file) : undefined);
 	const overlay = $derived(test ? overlaySteps(test.steps, runTest) : {});
 
 	// The live stream ends with the run; refresh the run list so `active` clears and the picker updates.
@@ -131,17 +136,20 @@
 	const trace = $derived(runTest?.attachments.find((a) => a.name === 'trace'));
 </script>
 
-{#if specs.current && !test}
+{#if specs.current && !test && (!runId || run || runQuery?.error)}
 	<ui5-illustrated-message name="NoSearchResults" title-text="Test not found">
 		<span slot="subtitle"><a href={testsHref()}>Back to tests</a></span>
 	</ui5-illustrated-message>
 {:else if test}
 	<div class="page-head">
 		<div>
-			<ui5-title level="H3">{test.title}</ui5-title>
+			<ui5-title level="H3">{test.dynamic && runTest ? runTest.title : test.title}</ui5-title>
 			<div class="muted mono">{test.file}:{test.line}</div>
 		</div>
 		<ui5-tag hide-state-icon>{SURFACE_LABEL[test.surface]}</ui5-tag>
+		{#if test.dynamic}
+			<ui5-tag hide-state-icon design="Information">generated title</ui5-tag>
+		{/if}
 		<span class="spacer"></span>
 		<ui5-label show-colon>Run</ui5-label>
 		<ui5-select onchange={pickRun} style="min-width: 260px">
