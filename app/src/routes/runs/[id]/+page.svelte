@@ -100,7 +100,7 @@
 			{#if run.hasReport}
 				<ui5-button
 					icon="document"
-					onclick={() => window.open(`/runs/${id}/files/report/index.html`, '_blank')}
+					onclick={() => window.open(runFileHref(id, 'report/index.html'), '_blank')}
 				>
 					HTML report
 				</ui5-button>
@@ -162,9 +162,9 @@
 				/>
 				<span class="title">{t.title}</span>
 				{#if t.expectedFailure}<span class="muted">failed as expected (test.fail)</span>{/if}
-				<span class="muted mono">{t.file}:{t.line}</span>
+				<span class="muted mono where">{t.file}:{t.line}</span>
 				<span class="spacer"></span>
-				<span class="muted">{duration(t.duration)}</span>
+				<span class="muted dur">{duration(t.duration)}</span>
 			</div>
 			<div class="test-body">
 				<div class="row">
@@ -214,7 +214,7 @@
 								<!-- svelte-ignore a11y_media_has_caption -->
 								<video src={runFileHref(id, a.path)} controls preload="metadata"></video>
 							{:else}
-								<a href={runFileHref(id, a.path)} download>{a.name}</a>
+								<a href={runFileHref(id, a.path)} download>Download {a.name}</a>
 							{/if}
 						{/each}
 					</div>
@@ -227,7 +227,7 @@
 		<pre class="log" bind:this={logEl}>{run.log.join('\n')}</pre>
 	</ui5-panel>
 {:else}
-	<ui5-busy-indicator active size="L" style="width: 100%; margin-top: 4rem"></ui5-busy-indicator>
+	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
 {/if}
 
 <style>
@@ -250,6 +250,16 @@
 	.test-head .title {
 		font-weight: 600;
 	}
+	/* The file path is the first thing to give way when the header runs out of room. */
+	.test-head .where {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.test-head .dur {
+		flex: none;
+	}
 	.spacer {
 		flex: 1;
 	}
@@ -265,7 +275,7 @@
 	}
 	.tl-row {
 		display: grid;
-		grid-template-columns: minmax(160px, 34%) 1fr 70px;
+		grid-template-columns: minmax(100px, 34%) 1fr 70px;
 		gap: 0.5rem;
 		align-items: center;
 		font-size: 0.75rem;
@@ -279,7 +289,7 @@
 		position: relative;
 		overflow: hidden;
 		height: 12px;
-		background: var(--sapList_HeaderBackground, #f5f6f7);
+		background: var(--sapNeutralBackground, var(--sapList_HeaderBackground));
 		border-radius: 3px;
 	}
 	.tl-bar {
@@ -306,7 +316,7 @@
 	}
 	.attachments img,
 	.attachments video {
-		max-width: 420px;
+		max-width: min(420px, 100%);
 		max-height: 260px;
 		border: 1px solid var(--sapGroup_ContentBorderColor);
 		border-radius: 0.5rem;

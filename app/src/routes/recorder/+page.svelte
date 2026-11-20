@@ -49,77 +49,81 @@
 	log in by hand.
 </ui5-message-strip>
 
-<div class="form">
-	<ui5-label for="surface" show-colon>Surface</ui5-label>
-	<ui5-segmented-button
-		id="surface"
-		onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) => {
-			const value = e.detail.selectedItems[0]?.dataset.value;
-			if (value === 'fiori' || value === 'webgui' || value === 'ariba') surface = value;
-		}}
-	>
-		<ui5-segmented-button-item data-value="fiori" selected={surface === 'fiori' || undefined}>
-			Fiori / UI5
-		</ui5-segmented-button-item>
-		<ui5-segmented-button-item data-value="webgui" selected={surface === 'webgui' || undefined}>
-			WebGUI
-		</ui5-segmented-button-item>
-		<ui5-segmented-button-item data-value="ariba" selected={surface === 'ariba' || undefined}>
-			Ariba
-		</ui5-segmented-button-item>
-	</ui5-segmented-button>
+<ui5-card class="form-card">
+	<div class="form">
+		<ui5-label for="surface" show-colon>Surface</ui5-label>
+		<ui5-segmented-button
+			id="surface"
+			onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) => {
+				const value = e.detail.selectedItems[0]?.dataset.value;
+				if (value === 'fiori' || value === 'webgui' || value === 'ariba') surface = value;
+			}}
+		>
+			<ui5-segmented-button-item data-value="fiori" selected={surface === 'fiori' || undefined}>
+				Fiori / UI5
+			</ui5-segmented-button-item>
+			<ui5-segmented-button-item data-value="webgui" selected={surface === 'webgui' || undefined}>
+				WebGUI
+			</ui5-segmented-button-item>
+			<ui5-segmented-button-item data-value="ariba" selected={surface === 'ariba' || undefined}>
+				Ariba
+			</ui5-segmented-button-item>
+		</ui5-segmented-button>
 
-	<ui5-label for="name" required show-colon>Flow name</ui5-label>
-	<ui5-input
-		id="name"
-		value={name}
-		placeholder="create sales order"
-		oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
-	></ui5-input>
+		<ui5-label for="name" required show-colon>Flow name</ui5-label>
+		<ui5-input
+			id="name"
+			value={name}
+			placeholder="create sales order"
+			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
+		></ui5-input>
 
-	<ui5-label for="url" show-colon>Start URL</ui5-label>
-	<ui5-input
-		id="url"
-		value={url}
-		placeholder={surface === 'ariba'
-			? 'defaults to ARIBA_URL'
-			: 'defaults to SAP_URL (same host only)'}
-		oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
-	></ui5-input>
+		<ui5-label for="url" show-colon>Start URL</ui5-label>
+		<ui5-input
+			id="url"
+			value={url}
+			placeholder={surface === 'ariba'
+				? 'defaults to ARIBA_URL'
+				: 'defaults to SAP_URL (same host only)'}
+			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
+		></ui5-input>
 
-	<ui5-label for="storage" show-colon>Save session</ui5-label>
-	<div class="row">
-		<ui5-switch
-			id="storage"
-			checked={saveStorage || undefined}
-			onchange={(e: Event) => (saveStorage = (e.target as HTMLInputElement).checked)}
-		></ui5-switch>
-		<span class="muted">Writes .auth/{surface}.json for storageState reuse (guide §7.4)</span>
+		<ui5-label for="storage" show-colon>Save session</ui5-label>
+		<div class="row">
+			<ui5-switch
+				id="storage"
+				checked={saveStorage || undefined}
+				onchange={(e: Event) => (saveStorage = (e.target as HTMLInputElement).checked)}
+			></ui5-switch>
+			<span class="muted">Writes .auth/{surface}.json for storageState reuse (guide §7.4)</span>
+		</div>
+
+		<span></span>
+		<div class="row">
+			{#if recording}
+				<ui5-button icon="stop" design="Negative" onclick={() => stopRecorder()}>
+					Stop recorder
+				</ui5-button>
+			{:else}
+				<ui5-button
+					icon="record"
+					design="Emphasized"
+					onclick={start}
+					disabled={!name.trim() || !ready || undefined}
+				>
+					Start recording
+				</ui5-button>
+			{/if}
+			{#if !ready && env.current}
+				<span class="muted">
+					URL or credentials for this surface are missing. <a href={settingsHref()}>
+						Open Settings
+					</a>
+				</span>
+			{/if}
+		</div>
 	</div>
-
-	<span></span>
-	<div class="row">
-		{#if recording}
-			<ui5-button icon="stop" design="Negative" onclick={() => stopRecorder()}>
-				Stop recorder
-			</ui5-button>
-		{:else}
-			<ui5-button
-				icon="record"
-				design="Emphasized"
-				onclick={start}
-				disabled={!name.trim() || !ready || undefined}
-			>
-				Start recording
-			</ui5-button>
-		{/if}
-		{#if !ready && env.current}
-			<span class="muted">
-				URL or credentials for this surface are missing. <a href={settingsHref()}>Open Settings</a>
-			</span>
-		{/if}
-	</div>
-</div>
+</ui5-card>
 
 {#if error}
 	<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
@@ -141,11 +145,30 @@
 {/if}
 
 <style>
+	.form-card {
+		max-width: 44rem;
+		margin-bottom: 1rem;
+	}
 	.form {
 		display: grid;
-		grid-template-columns: max-content minmax(0, 480px);
+		grid-template-columns: max-content minmax(0, 1fr);
 		gap: 0.75rem 1rem;
 		align-items: center;
-		margin: 1rem 0;
+		padding: 1rem;
+	}
+	.form ui5-input {
+		width: 100%;
+	}
+	.form ui5-segmented-button {
+		justify-self: start;
+	}
+	@media (max-width: 600px) {
+		.form {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0.25rem;
+		}
+		.form > :nth-child(even) {
+			margin-bottom: 0.5rem;
+		}
 	}
 </style>

@@ -38,4 +38,6 @@
 			</ui5-card>
 		{/each}
 	</div>
+{:else}
+	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
 {/if}

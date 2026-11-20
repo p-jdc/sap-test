@@ -64,4 +64,12 @@ import '@ui5/webcomponents-icons/dist/sys-help.js';
 import '@ui5/webcomponents-icons/dist/warning.js';
 import '@ui5/webcomponents-icons/dist/error.js';
 
-void setTheme('sap_horizon');
+// The theme follows the operating system. `color-scheme` is set alongside it so everything that is
+// not UI5 (scrollbars, the flow canvas, which styles itself with light-dark()) switches too.
+const dark = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+	document.documentElement.style.colorScheme = dark.matches ? 'dark' : 'light';
+	void setTheme(dark.matches ? 'sap_horizon_dark' : 'sap_horizon');
+}
+applyTheme();
+dark.addEventListener('change', applyTheme);

@@ -15,20 +15,22 @@
 	></ui5-button>
 </div>
 
-{#if runs.current && runs.current.runs.length === 0}
+{#if !runs.current}
+	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
+{:else if runs.current.runs.length === 0}
 	<ui5-illustrated-message name="NoData" title-text="No runs yet">
 		<span slot="subtitle">
 			Start one from the <a href={homeHref()}>dashboard</a> or the
 			<a href={testsHref()}>tests page</a>.
 		</span>
 	</ui5-illustrated-message>
-{:else if runs.current}
+{:else}
 	<ui5-table>
 		<ui5-table-header-row slot="headerRow">
-			<ui5-table-header-cell min-width="180px">Started</ui5-table-header-cell>
-			<ui5-table-header-cell>Status</ui5-table-header-cell>
-			<ui5-table-header-cell min-width="240px">Result</ui5-table-header-cell>
-			<ui5-table-header-cell>Duration</ui5-table-header-cell>
+			<ui5-table-header-cell width="12rem">Started</ui5-table-header-cell>
+			<ui5-table-header-cell width="8rem">Status</ui5-table-header-cell>
+			<ui5-table-header-cell width="16rem">Result</ui5-table-header-cell>
+			<ui5-table-header-cell width="7rem">Duration</ui5-table-header-cell>
 			<ui5-table-header-cell min-width="200px">Scope</ui5-table-header-cell>
 		</ui5-table-header-row>
 		{#each runs.current.runs as r (r.id)}

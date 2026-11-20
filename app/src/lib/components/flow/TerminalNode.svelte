@@ -19,8 +19,9 @@
 		text-align: center;
 		padding: 0.5rem;
 		border-radius: 999px;
-		background: #1d2d3e;
-		color: #fff;
+		/* Inverted against the canvas, so it reads in the light and in the dark theme. */
+		background: var(--sapTextColor, #1d2d3e);
+		color: var(--sapGroup_ContentBackground, #fff);
 		display: flex;
 		flex-direction: column;
 		font-size: 0.8125rem;
@@ -39,5 +40,12 @@
 	.skipped,
 	.interrupted {
 		background: var(--sapCriticalColor);
+	}
+	.passed,
+	.failed,
+	.timedOut,
+	.skipped,
+	.interrupted {
+		color: var(--sapContent_ContrastTextColor, #fff);
 	}
 </style>
