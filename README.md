@@ -29,10 +29,10 @@ Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
 ## Setup
 
-Requirements: Node 22 (Playwright-SAP) and Bun ≥ 1.4 (app). Run everything from the repo root:
+Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright always runs on Node). Run everything from the repo root:
 
 ```bash
-bun run setup          # installs app/ (bun) and sap-tests/ (npm) plus both Chromium builds
+bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
 cp sap-tests/.env.example sap-tests/.env   # SAP_URL / SAP_USERNAME / SAP_PASSWORD (test system, user without MFA)
 bun run dev            # http://localhost:5173
 ```
@@ -48,7 +48,7 @@ bun run dev            # http://localhost:5173
 | `ci` | Everything CI runs, in order |
 | `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
 
-The root is deliberately not a workspace: `app/` (Bun) and `sap-tests/` (npm, Playwright-SAP aliased as
+The root is deliberately not a workspace: `app/` and `sap-tests/` (Playwright-SAP aliased as
 `@playwright/test`) keep separate dependency trees so the fork and the app's own Playwright never collide.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
@@ -99,9 +99,9 @@ Same layout as the reference app, but stricter:
 - **knip** reports unused files, exports and dependencies.
 - **ESLint** keeps only what oxlint cannot do (eslint-plugin-svelte, incl.
   `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
-- **sap-tests** has its own `npm run lint` (oxlint, type-aware). Its main job is
+- **sap-tests** has its own `bun run lint` (oxlint, type-aware). Its main job is
   `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
-  It also bans `waitForTimeout` (guide §5.2). `npm run format` uses oxfmt with the same style.
+  It also bans `waitForTimeout` (guide §5.2). `bun run format` uses oxfmt with the same style.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
@@ -125,5 +125,9 @@ lookups.
 - SSR is off (`app/src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
   import time and have no server renderer. Remote functions and `+server` routes still run on the server.
 - UI5 loads its "72" font from a CDN by default; behind a strict proxy the app falls back to system fonts.
+- Bun installs everything, but Playwright runs on Node. Bun 1.4 can run `playwright test` itself, but
+  not with the Playwright-SAP fork (1.53): under `bun --bun` it exits 0 without loading any test. The
+  app therefore starts the fork's CLI with the first real `node` on PATH (`PLAYWRIGHT_NODE` overrides).
+  Re-check after the fork upgrade (guide §6).
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.
