@@ -5,10 +5,12 @@
 // (packages/playwright-core/src/utils/isomorphic/sap/locatorUtils.ts and client/page.ts,
 // Apache-2.0, Copyright Arpit Sureka). waitForUI5 and the ui5* model reads (ui5.ts) are our own
 // additions; the fork has no counterpart.
+import { existsSync } from 'node:fs';
 import { test as base, expect, selectors } from '@playwright/test';
 import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
 import { fillSecret } from './secret';
+import { sessionFile, type SapSession } from './session';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
@@ -26,7 +28,11 @@ export interface SapPageMethods {
 	locateSID(sid: string): Locator;
 	/** A WebGUI element by role and name or position, e.g. `('textField', { name: 'VBAK-VBELN' })`. */
 	getByRoleSID(role: string, options: ByRoleSIDOptions): Locator;
-	/** Logs in on a Fiori launchpad or NetWeaver login page. */
+	/**
+	 * Logs in on a Fiori launchpad or NetWeaver login page. When the test starts with a saved
+	 * session (the SAP projects, see session.ts), it only opens `url` and types nothing; a login
+	 * page there means the session has expired, which fails the test.
+	 */
 	SAPLogin(username: string, password: string, url?: string): Promise<Response | null>;
 	/**
 	 * Waits until UI5 has rendered and is at rest (no open request, timer or rendering). For state
@@ -75,19 +81,40 @@ export function getByRoleSIDSelector(role: string, options: ByRoleSIDOptions): s
 	return `${ENGINES.sid}=${wnd}/${sub}/${prefix}${options.name ?? ''}${position}`;
 }
 
+const netweaverUserField = (page: Page) => page.getByRole('textbox', { name: 'User Required' });
+const fioriUserField = (page: Page) => page.getByRole('textbox', { name: 'User', exact: true });
+
+/** The user field of a Fiori launchpad or NetWeaver login page: visible while signed out. */
+export function sapLoginPage(page: Page): Locator {
+	return netweaverUserField(page).or(fioriUserField(page)).first();
+}
+
 async function sapLogin(
 	page: Page,
 	username: string,
 	password: string,
 	url?: string
 ): Promise<Response | null> {
+	// A test's browser context starts without cookies unless it was given a saved session.
+	const fromSession = (await page.context().cookies()).length > 0;
 	const response = url ? await page.goto(url) : null;
-	const netweaverUser = page.getByRole('textbox', { name: 'User Required' });
-	const fioriUser = page.getByRole('textbox', { name: 'User', exact: true });
-	await expect(
-		netweaverUser.or(fioriUser).first(),
-		'SAPLogin: no Fiori launchpad or NetWeaver login page found'
-	).toBeVisible({ timeout: 30_000 });
+	const netweaverUser = netweaverUserField(page);
+	const fioriUser = fioriUserField(page);
+	const loginPage = sapLoginPage(page);
+	if (fromSession) {
+		// Typing the password here would put it into this test's trace.
+		if (await loginPage.isVisible()) {
+			throw new Error(
+				'SAPLogin: the saved SAP session is no longer valid (a login page opened). Run the tests again: the sign-in setup saves a new one.'
+			);
+		}
+		return response;
+	}
+	await expect(loginPage, 'SAPLogin: no Fiori launchpad or NetWeaver login page found').toBeVisible(
+		{
+			timeout: 30_000
+		}
+	);
 
 	if (await netweaverUser.isVisible()) {
 		await netweaverUser.fill(username);
@@ -125,7 +152,23 @@ export function withSapMethods(page: Page): Page {
 
 const onContext = (context: BrowserContext) => context.on('page', withSapMethods);
 
-export const test = base.extend<object, { sapSelectorEngines: void }>({
+/** Options of the SAP projects in playwright.config.ts. */
+export type SapOptions = {
+	/**
+	 * The saved session the tests start with (session.ts), or none. Set per project; the setup
+	 * project that saves it must be one of the project's dependencies.
+	 */
+	sapSession: SapSession | undefined;
+};
+
+export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
+	sapSession: [undefined, { option: true }],
+	// Read when the test starts, after the setup project has saved the session. Without the file
+	// (the setup was left out, e.g. with --no-deps), the test starts signed out.
+	storageState: async ({ sapSession, storageState }, use) => {
+		const file = sapSession ? sessionFile(sapSession) : undefined;
+		await use(file && existsSync(file) ? file : storageState);
+	},
 	// Once per worker. Not a content script: the UI5 engines read window.sap, which only the page's
 	// own JavaScript world has.
 	sapSelectorEngines: [
@@ -150,5 +193,6 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 });
 
 export { expect, fillSecret };
+export { clearSession, saveSession, signingIn, type SapSession } from './session';
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';

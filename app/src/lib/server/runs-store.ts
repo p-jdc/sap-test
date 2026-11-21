@@ -113,12 +113,10 @@ function testResults(id: string): TestResult[] {
 	const hit = results.get(id);
 	if (hit) return hit;
 	const state = readState(join(RUNS_DIR, id, 'state.json'));
-	const found = (state?.tests ?? []).map(({ key, file, title, status }) => ({
-		key,
-		file,
-		title,
-		status
-	}));
+	// A sign-in is no flow.
+	const found = (state?.tests ?? [])
+		.filter((t) => !t.setup)
+		.map(({ key, file, title, status }) => ({ key, file, title, status }));
 	results.set(id, found);
 	return found;
 }

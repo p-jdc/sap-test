@@ -26,6 +26,8 @@
 	const isLive = $derived(runs.current?.active === id);
 	const query = $derived(isLive ? watchRunLive(id) : getRun(id));
 	const run = $derived(query.current);
+	/** The tests of a sign-in that failed did not run (Playwright skips them). */
+	const signInFailed = $derived(run?.tests.some((t) => t.setup && t.status === 'failed') ?? false);
 	let error = $state<string | null>(null);
 
 	// When a live run ends, refresh the lists that depend on it.
@@ -184,8 +186,14 @@
 				<span class="muted dur">{duration(t.duration)}</span>
 			</div>
 			<div class="test-body">
+				{#if t.setup}
+					<span class="muted">
+						Signs in once for the tests of this run, which start signed in. It runs without a trace
+						or video, so the password stays out of the run's records.
+					</span>
+				{/if}
 				<div class="row">
-					<a href={flowHref(t.key, id)}>View the steps</a>
+					{#if !t.setup}<a href={flowHref(t.key, id)}>View the steps</a>{/if}
 					{#if run.hasReport && t.status}
 						<a
 							href={reportHref(id, t.testId)}
@@ -201,7 +209,7 @@
 							Replay step by step
 						</a>
 					{/if}
-					{#if !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
+					{#if !t.setup && !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
 						<ui5-button
 							design="Transparent"
 							icon="play"
@@ -211,7 +219,9 @@
 						</ui5-button>
 					{/if}
 				</div>
-				{#if t.status === 'skipped' && !view.technical}
+				{#if t.status === 'skipped' && signInFailed && !t.setup}
+					<span class="muted">This test did not run because signing in failed.</span>
+				{:else if t.status === 'skipped' && !view.technical}
 					<span class="muted">
 						This test was skipped. Most often the SAP connection is not set up yet; check
 						<a href={settingsHref()}>Settings</a>.
@@ -219,6 +229,13 @@
 				{/if}
 				{#if t.error && view.technical}
 					<pre class="log">{t.error.message}</pre>
+				{:else if t.error && t.setup}
+					<ui5-message-strip design="Negative" hide-close-button>
+						Signing in failed, so the tests that need it did not run. Check the user and password in
+						<a href={settingsHref()}>Settings</a>{t.attachments.length
+							? '; the picture below shows the screen at that moment'
+							: ''}.
+					</ui5-message-strip>
 				{:else if t.error}
 					<ui5-message-strip design="Negative" hide-close-button>
 						This test did not finish successfully. “View the steps” shows where it stopped{t

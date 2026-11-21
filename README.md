@@ -24,9 +24,30 @@ Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLog
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
 HTML report of every run. `fillSecret` hands the value to the password field through a one-time
 page binding instead. The app also masks every password it knows of in the run state and log it
-keeps. The trace of a failed test still holds the password of a browser login (its page snapshots
-and network log record it, like any Playwright trace), and so may `error-context.md`: treat
-`app/.data/runs` as secret.
+keeps.
+
+### Signing in once per run
+
+A Playwright trace records the password of any browser login: the page snapshots show the filled
+field and the network log the login request. So the tests do not sign in themselves. Two setup
+projects in `sap-tests/playwright.config.ts` sign in once per run, with trace and video off, and
+save the session in `sap-tests/.auth/` (gitignored):
+
+| Project | Tests | Signs in with | Session |
+| --- | --- | --- | --- |
+| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
+| `ariba` | `tests/ariba` | `setup/ariba.setup.ts`: `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` | `.auth/ariba-session.json` |
+| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – | – |
+
+The tests of the `sap` and `ariba` projects start signed in. `page.SAPLogin(…)` stays in the
+specs and in recordings, but with a saved session it only opens the URL. A login page there means
+the session has expired, which fails the test instead of typing the password into its trace. A
+setup project runs only when a selected test needs it (also with a file or `--grep` filter). If it
+fails, the tests that need it do not run, and the Results page says so. With `--no-deps`, or for a
+second test user signing in within a test, the password is typed in a traced test again.
+
+A trace still holds the session cookies, which are valid until the SAP session ends. Treat
+`app/.data/runs` and `sap-tests/.auth` as secret.
 
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
 only, because its codegen is what writes SAP locators. The app starts it for "Record a test" and

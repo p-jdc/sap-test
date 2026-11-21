@@ -175,10 +175,14 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 		state.status = 'error';
 		state.log.push('No tests were run.');
 	} else if (state.status === 'running') state.status = code === 0 ? 'passed' : 'failed';
+	// Playwright does not run the tests of a sign-in that failed, and reports nothing for them.
+	const signInFailed = state.tests.some((t) => t.setup && t.status === 'failed');
 	for (const t of state.tests) {
 		if (t.running) {
 			t.running = false;
 			t.status = 'interrupted';
+		} else if (!t.status && signInFailed) {
+			t.status = 'skipped';
 		}
 	}
 	recount(state);

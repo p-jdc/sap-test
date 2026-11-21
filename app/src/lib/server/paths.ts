@@ -6,6 +6,8 @@ export const TESTS_ROOT = resolve(
 );
 export const TESTS_DIR = resolve(TESTS_ROOT, 'tests');
 export const HELPERS_DIR = resolve(TESTS_ROOT, 'helpers');
+/** The sign-in setup projects (sap-tests/setup/*.setup.ts), which run before the tests that need them. */
+export const SETUP_DIR = resolve(TESTS_ROOT, 'setup');
 
 /** Run history, reports and artifacts. Override with TEST_APP_DATA_DIR. */
 export const DATA_DIR = resolve(process.env.TEST_APP_DATA_DIR || resolve(process.cwd(), '.data'));

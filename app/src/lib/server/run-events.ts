@@ -1,5 +1,5 @@
 import { relative } from 'node:path';
-import { TESTS_DIR, toPosix } from './paths.js';
+import { SETUP_DIR, TESTS_DIR, toPosix, within } from './paths.js';
 import type { Attachment, RunState, RunTest, TestStatus } from '#lib/shared/types.js';
 
 /** Marks a reporter event line in the Playwright process's stdout. */
@@ -13,6 +13,11 @@ function specRel(file: string | undefined): string | undefined {
 	if (!file) return undefined;
 	const rel = relative(TESTS_DIR, file);
 	return rel.startsWith('..') ? undefined : toPosix(rel);
+}
+
+/** A sign-in from sap-tests/setup, which Playwright runs as a test before the tests that need it. */
+function isSetup(file: string): boolean {
+	return within(SETUP_DIR, relative(SETUP_DIR, file)) !== null;
 }
 
 type Loc = { file: string; line: number; column: number };
@@ -56,12 +61,14 @@ export function applyEvent(state: RunState, dir: string, ev: ReporterEvent) {
 		case 'begin':
 			state.tests = ev.tests.map((t): RunTest => {
 				const file = specRel(t.location?.file) ?? '';
+				const setup = t.location !== undefined && isSetup(t.location.file);
 				return {
 					testId: t.id,
 					key: `${file}::${t.titlePath.join(' › ')}`,
 					file,
 					title: t.title,
 					line: t.location?.line ?? 0,
+					...(setup ? { setup } : {}),
 					steps: [],
 					attachments: []
 				};

@@ -108,6 +108,11 @@ export interface RunTest {
 	retry?: number;
 	/** A `test.fail()` test that failed as declared; its status is `passed`. */
 	expectedFailure?: boolean;
+	/**
+	 * A sign-in from sap-tests/setup that saves the session the tests start with. Playwright runs
+	 * it as a test, but it is no flow of a spec file.
+	 */
+	setup?: boolean;
 	error?: { message: string; line?: number; file?: string };
 	steps: RunStep[];
 	attachments: Attachment[];
