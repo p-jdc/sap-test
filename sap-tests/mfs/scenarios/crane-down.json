@@ -1,0 +1,41 @@
+{
+	"title": "Stacker crane fails with a task waiting",
+	"description": "SRM1 fails while an HU is on its way to it. The HU must wait at the crane's infeed, EWM must stop sending new HUs to aisle 1, and the waiting HU is stored once the crane runs again.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [
+		{ "enter": "A" },
+		{
+			"title": "Wait until the transfer car takes A to aisle 1",
+			"wait": { "event": "HU {A} IP → A1-IN" }
+		},
+		{ "title": "SRM1 fails while A is on its way to it", "device": "SRM1", "status": "DOWN" },
+		{ "wait": { "hu": "A", "at": "A1-IN" } },
+		{ "pause": "5s" },
+		{
+			"title": "Check: A still waits at the infeed of the failed crane",
+			"check": { "hu": "A", "at": "A1-IN" }
+		},
+		{ "enter": "B" },
+		{ "enter": "C" },
+		{ "enter": "D" },
+		{ "wait": { "hu": "D", "at": "bin" } },
+		{
+			"title": "Check: D, due for aisle 1, went to another aisle",
+			"check": { "hu": "D", "notAt": "A1-*" }
+		},
+		{ "device": "SRM1", "status": "UP" },
+		{ "wait": { "hu": "A", "at": "bin" } }
+	],
+	"expect": [
+		{ "hu": "A", "at": "A1-*", "ewm": "stored" },
+		{ "hu": "D", "at": "bin", "notAt": "A1-*", "ewm": "stored" },
+		{
+			"telegram": {
+				"type": "STAT",
+				"from": "SRM1",
+				"fields": { "device": "SRM1", "status": "DOWN" }
+			}
+		}
+	]
+}

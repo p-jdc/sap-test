@@ -2,6 +2,7 @@ import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import {
+	listScenarios,
 	listSetups,
 	mfsAction,
 	SETUP_NAME,
@@ -27,13 +28,16 @@ async function act(path: string, body: unknown) {
 
 export const getMfsSetups = query(() => listSetups());
 
+export const getMfsScenarios = query(() => listScenarios());
+
 export const watchMfsLive = query.live(() => watchMfs());
 
 export const startMfs = command(
 	z.object({
 		setup: z.string().regex(SETUP_NAME),
 		mode: z.enum(['ewm', 'demo']),
-		speed: z.number().min(0.1).max(100)
+		speed: z.number().min(0.1).max(100),
+		scenario: z.string().regex(SETUP_NAME).optional()
 	}),
 	async (input) => {
 		try {
@@ -80,3 +84,12 @@ export const ewmRetrieve = command(z.object({ hu: huNumber, to: objectId }), ({ 
 export const ewmPicked = command(z.object({ hu: huNumber }), ({ hu }) =>
 	act(`/ewm/hus/${encodeURIComponent(hu)}/picked`, {})
 );
+
+/** Starts a scenario on the running Mock PLC. */
+export const startScenario = command(z.object({ name: z.string().regex(SETUP_NAME) }), ({ name }) =>
+	act('/scenario/start', { name })
+);
+
+export const pauseScenario = command(() => act('/scenario/pause', {}));
+export const resumeScenario = command(() => act('/scenario/resume', {}));
+export const stopScenario = command(() => act('/scenario/stop', {}));

@@ -1,0 +1,12 @@
+{
+	"title": "Putaway into the high rack",
+	"description": "An HU arrives at goods receipt, passes the identification point and is stored by a stacker crane. EWM sends one task per stage, and every stage is confirmed once.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [{ "enter": "A" }, { "wait": { "hu": "A", "at": "bin" } }],
+	"expect": [
+		{ "hu": "A", "at": "bin", "ewm": "stored" },
+		{ "telegram": { "type": "SCAN", "fields": { "hu": "{A}", "result": "OK" } }, "count": 1 },
+		{ "telegram": { "type": "WTCO", "fields": { "hu": "{A}", "result": "OK" } }, "count": 2 }
+	]
+}

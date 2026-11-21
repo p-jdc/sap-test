@@ -1,0 +1,14 @@
+{
+	"title": "Bin occupied on putaway",
+	"description": "The stacker crane finds the destination bin full and refuses the putaway. EWM must pick another bin in the same aisle and send the crane there.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
+	"expect": [
+		{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" },
+		{
+			"telegram": { "type": "WTCO", "from": "SRM1", "fields": { "hu": "{A}", "result": "OCCU" } },
+			"count": 1
+		}
+	]
+}

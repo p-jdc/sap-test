@@ -9,11 +9,14 @@ import { z } from 'zod';
 import {
 	EwmStateSchema,
 	MfsEventSchema,
+	MfsScenarioInfoSchema,
+	MfsScenarioRunSchema,
 	MfsSetupSchema,
 	MfsStateSchema,
 	MfsTelegramSchema,
 	type MfsEvent,
 	type MfsMode,
+	type MfsScenarioInfo,
 	type MfsSetup,
 	type MfsSnapshot,
 	type MfsStatus,
@@ -67,6 +70,24 @@ export function listSetups(): string[] {
 		.toSorted();
 }
 
+/**
+ * The scenario files in sap-tests/mfs/scenarios, for choosing one before the Mock PLC runs. Only the fields shown
+ * here are read; the Mock PLC checks the whole file when it runs one (and sap-tests' tests check every file).
+ */
+export function listScenarios(): MfsScenarioInfo[] {
+	const dir = resolve(MFS_DIR, 'scenarios');
+	if (!existsSync(dir)) return [];
+	return readdirSync(dir)
+		.filter((file) => file.endsWith('.json') && SETUP_NAME.test(file.slice(0, -'.json'.length)))
+		.flatMap((file) => {
+			const parsed = MfsScenarioInfoSchema.omit({ name: true }).safeParse(
+				JSON.parse(readFileSync(resolve(dir, file), 'utf8'))
+			);
+			return parsed.success ? [{ name: file.slice(0, -'.json'.length), ...parsed.data }] : [];
+		})
+		.toSorted((a, b) => a.title.localeCompare(b.title));
+}
+
 export function mfsStatus(): MfsStatus {
 	if (externalUrl()) return { running: true, external: true };
 	if (!running) return { running: false, external: false, error: lastError };
@@ -103,7 +124,7 @@ function bunBinary(): string {
 	return process.versions.bun ? process.execPath : 'bun';
 }
 
-export type StartInput = { setup: string; mode: MfsMode; speed: number };
+export type StartInput = { setup: string; mode: MfsMode; speed: number; scenario?: string };
 
 /**
  * Starts the emulator and resolves when its control API answers. In `demo` mode the fake EWM runs inside it and
@@ -200,6 +221,16 @@ async function launch(input: StartInput): Promise<void> {
 		running = null;
 		if (!current.stopping) lastError = `The emulator stopped unexpectedly (exit code ${code}).`;
 	});
+	if (input.scenario) {
+		try {
+			await mfsAction('/scenario/start', { name: input.scenario });
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new Error(`The Mock PLC is running, but the scenario did not start: ${reason}`, {
+				cause: error
+			});
+		}
+	}
 }
 
 export function stopEmulator(): boolean {
@@ -255,6 +286,7 @@ const sleep = (ms: number) =>
 export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 	let instance: string | undefined;
 	let setup: MfsSetup | undefined;
+	let scenarios: MfsScenarioInfo[] | undefined;
 	let telegrams: MfsTelegram[] = [];
 	let events: MfsEvent[] = [];
 	let last = '';
@@ -264,6 +296,7 @@ export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 		if (key !== instance) {
 			instance = key;
 			setup = undefined;
+			scenarios = undefined;
 			telegrams = [];
 			events = [];
 		}
@@ -274,19 +307,23 @@ export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 				// oxlint-disable-next-line no-await-in-loop
 				setup ??= await call('/setup', MfsSetupSchema);
 				// oxlint-disable-next-line no-await-in-loop
-				const [state, newTelegrams, newEvents, ewm] = await Promise.all([
+				scenarios ??= await call('/scenarios', z.array(MfsScenarioInfoSchema));
+				// oxlint-disable-next-line no-await-in-loop
+				const [state, run, newTelegrams, newEvents, ewm] = await Promise.all([
 					call('/state', MfsStateSchema),
+					call('/scenario', MfsScenarioRunSchema.nullable()),
 					call(`/log?since=${since(telegrams)}`, z.array(MfsTelegramSchema)),
 					call(`/events?since=${since(events)}`, z.array(MfsEventSchema)),
 					status.mode === 'demo' ? call('/ewm/state', EwmStateSchema) : undefined
 				]);
 				telegrams = [...telegrams, ...newTelegrams].slice(-KEEP);
 				events = [...events, ...newEvents].slice(-KEEP);
-				snapshot = { status, setup, state, ewm, telegrams, events };
+				snapshot = { status, setup, state, ewm, scenarios, run, telegrams, events };
 			} catch (error) {
 				snapshot = {
 					status: { ...status, error: error instanceof Error ? error.message : String(error) },
 					setup,
+					scenarios,
 					telegrams,
 					events
 				};

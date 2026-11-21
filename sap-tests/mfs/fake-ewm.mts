@@ -5,7 +5,7 @@
 import { connect } from 'node:net';
 import { Channel, type ChannelTiming, type LogEntry } from './channel.mts';
 import { craneBins, deviceFor, type LoadedSetup, type StackerCraneDef } from './setup.mts';
-import type { Telegram } from './telegram.mts';
+import type { Fields, Telegram } from './telegram.mts';
 
 export type EwmHuStatus =
 	| 'routing'
@@ -58,49 +58,94 @@ export class FakeEwm {
 	#noRead = 0;
 	#nextAisle = 0;
 	#log: (entry: LogEntry) => void;
+	#outbox = new Map<string, { type: string; fields: Fields }[]>();
+	#timers = new Set<NodeJS.Timeout>();
+	#closed = false;
+	#reconnectMs: number;
 
 	constructor(options: {
 		setup: LoadedSetup;
 		timing?: Partial<ChannelTiming>;
 		log?: (entry: LogEntry) => void;
+		/** Wait before connecting again after a PLC dropped the connection. */
+		reconnectMs?: number;
 	}) {
 		this.#setup = options.setup;
 		this.#timing = { ackTimeoutMs: 2000, maxResends: 3, lifeIntervalMs: 10_000, ...options.timing };
 		this.#log = options.log ?? (() => undefined);
+		this.#reconnectMs = options.reconnectMs ?? 1000;
 	}
 
-	/** Connects to every PLC (`ports` as returned by Emulator.start). */
+	/**
+	 * Connects to every PLC (`ports` as returned by Emulator.start). Like EWM, it connects again when a PLC drops
+	 * the connection, and keeps telegrams it could not send until then.
+	 */
 	async connect(ports: Record<string, number>, host = '127.0.0.1'): Promise<void> {
+		this.#closed = false;
 		await Promise.all(
-			this.#setup.plcs.map(
-				(plc) =>
-					new Promise<void>((resolve, reject) => {
-						const port = ports[plc.id];
-						if (port === undefined) return reject(new Error(`no port for PLC ${plc.id}`));
-						const socket = connect(port, host, () => {
-							this.#channels.set(
-								plc.id,
-								new Channel({
-									name: plc.id,
-									local: this.#setup.ewm,
-									remote: plc.id,
-									layout: this.#setup.layout,
-									socket,
-									timing: this.#timing,
-									log: this.#log,
-									onTelegram: (telegram) => this.#onTelegram(telegram)
-								})
-							);
-							resolve();
-						});
-						socket.once('error', reject);
-					})
-			)
+			this.#setup.plcs.map((plc) => {
+				const port = ports[plc.id];
+				if (port === undefined) return Promise.reject(new Error(`no port for PLC ${plc.id}`));
+				return this.#open(plc.id, port, host);
+			})
 		);
 	}
 
+	#open(plc: string, port: number, host: string): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const socket = connect(port, host, () => {
+				const channel = new Channel({
+					name: plc,
+					local: this.#setup.ewm,
+					remote: plc,
+					layout: this.#setup.layout,
+					socket,
+					timing: this.#timing,
+					log: this.#log,
+					onTelegram: (telegram) => this.#onTelegram(telegram),
+					onClose: () => {
+						if (!this.#closed) this.#reconnect(plc, port, host);
+					}
+				});
+				this.#channels.set(plc, channel);
+				const waiting = this.#outbox.get(plc) ?? [];
+				this.#outbox.delete(plc);
+				for (const { type, fields } of waiting) channel.send(type, fields);
+				resolve();
+			});
+			socket.once('error', (error) => {
+				reject(error);
+				// A refused reconnect is retried, like the first lost connection.
+				if (this.#channels.has(plc) && !this.#closed) this.#reconnect(plc, port, host);
+			});
+		});
+	}
+
+	#reconnect(plc: string, port: number, host: string) {
+		const retry = setTimeout(() => {
+			this.#timers.delete(retry);
+			// The timer callback only starts the attempt; a failed attempt schedules the next one itself.
+			this.#open(plc, port, host).catch(() => undefined);
+		}, this.#reconnectMs);
+		this.#timers.add(retry);
+	}
+
 	close(): void {
+		this.#closed = true;
+		for (const timer of this.#timers) clearTimeout(timer);
+		this.#timers.clear();
 		for (const channel of this.#channels.values()) channel.close();
+	}
+
+	/** Forgets every HU, task and blocked bin: the warehouse EWM knows is empty again (demo scenarios). */
+	reset(): void {
+		this.tasks.clear();
+		this.hus.clear();
+		this.#plans.clear();
+		this.#craneDown.clear();
+		this.#reserved.clear();
+		this.#noRead = 0;
+		this.#nextAisle = 0;
 	}
 
 	hu(hu: string): EwmHu | undefined {
@@ -116,7 +161,7 @@ export class FakeEwm {
 	sendTask(plc: string, hu: string, src: string, dst: string): string {
 		const tanum = this.#newTanum();
 		this.tasks.set(tanum, { tanum, hu, src, dst, plc, status: 'open', raw: true });
-		this.#channel(plc).send('WT', { hu, src, dst, tanum });
+		this.#send(plc, 'WT', { hu, src, dst, tanum });
 		return tanum;
 	}
 
@@ -214,7 +259,7 @@ export class FakeEwm {
 			plc: device.plc,
 			status: 'open'
 		});
-		this.#channel(device.plc).send('WT', { hu, src: stage.src, dst: stage.dst, tanum });
+		this.#send(device.plc, 'WT', { hu, src: stage.src, dst: stage.dst, tanum });
 	}
 
 	#onConfirmation(paddedTanum: string, result: string) {
@@ -293,10 +338,11 @@ export class FakeEwm {
 		return this.#setup.points.find((candidate) => candidate.id === point)?.role;
 	}
 
-	#channel(plc: string): Channel {
+	/** Sends now, or once the PLC is connected again. */
+	#send(plc: string, type: string, fields: Fields) {
 		const channel = this.#channels.get(plc);
-		if (!channel) throw new Error(`not connected to PLC ${plc}`);
-		return channel;
+		if (channel?.open) return channel.send(type, fields);
+		this.#outbox.set(plc, [...(this.#outbox.get(plc) ?? []), { type, fields }]);
 	}
 
 	#newTanum(): string {

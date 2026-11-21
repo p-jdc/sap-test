@@ -107,3 +107,34 @@ test('Mock PLC: the demo stores an HU, sends one with a contour error to clearin
 	await page.locator('ui5-button[icon="stop"]').click();
 	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
 });
+
+test('Mock PLC: a scenario chosen at the start runs and passes, step by step', async ({ page }) => {
+	await page.goto('/mfs');
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+	await page.locator('#mode').click();
+	await page.locator('ui5-option[data-value="demo"]').click();
+	await page.locator('#speed').click();
+	await page.locator('ui5-option[data-value="10"]').click();
+	await page.locator('#scenario').click();
+	await page.locator('ui5-option[data-value="rejected-at-id-point"]').click();
+	await expect(page.getByText('One HU sticks out (contour error)')).toBeVisible();
+	await page.locator('ui5-button[icon="play"]').click();
+
+	await expect(page.getByText('Scenario: Rejected at the identification point')).toBeVisible({
+		timeout: 20_000
+	});
+	await expect(page.locator('ui5-tag', { hasText: 'Passed' })).toBeVisible({ timeout: 30_000 });
+	await expect(page.getByText('HU A arrives at goods receipt, with a contour error')).toBeVisible();
+	await expect(page.getByText('Expected results')).toBeVisible();
+	await expect(page.locator('.check.failed')).toHaveCount(0);
+
+	// Another scenario on the same Mock PLC.
+	await page.locator('#next-scenario').click();
+	await page.locator('ui5-option', { hasText: 'Putaway into the high rack' }).click();
+	await page.locator('ui5-button', { hasText: 'Run' }).click();
+	await expect(page.getByText('Scenario: Putaway into the high rack')).toBeVisible();
+	await expect(page.locator('ui5-tag', { hasText: 'Passed' })).toBeVisible({ timeout: 30_000 });
+
+	await page.locator('ui5-button[icon="stop"]').click();
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+});
