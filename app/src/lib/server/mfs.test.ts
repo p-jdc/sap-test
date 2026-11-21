@@ -141,9 +141,10 @@ describe('Mock PLC', () => {
 		const input = { setup: 'sap-example', mode: 'demo', speed: 20 } as const;
 		const results = await Promise.allSettled([startEmulator(input), startEmulator(input)]);
 		expect(results.map((result) => result.status).toSorted()).toEqual(['fulfilled', 'rejected']);
-		expect(results.map((result) => String(Reflect.get(result, 'reason'))).join()).toContain(
-			'already starting'
+		const refused = results.filter(
+			(result): result is PromiseRejectedResult => result.status === 'rejected'
 		);
+		expect(refused.map((result) => String(result.reason)).join()).toContain('already starting');
 		expect(mfsStatus()).toMatchObject({ running: true, setup: 'sap-example' });
 		// The one that runs is the one the app knows, so stopping it leaves none behind.
 		expect(stopEmulator()).toBe(true);

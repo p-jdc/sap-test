@@ -17,8 +17,8 @@ import type {
 const PREFIX = '@@pwlive@@';
 const KEEP = new Set(['pw:api', 'expect', 'test.step']);
 
-function emit(event: Record<string, unknown>) {
-	process.stdout.write(PREFIX + JSON.stringify(event) + '\n');
+function emit(type: string, fields: object = {}) {
+	process.stdout.write(PREFIX + JSON.stringify({ type, ...fields }) + '\n');
 }
 
 function loc(l: Location | undefined) {
@@ -45,8 +45,7 @@ export default class LiveReporter implements Reporter {
 	}
 
 	onBegin(config: FullConfig, suite: Suite) {
-		emit({
-			type: 'begin',
+		emit('begin', {
 			rootDir: config.rootDir,
 			tests: suite.allTests().map((t) => ({
 				id: t.id,
@@ -58,7 +57,7 @@ export default class LiveReporter implements Reporter {
 	}
 
 	onTestBegin(test: TestCase, result: TestResult) {
-		emit({ type: 'testBegin', testId: test.id, retry: result.retry, startTime: result.startTime });
+		emit('testBegin', { testId: test.id, retry: result.retry, startTime: result.startTime });
 	}
 
 	onStepBegin(test: TestCase, _result: TestResult, step: TestStep) {
@@ -67,8 +66,7 @@ export default class LiveReporter implements Reporter {
 		this.stepIds.set(step, id);
 		let parent = step.parent;
 		while (parent && !this.stepIds.has(parent)) parent = parent.parent;
-		emit({
-			type: 'stepBegin',
+		emit('stepBegin', {
 			testId: test.id,
 			stepId: id,
 			parentId: parent ? this.stepIds.get(parent) : undefined,
@@ -82,8 +80,7 @@ export default class LiveReporter implements Reporter {
 	onStepEnd(test: TestCase, _result: TestResult, step: TestStep) {
 		const id = this.stepIds.get(step);
 		if (!id) return;
-		emit({
-			type: 'stepEnd',
+		emit('stepEnd', {
 			testId: test.id,
 			stepId: id,
 			duration: step.duration,
@@ -92,8 +89,7 @@ export default class LiveReporter implements Reporter {
 	}
 
 	onTestEnd(test: TestCase, result: TestResult) {
-		emit({
-			type: 'testEnd',
+		emit('testEnd', {
 			testId: test.id,
 			status: result.status,
 			expectedStatus: test.expectedStatus,
@@ -107,6 +103,6 @@ export default class LiveReporter implements Reporter {
 	}
 
 	onEnd(result: FullResult) {
-		emit({ type: 'end', status: result.status, duration: result.duration });
+		emit('end', { status: result.status, duration: result.duration });
 	}
 }

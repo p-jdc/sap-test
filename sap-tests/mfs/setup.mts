@@ -110,10 +110,22 @@ export interface LoadedSetup extends Setup {
 
 const mfsDir = new URL('./', import.meta.url);
 
+/** A setup or layout is a folder or file name here, never a path: it comes from the environment or a request. */
+const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function fileName(name: string, what: string): string {
+	if (!FILE_NAME.test(name) || name.includes('..'))
+		throw new Error(`"${name}" is not the name of a ${what}`);
+	return encodeURIComponent(name);
+}
+
 export function loadSetup(name: string): LoadedSetup {
-	const setup = readJson(new URL(`setups/${name}/setup.json`, mfsDir), SetupSchema);
+	const setup = readJson(
+		new URL(`setups/${fileName(name, 'mock setup')}/setup.json`, mfsDir),
+		SetupSchema
+	);
 	const layout = readJson(
-		new URL(`layouts/${setup.telegramLayout}.telegram.json`, mfsDir),
+		new URL(`layouts/${fileName(setup.telegramLayout, 'telegram layout')}.telegram.json`, mfsDir),
 		TelegramLayoutSchema
 	);
 	const errors = validateSetup(setup);

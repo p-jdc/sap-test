@@ -7,6 +7,11 @@
 		"typeAware": true
 	},
 	"plugins": ["typescript", "unicorn", "oxc", "promise", "import"],
+	"jsPlugins": [
+		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
+		{ "name": "browser-security", "specifier": "eslint-plugin-browser-security" },
+		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }
+	],
 	"categories": {
 		"correctness": "error",
 		"suspicious": "error"
@@ -23,6 +28,7 @@
 		"playwright-report",
 		"blob-report",
 		"sap-plugin/vendor",
+		"tools/oxlint",
 		"odata/clients"
 	],
 	"rules": {
@@ -40,9 +46,89 @@
 			}
 		],
 		// dotenv/config is loaded for its side effect by design.
-		"import/no-unassigned-import": ["error", { "allow": ["dotenv/config"] }]
+		"import/no-unassigned-import": ["error", { "allow": ["dotenv/config"] }],
+
+		// Patterns that get around the type checker (rules from https://github.com/dmmulroy/anti-slop,
+		// vendored in sap-tests/tools/oxlint/anti-slop).
+		"anti-slop/no-reflect-apply": "error",
+		"anti-slop/no-reflect-get": "error",
+		"anti-slop/no-unknown-type-aliases": "error",
+		"anti-slop/no-chained-type-assertions": "error",
+		"anti-slop/no-unsafe-dictionary-type": "error",
+
+		// Security rules of eslint-plugin-secure-coding. The list and the severities follow the
+		// play-bun-ai project, which measured each rule for noise before enabling it.
+		"secure-coding/no-sql-injection": "error",
+		"secure-coding/no-hardcoded-credentials": "error",
+		"secure-coding/no-hardcoded-session-tokens": "error",
+		"secure-coding/no-fail-open-auth": "error",
+		"secure-coding/no-template-injection": "error",
+		"secure-coding/no-directive-injection": "error",
+		"secure-coding/no-xxe-injection": "error",
+		"secure-coding/no-xpath-injection": "error",
+		"secure-coding/no-ldap-injection": "error",
+		"secure-coding/detect-non-literal-regexp": "warn",
+		"secure-coding/no-redos-vulnerable-regex": "error",
+		"secure-coding/no-unsafe-regex-construction": "warn",
+		"secure-coding/no-improper-sanitization": "error",
+		"secure-coding/no-weak-password-recovery": "error",
+		"secure-coding/no-privilege-escalation": "error",
+		"secure-coding/no-missing-authentication": "error",
+		"secure-coding/no-sensitive-data-exposure": "warn",
+		"secure-coding/no-unlimited-resource-allocation": "error",
+		"secure-coding/no-unsafe-deserialization": "error",
+		"secure-coding/detect-object-injection": "warn",
+		"secure-coding/no-bidi-characters": "error",
+		"secure-coding/no-invisible-characters": "error",
+		"secure-coding/no-disabled-template-escaping": "error",
+		"secure-coding/no-pii-in-logs": "error",
+		"secure-coding/no-log-injection": "error",
+		"secure-coding/require-secure-defaults": "error",
+
+		// Security rules of eslint-plugin-browser-security, chosen the same way.
+		"browser-security/no-disabled-certificate-validation": "error",
+		"browser-security/require-mime-type-validation": "error",
+		"browser-security/no-sensitive-data-in-cache": "error",
+		"browser-security/no-unescaped-url-parameter": "error",
+		"browser-security/no-password-in-url": "error",
+		"browser-security/no-incomplete-url-sanitization": "error",
+		"browser-security/no-innerhtml": "error",
+		"browser-security/no-eval": "error",
+		"browser-security/require-postmessage-origin-check": "error",
+		"browser-security/no-postmessage-wildcard-origin": "error",
+		"browser-security/no-postmessage-innerhtml": "error",
+		"browser-security/no-sensitive-localstorage": "error",
+		"browser-security/no-jwt-in-storage": "error",
+		"browser-security/no-sensitive-sessionstorage": "error",
+		"browser-security/no-sensitive-indexeddb": "error",
+		"browser-security/no-sensitive-cookie-js": "error",
+		"browser-security/no-cookie-auth-tokens": "error",
+		"browser-security/require-cookie-secure-attrs": "error",
+		"browser-security/require-websocket-wss": "error",
+		"browser-security/no-websocket-innerhtml": "error",
+		"browser-security/no-websocket-eval": "error",
+		"browser-security/no-filereader-innerhtml": "error",
+		"browser-security/require-blob-url-revocation": "warn",
+		"browser-security/no-dynamic-service-worker-url": "error",
+		"browser-security/no-worker-message-innerhtml": "error",
+		"browser-security/no-unsafe-inline-csp": "error",
+		"browser-security/no-unsafe-eval-csp": "error",
+		"browser-security/detect-mixed-content": "error",
+		"browser-security/no-allow-arbitrary-loads": "error",
+		"browser-security/no-credentials-in-query-params": "error",
+		"browser-security/no-http-urls": "error",
+		"browser-security/no-insecure-redirects": "error",
+		"browser-security/require-https-only": "error",
+		"browser-security/no-insecure-websocket": "error",
+		"browser-security/no-unvalidated-deeplinks": "error",
+		"browser-security/no-client-side-auth-logic": "error"
 	},
 	"overrides": [
+		{
+			// Test helpers build rows and tables of any shape to feed the code under test.
+			"files": ["tests/**"],
+			"rules": { "anti-slop/no-unsafe-dictionary-type": "off" }
+		},
 		{
 			// Shows what the Test-App's rule check flags; it uses a fixed wait on purpose (test.fixme).
 			"files": ["tests/fiori/rule-findings.example.spec.ts"],

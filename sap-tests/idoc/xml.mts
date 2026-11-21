@@ -49,6 +49,7 @@ const parser = new XMLParser({
 });
 
 /** A node of the parser's ordered output: `{ TAG: children, ':@': attributes }` or `{ '#text': text }`. */
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the XML parser's own output shape, read through the checks below
 type XmlNode = Record<string, unknown>;
 
 interface XmlElement {

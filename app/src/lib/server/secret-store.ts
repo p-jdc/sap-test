@@ -23,7 +23,7 @@ type BunSecrets = {
 
 function bunSecrets(): BunSecrets | null {
 	// The app's server runs on Bun, the unit tests on Node; `Bun` is not in the app's type roots.
-	const bun: unknown = Reflect.get(globalThis, 'Bun');
+	const bun: unknown = 'Bun' in globalThis ? globalThis.Bun : undefined;
 	if (typeof bun !== 'object' || bun === null || !('secrets' in bun)) return null;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Bun's API, typed above
 	return bun.secrets as BunSecrets;
