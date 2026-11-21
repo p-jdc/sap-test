@@ -1,0 +1,48 @@
+{
+	"interfaceType": "DEMO",
+	"description": "Made up for the prototype. Real layouts come from the EWM Customizing of the PLC interface type.",
+	"fill": " ",
+	"start": "\u0002",
+	"end": "\u0003",
+	"header": [
+		{ "name": "sender", "length": 4 },
+		{ "name": "receiver", "length": 4 },
+		{ "name": "seq", "length": 4, "type": "numc" },
+		{ "name": "type", "length": 4 }
+	],
+	"telegrams": {
+		"LIFE": [],
+		"ACK": [{ "name": "ackseq", "length": 4, "type": "numc" }],
+		"WT": [
+			{ "name": "hu", "length": 20 },
+			{ "name": "src", "length": 10 },
+			{ "name": "dst", "length": 10 },
+			{ "name": "tanum", "length": 12, "type": "numc" }
+		],
+		"WTCO": [
+			{ "name": "hu", "length": 20 },
+			{ "name": "src", "length": 10 },
+			{ "name": "dst", "length": 10 },
+			{ "name": "tanum", "length": 12, "type": "numc" },
+			{ "name": "result", "length": 4 }
+		],
+		"SCAN": [
+			{ "name": "cp", "length": 10 },
+			{ "name": "hu", "length": 20 },
+			{ "name": "result", "length": 4 }
+		],
+		"STAT": [
+			{ "name": "device", "length": 10 },
+			{ "name": "status", "length": 4 }
+		]
+	},
+	"roles": {
+		"senderField": "sender",
+		"receiverField": "receiver",
+		"seqField": "seq",
+		"typeField": "type",
+		"ack": "ACK",
+		"ackSeqField": "ackseq",
+		"life": "LIFE"
+	}
+}
