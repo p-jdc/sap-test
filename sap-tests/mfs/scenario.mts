@@ -85,6 +85,8 @@ export const ScenarioSchema = z.strictObject({
 });
 
 export type Scenario = z.infer<typeof ScenarioSchema> & { name: string };
+/** A scenario as written (in a file or in a test): `fresh` and `expect` may be left out. */
+export type ScenarioInput = z.input<typeof ScenarioSchema>;
 type Step = z.infer<typeof StepSchema>;
 type ConditionDef = z.infer<typeof Condition>;
 export type ScenarioInfo = Pick<Scenario, 'name' | 'title' | 'description' | 'setup' | 'modes'>;
