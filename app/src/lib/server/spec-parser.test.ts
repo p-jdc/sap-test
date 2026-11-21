@@ -80,8 +80,7 @@ test('create order', async ({ page }) => {
 				'no-css-xpath',
 				'no-fixed-wait',
 				'no-literal-secret',
-				'prefer-sap-locator',
-				'ui5-single-property'
+				'prefer-sap-locator'
 			].toSorted()
 		);
 	});
@@ -218,20 +217,13 @@ test('create order', async ({ page }) => {
 		).toEqual(['assert-after-change', 'has-assertion']);
 	});
 
-	test('ui5-single-property counts properties, not punctuation in a value', () => {
-		const ok = `await expect(page).toHaveURL('/');`;
+	test('getByRoleUI5 with several properties is not a finding', () => {
 		expect(
 			rulesOf(
 				'fiori/u.spec.ts',
-				`await page.getByRoleUI5('Button', { text: 'Time: 10,30 at: x' }).click();\n\t${ok}`
+				`await page.getByRoleUI5('Input', { label: 'A', value: '' }).fill('1');\n\tawait expect(page).toHaveURL('/');`
 			)
 		).toEqual([]);
-		expect(
-			rulesOf(
-				'fiori/u.spec.ts',
-				`await page.getByRoleUI5('Input', {\n\t\tlabel: 'A',\n\t\tvalue: ''\n\t}).fill('1');\n\t${ok}`
-			)
-		).toEqual(['ui5-single-property']);
 	});
 
 	test('a test.step group does not repeat the findings of the steps inside it', () => {

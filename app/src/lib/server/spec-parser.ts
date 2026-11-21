@@ -70,8 +70,6 @@ function surfaceFromPath(file: string): Surface | undefined {
 type Facts = {
 	/** A password given as a literal (or a literal constant) instead of an env value. */
 	literalSecret: boolean;
-	/** A `getByRoleUI5` call whose options object has more than one property. */
-	ui5MultiProperty: boolean;
 	nth: boolean;
 	/** Steps inside a control-flow statement, which the flow shows as one opaque node. */
 	inner: FlowStep[];
@@ -131,27 +129,16 @@ function isLiteral(ctx: Ctx, node: ts.Expression | undefined): boolean {
 	return false;
 }
 
-/** Finds the calls inside one statement that the per-step rules care about. */
-function scanCalls(node: ts.Node): Pick<Facts, 'ui5MultiProperty' | 'nth'> {
-	const found = { ui5MultiProperty: false, nth: false };
-	const visit = (n: ts.Node) => {
-		if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-			const name = n.expression.name.text;
-			const options = n.arguments[1];
-			if (name === 'nth') found.nth = true;
-			if (
-				name === 'getByRoleUI5' &&
-				options &&
-				ts.isObjectLiteralExpression(options) &&
-				options.properties.length > 1
-			) {
-				found.ui5MultiProperty = true;
-			}
-		}
-		ts.forEachChild(n, visit);
-	};
-	visit(node);
-	return found;
+/** Whether a statement calls `.nth()` anywhere in it. */
+function callsNth(node: ts.Node): boolean {
+	if (
+		ts.isCallExpression(node) &&
+		ts.isPropertyAccessExpression(node.expression) &&
+		node.expression.name.text === 'nth'
+	) {
+		return true;
+	}
+	return ts.forEachChild(node, callsNth) ?? false;
 }
 
 /** `node` is absent for property-access segments such as `keyboard` in `page.keyboard.press()`. */
@@ -241,7 +228,7 @@ function makeStep(
 	ctx.facts.set(id, {
 		literalSecret: facts.literalSecret ?? false,
 		inner: facts.inner ?? [],
-		...(container ? { ui5MultiProperty: false, nth: false } : scanCalls(stmt))
+		nth: !container && callsNth(stmt)
 	});
 	return {
 		id,
@@ -507,9 +494,6 @@ function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[
 					'error',
 					`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
 				);
-			}
-			if (facts?.ui5MultiProperty) {
-				add('ui5-single-property', 'error', 'getByRoleUI5 supports only one property per call.');
 			}
 			if (facts?.nth) {
 				add('avoid-nth', 'info', '.nth() only when no property identifies the control uniquely.');
