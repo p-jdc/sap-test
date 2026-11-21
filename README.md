@@ -35,7 +35,7 @@ save the session in `sap-tests/.auth/` (gitignored):
 
 | Project | Tests | Signs in with | Session |
 | --- | --- | --- | --- |
-| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
+| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference`, `tests/_agents/seed-sap.spec.ts` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
 | `ariba` | `tests/ariba` | `setup/ariba.setup.ts`: `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` | `.auth/ariba-session.json` |
 | `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – | – |
 
@@ -207,8 +207,10 @@ and then moved to the repo root, where Claude Code sessions start:
 
 They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
 started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
-from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page) or `seed-sap.spec.ts` (logged
-in with the values from `sap-tests/.env`; values saved on the Settings page are not read). The seeds
+from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page, project `chromium`) or
+`seed-sap.spec.ts` (project `sap`: its setup signs in first with the values from `sap-tests/.env`,
+in a browser of its own, so the agents' browser never sends the password; values saved on the
+Settings page are not read). The seeds
 import from `sap-plugin`, which is what makes `page.getByRoleUI5` and the other SAP locators work in
 the agents' browser.
 
