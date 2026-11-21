@@ -7,7 +7,13 @@ import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 import { redactor } from './redact.js';
 import { ANSI, applyEvent, PREFIX, recount, type ReporterEvent } from './run-events.js';
-import { markLive, pruneRuns, readRunState, rememberFinished } from './runs-store.js';
+import {
+	markLive,
+	pruneRuns,
+	readRunState,
+	rememberFinished,
+	trimArtifacts
+} from './runs-store.js';
 import type { RunState, RunStatus } from '#lib/shared/types.js';
 
 const LOG_TAIL = 400;
@@ -184,6 +190,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	persist(live);
 	rememberFinished(state.id);
 	pruneRuns();
+	trimArtifacts();
 	notify(live);
 }
 

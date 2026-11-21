@@ -1,5 +1,5 @@
 {
-	"enabledMcpjsonServers": ["svelte"],
+	"enabledMcpjsonServers": ["svelte", "playwright-test"],
 	"permissions": {
 		"allow": [
 			"mcp__svelte__list-sections",

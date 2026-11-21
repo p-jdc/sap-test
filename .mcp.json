@@ -4,6 +4,16 @@
 			"type": "stdio",
 			"command": "node",
 			"args": [".claude/mcp/node_modules/@sveltejs/mcp/dist/index.mjs"]
+		},
+		"playwright-test": {
+			"type": "stdio",
+			"command": "${PLAYWRIGHT_NODE:-node}",
+			"args": [
+				"sap-tests/node_modules/@playwright/test/cli.js",
+				"run-test-mcp-server",
+				"-c",
+				"sap-tests/playwright.config.ts"
+			]
 		}
 	}
 }
