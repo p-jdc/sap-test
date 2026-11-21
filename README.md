@@ -126,7 +126,7 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
 | Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line |
 | Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements |
-| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
+| Settings | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
 Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
@@ -247,8 +247,43 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
-| `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
+| `HOST` | `127.0.0.1` | Address `bun run start` listens on. Another address (the network) needs `TEST_APP_AUTH=passkey`: without sign-in the app refuses to start there, since it can start runs and the recorder with the saved credentials |
+| `TEST_APP_AUTH` | `off` | `passkey`: everyone signs in with a passkey (see below) |
+| `BETTER_AUTH_URL` | unset | The app's https address, e.g. `https://lab.example.com`, with sign-in on. Passkeys belong to its host name, and cookies are Secure. Required when `HOST` is not this computer (the app refuses to start without it); on a laptop the address of each request is used |
+| `TEST_APP_CLIENT_IP_HEADER` | unset | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself |
+| `BETTER_AUTH_SECRET` | generated | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only) |
+| `TEST_APP_SETUP_TOKEN` | random | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered |
 | `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
+
+### Signing in to the app (passkeys)
+
+With `TEST_APP_AUTH=passkey`, every page, data request and run file needs a signed-in person.
+People sign in with a passkey (Touch ID, Windows Hello, a phone or a security key); there are no
+passwords. Users, sessions and passkeys are kept by [Better Auth](https://better-auth.com) in the
+app's database, `<data dir>/app.sqlite` (Bun's built-in SQLite through
+[Drizzle](https://orm.drizzle.team)), readable by this user only. Its schema is in
+`app/src/lib/server/db`; `bun run db:generate` turns a change there into a migration in
+`app/drizzle`, which the app applies when it starts.
+
+- **First admin.** While nobody is registered, the server logs a one-time link
+  (`/signin?setup=…`). Whoever opens it registers a passkey and becomes the admin. On a cluster,
+  read it with `kubectl logs`, or set `TEST_APP_SETUP_TOKEN`.
+- **Everyone else** gets an invite link from an admin (Settings → People). It works once, for 72
+  hours, and is not shown again. The invite sets the role: admins also change the settings
+  (which hold the SAP passwords) and manage people; members run, record and read results.
+- **Managing people** (Settings → People, through Better Auth's admin plugin): make someone admin
+  or member, block them (signed out at once, cannot sign in until unblocked) or remove them with
+  their passkeys and sessions. Nobody blocks or removes themselves, and the last admin keeps the
+  role. Admins cannot act as another person (impersonation is off). A session otherwise ends
+  after 12 hours without use.
+- **Rate limiting** of sign-in calls is always on (Better Auth turns it on in production mode only).
+- **Activity** (Settings): sign-ins, registrations, invites, removals, runs, recordings and changed
+  settings (the name, never the value), newest first. It stays in the same database; nothing is
+  sent elsewhere.
+- Passkeys need a host name, not an IP address: open the app as `localhost`, or under
+  `BETTER_AUTH_URL` on a server, over https there.
+
+Later, with a company directory, Microsoft (Entra ID) sign-in can be added next to passkeys.
 
 **What is kept of a run.** Which test passed or failed, when, and how long it took is kept for good;
 it is the evidence for the pilot criterion. Everything else goes by age and by what came after:

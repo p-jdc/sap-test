@@ -1,6 +1,7 @@
 import { command } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
+import { recordActivity, requireAdmin } from '#lib/server/auth/access.js';
 import { changeSetting } from '#lib/server/env-file.js';
 import { settingProblem } from '#lib/server/setting-value.js';
 import { secretSettings, settingNames } from '#lib/server/systems.js';
@@ -17,12 +18,15 @@ function message(e: unknown) {
 export const saveSetting = command(
 	z.object({ name, value: z.string().min(1).max(2000) }),
 	async (input) => {
+		requireAdmin();
 		// A password is stored exactly as typed; anything else loses stray spaces from a paste.
 		const value = secretSettings().includes(input.name) ? input.value : input.value.trim();
 		const problem = settingProblem(input.name, value);
 		if (problem) error(400, problem);
 		try {
 			const result = await changeSetting(input.name, value);
+			// The name only: never the value.
+			await recordActivity('Changed a setting', input.name);
 			await getEnvStatus().refresh();
 			return result;
 		} catch (e) {
@@ -32,8 +36,10 @@ export const saveSetting = command(
 );
 
 export const removeSetting = command(name, async (setting) => {
+	requireAdmin();
 	try {
 		const result = await changeSetting(setting, null);
+		await recordActivity('Removed a setting', setting);
 		await getEnvStatus().refresh();
 		return result;
 	} catch (e) {

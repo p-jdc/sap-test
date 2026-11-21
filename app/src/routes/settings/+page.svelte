@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
+	import People from '#lib/components/People.svelte';
+	import { getMe } from '#lib/remote/people.remote.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { removeSetting, saveSetting } from '#lib/remote/settings.remote.js';
 	import type { SettingName, SettingSource, SignInSystemInfo } from '#lib/shared/types.js';
@@ -64,6 +66,9 @@
 		view.technical ? SOURCE_LABEL[source] : source === 'keychain' ? 'Saved' : 'Set by your admin';
 
 	const env = getEnvStatus();
+	const me = getMe();
+	// With sign-in on, only admins change settings (the server checks this too).
+	const admin = $derived(!me.current?.auth || me.current.user?.role === 'admin');
 	const groups = $derived([
 		...(env.current?.systems ?? []).map((s) => systemGroup(s)),
 		...OTHER_GROUPS
@@ -144,8 +149,14 @@
 	<ui5-message-strip design="Critical" onclose={() => (notice = null)}>{notice}</ui5-message-strip>
 {/if}
 
+{#if me.current && !admin}
+	<ui5-message-strip design="Information" hide-close-button>
+		Only an admin can change these settings.
+	</ui5-message-strip>
+{/if}
+
 {#if env.current}
-	{@const locked = !env.current.keychain}
+	{@const locked = !env.current.keychain || !admin}
 	<div class="groups">
 		{#each groups.filter((g) => view.technical || !g.technical) as group (group.title)}
 			<ui5-card>
@@ -215,6 +226,9 @@
 				</div>
 			</ui5-card>
 		{/each}
+		{#if me.current?.auth && admin}
+			<People />
+		{/if}
 	</div>
 {:else}
 	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>

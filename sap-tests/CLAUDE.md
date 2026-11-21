@@ -38,6 +38,15 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Die Clients unter odata/clients nie von Hand ändern und nicht einchecken. Sie werden bei jedem `bun install` (oder mit `bun run odata:generate`) aus odata/metadata erzeugt.
 - Neue API-Tests müssen auch gegen den lokalen Mock laufen (`bun run test:api:mock`). Fehlende Testdaten unter odata/mock/data ergänzen.
 
+## Lagerautomatik (Mock PLC, MFS)
+
+- Tests, die Fördertechnik, Regalbediengeräte oder I-Punkt brauchen, importieren `test` und `expect` aus '../../sap-plugin/mfs'. Die SAP-Locators bleiben verfügbar.
+- Abläufe der Automatik nur mit `await mfs.runScenario(name)` (Datei in mfs/scenarios) oder einem im Test geschriebenen Szenario, nicht mit selbst gebauten Aufrufen der Steuer-API. Jeder Szenarioschritt erscheint als Schritt im Bericht.
+- Das Ergebnis enthält die HU-Nummern (`result.hus.A`). Damit in EWM prüfen, was aus den HUs wurde (Lagertask quittiert, Bestand im Platz).
+- Ohne Mock PLC (MFS_EMULATOR_URL, ggf. MFS_EMULATOR_TOKEN) werden diese Tests übersprungen. Lokal und in CI startet `bun run test:mfs` (MFS_MOCK=1) eine Mock PLC mit simuliertem EWM.
+- Szenarien mit `"modes": ["demo"]` laufen nur mit dem simulierten EWM. Gegen ein echtes EWM nur Szenarien mit "ewm" in `modes`.
+- Negativfälle mit `{ expectPass: false }` und dem zurückgegebenen Ergebnis prüfen, nicht mit try/catch.
+
 ## Was abgedeckt sein muss
 
 Jeder kritische Geschäftsablauf braucht Tests für diese Fälle. Beim Schreiben eines Tests prüfen, welche Fälle für den Ablauf noch fehlen, und sie melden.
