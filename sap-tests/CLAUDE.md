@@ -18,6 +18,14 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Anmeldung mit page.SAPLogin und Umgebungsvariablen.
 - Ein Geschäftsablauf je Test. Nach jedem datenverändernden Schritt prüfen.
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.
+- `await page.waitForUI5()` nur vor Abfragen, die nicht selbst warten (Modell lesen, count(), Screenshot). Vor Klicks und `expect` auf Locators ist es unnötig.
+
+## UI5-Modell lesen (Fiori)
+
+- `page.ui5BoundData(locator)`: die Einträge, die eine Liste oder Tabelle geladen hat ('rows' als zweites Argument für sap.ui.table).
+- `page.ui5ModelProperty(locator, pfad)`: ein Wert aus dem Modell. Pfad mit '/' ab der Wurzel, sonst relativ zum Eintrag, den das Control zeigt.
+- `page.ui5HasPendingChanges(locator)`: ob das OData-Modell ungespeicherte Änderungen hält.
+- Diese Abfragen wiederholen sich nicht: vorher `page.waitForUI5()` aufrufen. Sie ergänzen die Prüfung der sichtbaren Oberfläche, ersetzen sie aber nicht.
 
 ## API-Tests (OData)
 

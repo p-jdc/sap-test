@@ -3,10 +3,13 @@
 // SAPLogin exactly as with the Playwright-SAP fork, so code recorded with the fork's codegen runs
 // unchanged. The selector strings and the login flow follow the fork's client code
 // (packages/playwright-core/src/utils/isomorphic/sap/locatorUtils.ts and client/page.ts,
-// Apache-2.0, Copyright Arpit Sureka).
+// Apache-2.0, Copyright Arpit Sureka). waitForUI5 and the ui5* model reads (ui5.ts) are our own
+// additions; the fork has no counterpart.
 import { test as base, expect, selectors } from '@playwright/test';
 import type { Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
+import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
+import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
 
 export type ByRoleUI5Properties = Record<string, string>;
@@ -24,6 +27,17 @@ export interface SapPageMethods {
 	getByRoleSID(role: string, options: ByRoleSIDOptions): Locator;
 	/** Logs in on a Fiori launchpad or NetWeaver login page. */
 	SAPLogin(username: string, password: string, url?: string): Promise<Response | null>;
+	/**
+	 * Waits until UI5 has rendered and is at rest (no open request, timer or rendering). For state
+	 * that does not retry, such as the model reads below; clicks and `expect` wait on their own.
+	 */
+	waitForUI5(options?: WaitForUI5Options): Promise<void>;
+	/** The entries a list or table has loaded from its model ('items', or 'rows' for sap.ui.table). */
+	ui5BoundData(control: Locator, aggregation?: string): Promise<unknown[]>;
+	/** A model value: '/absolute' from the model's root, otherwise relative to the control's entity. */
+	ui5ModelProperty(control: Locator, path: string, model?: string): Promise<unknown>;
+	/** Whether the control's OData model holds changes that are not saved yet. */
+	ui5HasPendingChanges(control: Locator, model?: string): Promise<boolean>;
 }
 
 declare module 'playwright-core' {
@@ -95,7 +109,11 @@ export function withSapMethods(page: Page): Page {
 		locateUI5: (xpath) => page.locator(locateUI5Selector(xpath)),
 		locateSID: (sid) => page.locator(locateSIDSelector(sid)),
 		getByRoleSID: (role, options) => page.locator(getByRoleSIDSelector(role, options)),
-		SAPLogin: (username, password, url) => sapLogin(page, username, password, url)
+		SAPLogin: (username, password, url) => sapLogin(page, username, password, url),
+		waitForUI5: (options) => waitForUI5(page, options),
+		ui5BoundData,
+		ui5ModelProperty,
+		ui5HasPendingChanges
 	};
 	return Object.assign(page, methods);
 }
@@ -121,3 +139,4 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 
 export { expect };
 export type { Locator, Page } from '@playwright/test';
+export type { WaitForUI5Options } from './ui5';
