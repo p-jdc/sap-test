@@ -141,6 +141,24 @@ test('systems.json: refuses rows that would not sign in or would run a test twic
 		[[row({ tests: ['../x'] })], /list of folders under tests/],
 		[[row({ exclude: ['webgui/x'] })], /not inside one of its tests folders/],
 		[[row(), row({ id: 'sap' })], /used twice/],
+		// One variable for two systems would type one system's password into the other.
+		[
+			[
+				row(),
+				row({
+					id: 'ariba',
+					tests: ['ariba'],
+					env: { url: 'ARIBA_URL', user: 'ARIBA_USER', password: 'SAP_PASSWORD' }
+				})
+			],
+			/the setting SAP_PASSWORD is used twice/
+		],
+		[[row({ env: { url: 'SAP_API_URL', user: 'U', password: 'P' } })], /SAP_API_URL is used twice/],
+		[[row({ env: { url: 'SAP_URL', user: 'U', password: 'U' } })], /the setting U is used twice/],
+		[
+			[row({ env: { url: 'SAP_URL', user: 'NODE_OPTIONS', password: 'P' } })],
+			/"NODE_OPTIONS" is a variable other programs read/
+		],
 		[[row(), row({ id: 'other', tests: ['fiori/x'] })], /both claim tests\/fiori\/x/]
 	];
 	for (const [systems, message] of bad) expect(() => parseSystems(table(systems))).toThrow(message);

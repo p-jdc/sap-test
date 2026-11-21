@@ -2,8 +2,9 @@
 // spec: sap-tests/specs/shopping-cart-checkout.plan.md
 // seed: sap-tests/tests/_agents/seed.spec.ts
 // Covers SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo); needs internet access.
-import { test, expect, type Locator, type Page } from '../../../sap-plugin';
-import { button, title } from '../../../helpers/fiori';
+import { test, expect } from '../../../sap-plugin';
+import { button, fillAndLeave, title, visible } from '../../../helpers/fiori';
+import { openCart } from '../../../helpers/cart-demo';
 
 const URL =
 	'https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html?sap-ui-theme=sap_horizon_dark';
@@ -11,7 +12,6 @@ const CATEGORY = 'Laptops';
 const PRODUCT = 'Notebook Basic 17';
 const TOTAL_EMPTY = 'Total: 0,00 EUR';
 const TOTAL_ONE = 'Total: 1.249,00 EUR';
-const CART_ICON = 'sap-icon://cart';
 
 const CARD_HOLDER = 'Alex Example';
 const CARD_NUMBER = '1234567890123456';
@@ -23,25 +23,6 @@ const STREET = 'Musterstrasse 1';
 const CITY = 'Walldorf';
 const ZIP_CODE = '69190';
 const COUNTRY = 'Germany';
-
-// Controls of views and wizard steps that are not shown stay in the page, so some locators match
-// a hidden twin as well (the address inputs exist for the invoice and for the shipping address).
-const visible = (locator: Locator) => locator.filter({ visible: true });
-
-// Every view has its own cart toggle; during a page transition the old one is still visible,
-// so wait until exactly one is left before clicking it.
-async function openCart(page: Page) {
-	const cartToggle = visible(page.getByRoleUI5('ToggleButton', { icon: CART_ICON }));
-	await expect(cartToggle).toHaveCount(1);
-	await cartToggle.click();
-	await expect(title(page, 'Shopping Cart')).toBeVisible();
-}
-
-// A field of the wizard is validated when it loses focus.
-async function fillAndLeave(field: Locator, value: string) {
-	await field.fill(value);
-	await field.press('Tab');
-}
 
 test.describe('Shopping Cart checkout', () => {
 	test('demo kit: check out with credit card and standard delivery', async ({ page }) => {

@@ -31,3 +31,15 @@ export async function typeInto(field: Locator, text: string) {
 	await field.click();
 	await field.page().keyboard.type(text);
 }
+
+/**
+ * Only the matches that are shown. UI5 keeps the controls of views and wizard steps that are not
+ * shown in the page, so a locator can match a hidden twin as well.
+ */
+export const visible = (locator: Locator) => locator.filter({ visible: true });
+
+/** Fills a field and leaves it with Tab, for fields that are validated when they lose focus. */
+export async function fillAndLeave(field: Locator, value: string) {
+	await field.fill(value);
+	await field.press('Tab');
+}

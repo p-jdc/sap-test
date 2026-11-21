@@ -124,6 +124,13 @@
 	{/if}
 </ui5-message-strip>
 
+{#if env.current?.systemsError}
+	<ui5-message-strip design="Negative" hide-close-button>
+		The list of systems the tests sign in to cannot be read, so no test can run until it is fixed.
+		<span class="mono">{env.current.systemsError}</span>
+	</ui5-message-strip>
+{/if}
+
 {#if env.current && !env.current.keychain}
 	<ui5-message-strip design="Critical" hide-close-button>
 		{#if view.technical}
@@ -200,9 +207,18 @@
 							</div>
 							{#if withheld && !source}
 								<p class="withheld">
-									{view.technical
-										? `${field.name} is set ${withheld === 'file' ? 'in sap-tests/.env' : 'in the environment'}, but not used: it belongs to the URL set there, and the URL saved here points at another host. Save it here for this host.`
-										: 'Your admin set this for a different address than the one saved here, so it is not used. Enter it here for this address.'}
+									{#if withheld === 'keychain'}
+										This was saved for a different address than the one this system has now, so it
+										is not used. Enter it again for this address.
+									{:else if view.technical}
+										{field.name} is set {withheld === 'file'
+											? 'in sap-tests/.env'
+											: 'in the environment'}, but not used: it belongs to the URL set there, and
+										the URL saved here points at another host. Save it here for this host.
+									{:else}
+										Your admin set this for a different address than the one saved here, so it is
+										not used. Enter it here for this address.
+									{/if}
 								</p>
 							{/if}
 						</div>

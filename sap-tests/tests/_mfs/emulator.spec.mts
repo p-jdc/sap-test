@@ -2,6 +2,7 @@
 // The MFS PLC emulator (mfs/) on SAP's example warehouse, driven by the fake EWM over real TCP channels. No SAP
 // system involved: these tests check the emulator itself. Travel times run 50 times faster, protocol timeouts
 // are shortened.
+import { connect, type Socket } from 'node:net';
 import { test as base, expect } from '../../sap-plugin';
 import { Emulator } from '../../mfs/emulator.mts';
 import { FakeEwm } from '../../mfs/fake-ewm.mts';
@@ -245,4 +246,87 @@ test('control API: a request the emulator cannot read is refused and the emulato
 
 	expect(emulator.state().hus).toEqual([]);
 	expect(await (await fetch(`${api}/health`)).json()).toEqual({ ok: true });
+});
+
+/** A connection to a PLC port that says nothing: an EWM that is there but gone quiet. */
+async function silentPeer(port: number): Promise<{ socket: Socket; data: () => string }> {
+	const socket = connect(port, '127.0.0.1');
+	let received = '';
+	socket.setEncoding('latin1').on('data', (chunk: string) => {
+		received += chunk;
+	});
+	socket.on('error', () => undefined);
+	await new Promise<void>((resolve) => socket.once('connect', () => resolve()));
+	return { socket, data: () => received };
+}
+
+const connected = (emulator: Emulator, plc: string) =>
+	emulator.state().plcs.find((p) => p.id === plc)?.connected;
+
+/**
+ * Ends the fake EWM's connections and waits until the emulator has seen CONS go. The emulator
+ * may not have taken up the connection yet when a test starts, so that is waited for first:
+ * "not connected" would otherwise be true before EWM was ever there.
+ */
+async function ewmGone(emulator: Emulator, ewm: FakeEwm) {
+	await expect.poll(() => connected(emulator, 'CONS')).toBe(true);
+	ewm.close();
+	await expect.poll(() => connected(emulator, 'CONS')).toBe(false);
+}
+
+const eventTexts = (emulator: Emulator) => emulator.events().map((event) => event.text);
+const portOf = (emulator: Emulator, plc: string) =>
+	emulator.state().plcs.find((p) => p.id === plc)?.port ?? 0;
+
+test('a second connection is refused while EWM is alive, and replaces one that went silent', async ({
+	emulator,
+	ewm
+}) => {
+	const port = portOf(emulator, 'CONS');
+	// The fake EWM is connected and sends life telegrams: nobody else gets in.
+	await expect.poll(() => connected(emulator, 'CONS')).toBe(true);
+	const intruder = await silentPeer(port);
+	await expect.poll(() => intruder.socket.destroyed).toBe(true);
+	expect(eventTexts(emulator)).toContain('CONS: second connection refused, the channel is in use');
+
+	// EWM goes away properly; then one connects and falls silent without closing (a dead pod).
+	await ewmGone(emulator, ewm);
+	const dead = await silentPeer(port);
+	await expect.poll(() => connected(emulator, 'CONS')).toBe(true);
+
+	// A new EWM keeps trying. Once the old connection has been silent long enough, it gets in.
+	const retries: Socket[] = [];
+	await expect
+		.poll(async () => {
+			retries.push((await silentPeer(port)).socket);
+			return eventTexts(emulator).some((text) => text.includes('makes way for a new one'));
+		})
+		.toBe(true);
+	await expect.poll(() => dead.socket.destroyed).toBe(true);
+	expect(connected(emulator, 'CONS')).toBe(true);
+	for (const socket of retries) socket.destroy();
+});
+
+test('a telegram EWM never acknowledged goes out again when EWM connects again', async ({
+	emulator,
+	ewm
+}) => {
+	await ewmGone(emulator, ewm);
+	const port = portOf(emulator, 'CONS');
+	const device = emulator.setup.devices.find((d) => d.plc === 'CONS')?.id ?? '';
+
+	// EWM receives the status report but is gone before it acknowledges it.
+	const first = await silentPeer(port);
+	await expect.poll(() => connected(emulator, 'CONS')).toBe(true);
+	emulator.setDeviceStatus(device, 'DOWN');
+	await expect.poll(() => first.data()).toContain('STAT');
+	first.socket.destroy();
+	await expect
+		.poll(() => eventTexts(emulator))
+		.toContain('CONS: 1 unacknowledged telegram(s) kept until EWM connects again');
+
+	const second = await silentPeer(port);
+	await expect.poll(() => second.data()).toContain('STAT');
+	expect(second.data()).toContain(device);
+	second.socket.destroy();
 });

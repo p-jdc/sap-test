@@ -1,21 +1,28 @@
 <script lang="ts">
 	import MfsLayout from '#lib/components/mfs/MfsLayout.svelte';
+	import ScenarioRun from '#lib/components/mfs/ScenarioRun.svelte';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
 	import {
 		enterHu,
 		ewmPicked,
 		ewmRetrieve,
+		getMfsScenarios,
 		getMfsSetups,
+		pauseScenario,
+		resumeScenario,
 		setDeviceStatus,
 		setPlcFaults,
 		startMfs,
+		startScenario,
 		stopMfs,
+		stopScenario,
 		watchMfsLive
 	} from '#lib/remote/mfs.remote.js';
 	import type { MfsMode, MfsTelegram } from '#lib/shared/mfs.js';
 
 	const setups = getMfsSetups();
+	const scenarioFiles = getMfsScenarios();
 	const live = watchMfsLive();
 	const snap = $derived(live.current);
 	const status = $derived(snap?.status);
@@ -24,6 +31,10 @@
 	let setup = $state('sap-example');
 	let mode = $state<MfsMode>('ewm');
 	let speed = $state(1);
+	/** Scenario to run right after starting; '' = free play. */
+	let scenario = $state('');
+	/** Scenario to run next on the running Mock PLC. */
+	let nextScenario = $state('');
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -64,7 +75,7 @@
 		<T extends string>(set: (value: T) => void) =>
 		(e: CustomEvent<{ selectedOption: HTMLElement }>) => {
 			const value = e.detail.selectedOption.dataset.value;
-			if (value) set(value as T);
+			if (value !== undefined) set(value as T);
 		};
 
 	const ID_RESULTS = [
@@ -87,6 +98,26 @@
 		shipped: 'At goods issue',
 		error: 'Error'
 	};
+
+	/** Scenarios for the warehouse and mode chosen on the start card. */
+	const startChoices = $derived(
+		(scenarioFiles.current ?? []).filter((s) => s.setup === setup && s.modes.includes(mode))
+	);
+	const chosen = $derived(startChoices.find((s) => s.name === scenario));
+	/** Scenarios the running Mock PLC can run (its own list, with reference problems left out). */
+	const runChoices = $derived((snap?.scenarios ?? []).filter((s) => !s.problems?.length));
+	const next = $derived(runChoices.find((s) => s.name === nextScenario) ?? runChoices[0]);
+	const scenarioRun = $derived(snap?.run ?? undefined);
+	const scenarioActive = $derived(
+		scenarioRun?.status === 'running' || scenarioRun?.status === 'paused'
+	);
+	const RUN_STATUS = {
+		running: { text: 'Running', design: 'Information' },
+		paused: { text: 'Paused', design: 'Critical' },
+		passed: { text: 'Passed', design: 'Positive' },
+		failed: { text: 'Failed', design: 'Negative' },
+		stopped: { text: 'Stopped', design: 'Neutral' }
+	} as const;
 
 	const pickPoint = $derived(snap?.setup?.points.find((p) => p.role === 'pick-point')?.id);
 	const goodsIssue = $derived(snap?.setup?.points.find((p) => p.role === 'gi')?.id);
@@ -169,6 +200,27 @@
 				{/each}
 			</ui5-select>
 
+			<ui5-label for="scenario" show-colon>Scenario</ui5-label>
+			<ui5-select id="scenario" onchange={select<string>((v) => (scenario = v))}>
+				<ui5-option data-value="" selected={!chosen || undefined}>None: free play</ui5-option>
+				{#each startChoices as choice (choice.name)}
+					<ui5-option data-value={choice.name} selected={choice.name === chosen?.name || undefined}>
+						{choice.title}
+					</ui5-option>
+				{/each}
+			</ui5-select>
+
+			<span></span>
+			<p class="muted">
+				{#if chosen}
+					{chosen.description}
+				{:else if startChoices.length === 0 && mode === 'ewm'}
+					No scenario runs against a real EWM yet; the first ones need the simulated EWM (Demo).
+				{:else}
+					Run a prepared scenario right after the start, or leave it at free play and act by hand.
+				{/if}
+			</p>
+
 			<span></span>
 			<p class="muted">
 				{mode === 'demo'
@@ -182,7 +234,10 @@
 					design="Emphasized"
 					icon="play"
 					disabled={busy || !setups.current?.length || undefined}
-					onclick={() => run(() => startMfs({ setup, mode, speed }))}
+					onclick={() =>
+						run(() =>
+							startMfs({ setup, mode, speed, ...(chosen ? { scenario: chosen.name } : {}) })
+						)}
 				>
 					Start
 				</ui5-button>
@@ -190,6 +245,69 @@
 		</div>
 	</ui5-card>
 {:else}
+	{#if runChoices.length || scenarioRun}
+		<ui5-card class="block scenario">
+			<ui5-card-header
+				slot="header"
+				title-text={scenarioRun ? `Scenario: ${scenarioRun.title}` : 'Scenarios'}
+				subtitle-text={scenarioRun
+					? (snap.scenarios?.find((s) => s.name === scenarioRun.scenario)?.description ?? '')
+					: 'Prepared situations: what happens physically, and what EWM should do about it'}
+			></ui5-card-header>
+			<div class="card-body">
+				<div class="row">
+					{#if scenarioRun}
+						<ui5-tag design={RUN_STATUS[scenarioRun.status].design}>
+							{RUN_STATUS[scenarioRun.status].text}
+						</ui5-tag>
+					{/if}
+					{#if scenarioActive}
+						{#if scenarioRun?.status === 'paused'}
+							<ui5-button icon="media-play" onclick={() => run(() => resumeScenario())}>
+								Resume
+							</ui5-button>
+						{:else}
+							<ui5-button icon="media-pause" onclick={() => run(() => pauseScenario())}>
+								Pause
+							</ui5-button>
+						{/if}
+						<ui5-button icon="stop" onclick={() => run(() => stopScenario())}>
+							Stop scenario
+						</ui5-button>
+					{:else if runChoices.length}
+						<ui5-select
+							id="next-scenario"
+							accessible-name="Scenario to run"
+							onchange={select<string>((v) => (nextScenario = v))}
+						>
+							{#each runChoices as choice (choice.name)}
+								<ui5-option
+									data-value={choice.name}
+									selected={choice.name === next?.name || undefined}
+								>
+									{choice.title}
+								</ui5-option>
+							{/each}
+						</ui5-select>
+						<ui5-button
+							design="Emphasized"
+							icon="play"
+							disabled={busy || !next || undefined}
+							onclick={() => next && run(() => startScenario({ name: next.name }))}
+						>
+							{scenarioRun ? 'Run' : 'Run scenario'}
+						</ui5-button>
+					{/if}
+				</div>
+				{#if scenarioRun}
+					<ScenarioRun run={scenarioRun} />
+				{:else if next}
+					<p class="muted">{next.description}</p>
+				{/if}
+			</div>
+		</ui5-card>
+	{/if}
+
 	{#if snap.setup}
 		<ui5-card class="block">
 			<ui5-card-header

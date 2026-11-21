@@ -23,9 +23,17 @@ bun run test:mfs            # the tests (no browser, no SAP system)
 bun run mfs:server          # the Mock PLC alone, waiting for an EWM to connect
 ```
 
-`mfs:server` settings (environment): `MFS_SETUP` (default `sap-example`), `MFS_HOST`, `MFS_BASE_PORT` (first PLC
-port, default 47101), `MFS_CONTROL_PORT` (default 47100), `MFS_SPEED` (time factor, default 1), `MFS_FAKE_EWM=1` (demo: also start
-the fake EWM; its actions are under `/ewm` in the control API). Once ready it prints `MFS_READY {…}` with the ports.
+`mfs:server` settings (environment): `MFS_SETUP` (default `sap-example`), `MFS_HOST` (address of the PLC ports),
+`MFS_BASE_PORT` (first PLC port, default 47101), `MFS_CONTROL_PORT` (default 47100), `MFS_SPEED` (time factor,
+default 1), `MFS_FAKE_EWM=1` (demo: also start the fake EWM; its actions are under `/ewm` in the control API).
+Once ready it prints `MFS_READY {…}` with the ports.
+
+The control API puts HUs in, switches devices off and breaks connections, so it has its own address:
+`MFS_CONTROL_HOST` (default `127.0.0.1`, this computer only). To reach it from elsewhere, as on the cluster, set
+`MFS_CONTROL_HOST` and `MFS_CONTROL_TOKEN`; the emulator does not start with the first and without the second.
+Every request then needs `Authorization: Bearer <token>`, except `GET /health`. Requests that change something
+must be JSON (`content-type: application/json`). The app makes up a token for each emulator it starts; for one
+that runs elsewhere (`MFS_EMULATOR_URL`), give the app its token as `MFS_EMULATOR_TOKEN`.
 
 ## What's real and what's made up
 
@@ -64,6 +72,50 @@ a real warehouse.
 Result codes in confirmations: `OK`; `OCCU` (bin occupied); `NORT` (no physical connection); `WPLC` (task sent to
 the wrong PLC); `NOHU` (HU not at the source).
 
+## Scenarios
+
+A scenario is a named script on top of a warehouse setup: what happens physically, and what EWM should do about
+it. Files: `scenarios/<name>.json`, checked on load (`scenario.mts`). The Mock PLC runs them itself, so the same file
+serves the app (choose one on the start card, or run one on a running Mock PLC), tests and demos.
+
+```json
+{
+  "title": "Bin occupied on putaway",
+  "description": "The stacker crane finds the destination bin full …",
+  "setup": "sap-example",
+  "modes": ["demo"],
+  "steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
+  "expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
+}
+```
+
+| Step                                                                             | Does                                             |
+| -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `{ "enter": "A", "idPoint": "CONT", "binOccupied": true, "at": "GR-IN" }`        | HU A arrives (all but `enter` optional)          |
+| `{ "wait": <condition>, "timeout": "30s" }`                                      | waits until the condition holds                  |
+| `{ "check": <condition> }`                                                       | fails the run if the condition does not hold now |
+| `{ "device": "SRM1", "status": "DOWN" }`                                         | a device fails or runs again                     |
+| `{ "faults": "CONS", "dropAcks": 1, "stopLife": true, "disconnect": true }`      | protocol faults on a PLC                         |
+| `{ "ewm": "retrieve", "hu": "A", "to": "GI" }`, `{ "ewm": "picked", "hu": "A" }` | what a clerk does in EWM (demo only)             |
+| `{ "pause": "5s" }`                                                              | warehouse time, shortened by the speed           |
+
+Conditions: `{ "hu": "A", "at": "bin" | "<point or bin>" | "A1-*", "notAt": …, "movingOn": "TCAR", "left": true,
+"ewm": "stored" }`, `{ "telegram": { "type": "WTCO", "from": "SRM1", "fields": { "hu": "{A}", "result": "OCCU" } },
+"count": 1 }`, `{ "event": "HU {A} IP → A1-IN" }`. Every step can have a `"title"`; otherwise one is written from the
+step.
+
+- HUs are named A, B, …; each run gives them numbers (300001 upward). `{A}` in a text stands for A's number.
+- Waits react to every event and telegram, not to a poll: "when A is on its way, the crane fails" happens at the same
+  moment at any speed.
+- Expectations get a short settling time after the last step: EWM learns from telegrams a moment after the warehouse
+  acted.
+- `"modes": ["demo"]` scenarios start from an empty warehouse (`"fresh"`, default true). Against a real EWM that
+  isn't possible: its stock must match the Mock PLC's, so such scenarios will need HUs created in EWM first and
+  stock loaded from EWM (not built yet).
+
+Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (current or last run),
+`POST /scenario/start {"name":…}`, `POST /scenario/pause`, `/resume`, `/stop`.
+
 ## Next steps
 
 See the plan for the full design (device types, mock setups generated from EWM Customizing for all warehouses,
@@ -73,4 +125,5 @@ app UI, Kubernetes). Concretely, the next steps are:
    EWM Dev system.
 2. EWM as TCP server (the emulator connects out), if that's how the channels are set up.
 3. More device types (lift, sorter, in-line stations) and setups generated from Customizing.
-4. A `mfs` fixture in sap-plugin for SAP tests.
+4. A `mfs` fixture in sap-plugin for SAP tests, running scenarios (`mfs.runScenario(name)`).
+5. Scenarios against a real EWM: HUs created in EWM first, stock loaded from EWM.

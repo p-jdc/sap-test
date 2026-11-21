@@ -2,17 +2,21 @@
 // its own service on the cluster later, and reached only through its HTTP control API. The browser never talks to
 // the emulator or its PLC ports; the page goes through the remote functions in mfs.remote.ts.
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import {
 	EwmStateSchema,
 	MfsEventSchema,
+	MfsScenarioInfoSchema,
+	MfsScenarioRunSchema,
 	MfsSetupSchema,
 	MfsStateSchema,
 	MfsTelegramSchema,
 	type MfsEvent,
 	type MfsMode,
+	type MfsScenarioInfo,
 	type MfsSetup,
 	type MfsSnapshot,
 	type MfsStatus,
@@ -32,6 +36,8 @@ const SETUP_HINT = 'Run "bun run setup" in the repo root, then start the Mock PL
 type Running = {
 	proc: ChildProcess;
 	url: string;
+	/** Made up for this start and handed to the emulator: only this app can use its control API. */
+	token: string;
 	setup: string;
 	mode: MfsMode;
 	speed: number;
@@ -40,6 +46,7 @@ type Running = {
 };
 
 let running: Running | null = null;
+let starting = false;
 let lastError: string | undefined;
 
 // The Mock PLC belongs to the app that started it: it must not keep the PLC ports open after the app is gone.
@@ -61,6 +68,24 @@ export function listSetups(): string[] {
 		.filter((entry) => existsSync(resolve(dir, entry.name, 'setup.json')))
 		.map((entry) => entry.name)
 		.toSorted();
+}
+
+/**
+ * The scenario files in sap-tests/mfs/scenarios, for choosing one before the Mock PLC runs. Only the fields shown
+ * here are read; the Mock PLC checks the whole file when it runs one (and sap-tests' tests check every file).
+ */
+export function listScenarios(): MfsScenarioInfo[] {
+	const dir = resolve(MFS_DIR, 'scenarios');
+	if (!existsSync(dir)) return [];
+	return readdirSync(dir)
+		.filter((file) => file.endsWith('.json') && SETUP_NAME.test(file.slice(0, -'.json'.length)))
+		.flatMap((file) => {
+			const parsed = MfsScenarioInfoSchema.omit({ name: true }).safeParse(
+				JSON.parse(readFileSync(resolve(dir, file), 'utf8'))
+			);
+			return parsed.success ? [{ name: file.slice(0, -'.json'.length), ...parsed.data }] : [];
+		})
+		.toSorted((a, b) => a.title.localeCompare(b.title));
 }
 
 export function mfsStatus(): MfsStatus {
@@ -99,13 +124,25 @@ function bunBinary(): string {
 	return process.versions.bun ? process.execPath : 'bun';
 }
 
-export type StartInput = { setup: string; mode: MfsMode; speed: number };
+export type StartInput = { setup: string; mode: MfsMode; speed: number; scenario?: string };
 
 /**
  * Starts the emulator and resolves when its control API answers. In `demo` mode the fake EWM runs inside it and
  * the PLC ports are free ones; in `ewm` mode the PLCs listen on MFS_BASE_PORT (default 47101) for a real EWM.
  */
 export async function startEmulator(input: StartInput): Promise<void> {
+	// Starting takes a moment, and `running` is only set once the emulator answers. Without this,
+	// two requests in that moment would each start one, and the first could never be stopped.
+	if (starting) throw new Error('The emulator is already starting.');
+	starting = true;
+	try {
+		await launch(input);
+	} finally {
+		starting = false;
+	}
+}
+
+async function launch(input: StartInput): Promise<void> {
 	if (externalUrl()) throw new Error('The emulator is managed elsewhere (MFS_EMULATOR_URL).');
 	if (running) throw new Error('The emulator is already running.');
 	if (!listSetups().includes(input.setup)) throw new Error(`There is no setup "${input.setup}".`);
@@ -117,12 +154,15 @@ export async function startEmulator(input: StartInput): Promise<void> {
 		);
 	lastError = undefined;
 	const demo = input.mode === 'demo';
+	const token = randomBytes(24).toString('hex');
 	const proc = spawn(bunBinary(), [resolve(MFS_DIR, 'server.mts')], {
 		cwd: TESTS_ROOT,
 		env: childEnv({
 			MFS_SETUP: input.setup,
 			MFS_SPEED: String(input.speed),
 			MFS_CONTROL_PORT: '0',
+			MFS_CONTROL_HOST: '127.0.0.1',
+			MFS_CONTROL_TOKEN: token,
 			MFS_HOST: demo ? '127.0.0.1' : process.env.MFS_HOST || '127.0.0.1',
 			MFS_BASE_PORT: demo ? '0' : process.env.MFS_BASE_PORT || '47101',
 			MFS_FAKE_EWM: demo ? '1' : ''
@@ -170,6 +210,7 @@ export async function startEmulator(input: StartInput): Promise<void> {
 	const current: Running = {
 		proc,
 		url,
+		token,
 		...input,
 		startedAt: new Date().toISOString(),
 		stopping: false
@@ -180,6 +221,16 @@ export async function startEmulator(input: StartInput): Promise<void> {
 		running = null;
 		if (!current.stopping) lastError = `The emulator stopped unexpectedly (exit code ${code}).`;
 	});
+	if (input.scenario) {
+		try {
+			await mfsAction('/scenario/start', { name: input.scenario });
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new Error(`The Mock PLC is running, but the scenario did not start: ${reason}`, {
+				cause: error
+			});
+		}
+	}
 }
 
 export function stopEmulator(): boolean {
@@ -196,7 +247,11 @@ function baseUrl(): string {
 }
 
 async function call<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
-	const response = await fetch(baseUrl() + path, init);
+	// The token of the emulator this app started, or the one set for an emulator run elsewhere.
+	const token = externalUrl() ? process.env.MFS_EMULATOR_TOKEN : running?.token;
+	const headers = new Headers(init?.headers);
+	if (token) headers.set('authorization', `Bearer ${token}`);
+	const response = await fetch(baseUrl() + path, { ...init, headers });
 	const body: unknown = await response.json();
 	if (!response.ok) {
 		const message = z.object({ error: z.string() }).safeParse(body);
@@ -231,6 +286,7 @@ const sleep = (ms: number) =>
 export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 	let instance: string | undefined;
 	let setup: MfsSetup | undefined;
+	let scenarios: MfsScenarioInfo[] | undefined;
 	let telegrams: MfsTelegram[] = [];
 	let events: MfsEvent[] = [];
 	let last = '';
@@ -240,6 +296,7 @@ export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 		if (key !== instance) {
 			instance = key;
 			setup = undefined;
+			scenarios = undefined;
 			telegrams = [];
 			events = [];
 		}
@@ -250,19 +307,23 @@ export async function* watchMfs(): AsyncGenerator<MfsSnapshot> {
 				// oxlint-disable-next-line no-await-in-loop
 				setup ??= await call('/setup', MfsSetupSchema);
 				// oxlint-disable-next-line no-await-in-loop
-				const [state, newTelegrams, newEvents, ewm] = await Promise.all([
+				scenarios ??= await call('/scenarios', z.array(MfsScenarioInfoSchema));
+				// oxlint-disable-next-line no-await-in-loop
+				const [state, run, newTelegrams, newEvents, ewm] = await Promise.all([
 					call('/state', MfsStateSchema),
+					call('/scenario', MfsScenarioRunSchema.nullable()),
 					call(`/log?since=${since(telegrams)}`, z.array(MfsTelegramSchema)),
 					call(`/events?since=${since(events)}`, z.array(MfsEventSchema)),
 					status.mode === 'demo' ? call('/ewm/state', EwmStateSchema) : undefined
 				]);
 				telegrams = [...telegrams, ...newTelegrams].slice(-KEEP);
 				events = [...events, ...newEvents].slice(-KEEP);
-				snapshot = { status, setup, state, ewm, telegrams, events };
+				snapshot = { status, setup, state, ewm, scenarios, run, telegrams, events };
 			} catch (error) {
 				snapshot = {
 					status: { ...status, error: error instanceof Error ? error.message : String(error) },
 					setup,
+					scenarios,
 					telegrams,
 					events
 				};
