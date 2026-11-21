@@ -47,6 +47,13 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Szenarien mit `"modes": ["demo"]` laufen nur mit dem simulierten EWM. Gegen ein echtes EWM nur Szenarien mit "ewm" in `modes`.
 - Negativfälle mit `{ expectPass: false }` und dem zurückgegebenen Ergebnis prüfen, nicht mit try/catch.
 
+## IDoc-Tests
+
+- Tests, die von SAP gesendete IDocs prüfen, importieren `test` und `expect` aus '../../sap-plugin/idoc'. OData-Fixtures und SAP-Locators bleiben verfügbar.
+- Auf das IDoc mit `idocInbox.waitFor({ partner, messageType })` warten, nicht mit festen Wartezeiten. Mit `where` auf etwas Eindeutiges des Tests einschränken, z. B. die Belegnummer aus der Erfolgsmeldung: Der Empfänger wird geteilt.
+- Fehlerfälle mit `idocInbox.reply(partner, { mode: 'reject' })` oder `{ mode: 'slow', delayMs }` testen und danach den IDoc-Status in SAP prüfen. Die Antwort gilt nur bis zum Ende des Tests.
+- Neue IDoc-Tests müssen auch gegen den lokalen Empfänger laufen (`bun run test:idoc`).
+
 ## Was abgedeckt sein muss
 
 Jeder kritische Geschäftsablauf braucht Tests für diese Fälle. Beim Schreiben eines Tests prüfen, welche Fälle für den Ablauf noch fehlen, und sie melden.

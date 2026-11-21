@@ -22,6 +22,18 @@ if (odataMock)
 		SAP_CLIENT: ''
 	});
 
+// IDOC_HUB_MOCK=1 (`bun run test:idoc`): Playwright starts the IDoc receiver (idoc/server.mts) on this computer,
+// and the idocInbox fixture reads its inbox. IDOC_MOCK_URL is the endpoint tests post IDocs to in SAP's place.
+const idocMock = process.env.IDOC_HUB_MOCK === '1';
+const idocPort = Number(process.env.IDOC_MOCK_PORT || 47200);
+const idocControlPort = Number(process.env.IDOC_MOCK_CONTROL_PORT || 47201);
+if (idocMock)
+	Object.assign(process.env, {
+		IDOC_HUB_URL: `http://127.0.0.1:${idocControlPort}`,
+		IDOC_HUB_TOKEN: '',
+		IDOC_MOCK_URL: `http://127.0.0.1:${idocPort}`
+	});
+
 // MFS_MOCK=1 (`bun run test:mfs`): tests with the `mfs` fixture (sap-plugin/mfs.ts) run against a local
 // Mock PLC with the simulated EWM instead of one from MFS_EMULATOR_URL. Bun runs it, as in the app.
 // MFS_SPEED sets its time factor (default 10, so scenarios take seconds).
@@ -58,6 +70,29 @@ const webServers: WebServer[] = [
 						MFS_CONTROL_PORT: String(mfsMockPort),
 						MFS_BASE_PORT: '0',
 						MFS_SPEED: process.env.MFS_SPEED || '10'
+					},
+					reuseExistingServer: false
+				}
+			]
+		: []),
+	...(idocMock
+		? [
+				{
+					command: 'bun idoc/server.mts',
+					url: `http://127.0.0.1:${idocControlPort}/health`,
+					// Playwright adds these to the whole environment, .env included: a login, certificates or a
+					// token set there for a real receiver are cleared, so the local one runs plain and open.
+					env: {
+						IDOC_HOST: '127.0.0.1',
+						IDOC_PORT: String(idocPort),
+						IDOC_CONTROL_HOST: '127.0.0.1',
+						IDOC_CONTROL_PORT: String(idocControlPort),
+						IDOC_USER: '',
+						IDOC_PASSWORD: '',
+						IDOC_TLS_CERT: '',
+						IDOC_TLS_KEY: '',
+						IDOC_TLS_CA: '',
+						IDOC_CONTROL_TOKEN: ''
 					},
 					reuseExistingServer: false
 				}
