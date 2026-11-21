@@ -338,6 +338,11 @@ SAP's public UI5 demo apps every weekday night, and on demand from the Actions t
 of the pull request checks because they depend on a site outside the project. Locally:
 `bun run test:demokit` in `sap-tests`.
 
+Both workflows pin each action to a commit, with its version as a comment
+(`actions/checkout@<commit> # v7.0.1`): a tag like `v7` can be moved to other code, which would then
+run in CI. Dependabot (`.github/dependabot.yml`) opens a pull request each week an action has a new
+release, with the new commit and version.
+
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 one in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
 
