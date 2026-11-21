@@ -37,13 +37,22 @@ export async function readBody<T>(request: IncomingMessage, schema: z.ZodType<T>
 	return result.data;
 }
 
+/** A path part without its percent-encoding. A broken one (`%`, `%zz`) is the caller's mistake. */
+function decodePart(part: string): string {
+	try {
+		return decodeURIComponent(part);
+	} catch {
+		throw new UserError(`"${part}" in the path is not valid percent-encoding`);
+	}
+}
+
 /** The request's path split into decoded parts, its method and its query parameters. */
 export function requestTarget(request: IncomingMessage) {
 	const url = new URL(request.url ?? '/', 'http://localhost');
 	return {
 		method: request.method ?? 'GET',
 		path: url.pathname,
-		parts: url.pathname.split('/').filter(Boolean).map(decodeURIComponent),
+		parts: url.pathname.split('/').filter(Boolean).map(decodePart),
 		params: url.searchParams
 	};
 }

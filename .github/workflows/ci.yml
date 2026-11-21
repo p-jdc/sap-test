@@ -40,6 +40,9 @@ jobs:
       # The OData tests against the local mock of their services (odata/mock). No browser needed;
       # `bun install` above has generated the clients.
       - run: bun run test:api:mock
+      # The Mock PLC (mfs/): telegrams, the protocol and the emulator against the fake EWM, over
+      # local TCP ports. No browser and no SAP system.
+      - run: bun run test:mfs
       # The SAP plugin itself (sap-plugin/): selector engines, page methods, UI5 wait and model
       # reads. Most of these tests open SAP's public UI5 demo kit (ui5.sap.com), so they need
       # internet access; the config retries a failed test once in CI.
