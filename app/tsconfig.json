@@ -12,6 +12,7 @@
 		"scripts",
 		"vite.config.ts",
 		"playwright.config.ts",
+		"drizzle.config.ts",
 		"prettier.config.js",
 		"eslint.config.js"
 	]

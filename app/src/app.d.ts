@@ -3,7 +3,10 @@
 declare global {
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			/** The signed-in person (sign-in on, see lib/server/auth), or undefined. */
+			user?: { id: string; name: string; role: 'admin' | 'member' };
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}
