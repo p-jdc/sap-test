@@ -1,6 +1,8 @@
-// page.SAPLogin and the SAP login page, after the Playwright-SAP fork's client/page.ts (Apache-2.0,
-// Copyright Arpit Sureka), plus the saved-session handling of session.ts.
-import { expect, type Locator, type Page, type Response } from '@playwright/test';
+// The login flow of page.SAPLogin, after the Playwright-SAP fork's client code (client/page.ts,
+// Apache-2.0, Copyright Arpit Sureka). In a file of its own so that the recorder (record.mjs) can
+// log in the same way without loading the selector engines.
+import { expect } from '@playwright/test';
+import type { Locator, Page, Response } from '@playwright/test';
 import { fillSecret } from './secret';
 
 const netweaverUserField = (page: Page) => page.getByRole('textbox', { name: 'User Required' });
@@ -11,7 +13,6 @@ export function sapLoginPage(page: Page): Locator {
 	return netweaverUserField(page).or(fioriUserField(page)).first();
 }
 
-/** page.SAPLogin: see SapPageMethods in index.ts. */
 export async function sapLogin(
 	page: Page,
 	username: string,

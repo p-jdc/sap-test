@@ -20,6 +20,11 @@ The tests run on stock Playwright. `sap-tests/sap-plugin` adds the SAP locators 
 unchanged under Apache-2.0 and registered as custom selector engines. Specs import `test` and
 `expect` from `sap-plugin` instead of `@playwright/test`.
 
+Fiori / UI5 flows are recorded with the plugin's own recorder (`sap-tests/sap-plugin/record.mjs`),
+which also runs on stock Playwright. It asks UI5 itself (`sap.ui.test.RecordReplay`) to describe each
+control and writes `page.locateUI5Control({...})`, a locator that can name a row by the record it
+shows instead of by its position.
+
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
 HTML report of every run. `fillSecret` hands the value to the password field through a one-time
@@ -98,9 +103,10 @@ A trace still holds the session cookies, which are valid until the SAP session e
 `app/.data/runs` and `sap-tests/.auth` as secret.
 
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
-only, because its codegen is what writes SAP locators. The app starts it for "Record a test" and
-then points the recorded spec's import at `sap-plugin`. The app never imports Playwright itself;
-it starts both CLIs with real Node.
+WebGUI and Ariba only, because its codegen is what writes SID locators and the plugin's recorder has
+not been tried on a real WebGUI system. The app starts the matching recorder for "Record a test";
+for the fork it then points the recorded spec's import at `sap-plugin`. The app never imports
+Playwright itself; it starts the CLIs with real Node.
 
 ## What the app does
 
@@ -116,7 +122,7 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Starts the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts` and makes it import from `sap-plugin`. Technical details: optionally saves the session (§7.4) |
+| Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4). Technical details: optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
 | Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
@@ -163,6 +169,7 @@ to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference a
 | `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
 | `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
 | `codegen`, `report` | Playwright-SAP recorder (from `sap-tests/recorder`) and HTML report |
+| `record` | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save |
 | `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
 | `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
 | `ci` | Everything CI runs, in order |

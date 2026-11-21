@@ -44,7 +44,8 @@ export const getStability = query(() => ({ rows: stability(), target: PILOT_STRE
 export const startTestRun = command(
 	z.object({
 		files: z.array(z.string().max(500)).max(200).optional(),
-		grep: z.string().max(200).optional()
+		grep: z.string().max(200).optional(),
+		headed: z.boolean().optional()
 	}),
 	async (input) => {
 		const result = await startRun(input);

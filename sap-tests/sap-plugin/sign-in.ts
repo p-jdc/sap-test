@@ -1,7 +1,7 @@
 // Signs in to a system of systems.json with the method it names. Runs in setup/sign-in.setup.ts,
 // which has no trace (see session.ts); the tests start with the session it saves.
 import { expect, type Locator, type Page } from '@playwright/test';
-import { sapLogin, sapLoginPage } from './sap-login';
+import { sapLogin, sapLoginPage } from './login';
 import { fillSecret } from './secret';
 import type { SignInSystem } from './systems';
 

@@ -10,7 +10,8 @@ export const startRecorder = command(
 		surface: z.enum(['fiori', 'webgui', 'ariba']),
 		name: z.string().min(1).max(80),
 		url: z.url().optional().or(z.literal('')),
-		saveStorage: z.boolean().optional()
+		saveStorage: z.boolean().optional(),
+		noLogin: z.boolean().optional()
 	}),
 	async (input) => {
 		const result = await startRecording({ ...input, url: input.url || undefined });
