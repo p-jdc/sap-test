@@ -403,7 +403,11 @@ Same layout as the reference app, but stricter:
   `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
 - **sap-tests** has its own `bun run lint` (oxlint, type-aware). Its main job is
   `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
-  It also bans `waitForTimeout` (guide §5.2). `bun run format` uses oxfmt with the same style.
+  It also enforces the rules of `sap-tests/CLAUDE.md` that a machine can decide: no `waitForTimeout`
+  (guide §5.2), `test` and `expect` from sap-plugin in files under `tests/`, and passwords typed
+  with `fillSecret` and never written into the code (two rules of our own in
+  `sap-tests/tools/oxlint/sap-rules`, which go by field and variable names). `bun run format` uses
+  oxfmt with the same style.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,

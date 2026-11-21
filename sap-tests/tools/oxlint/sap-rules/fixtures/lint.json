@@ -1,0 +1,22 @@
+{
+	// Only the rules under test, for tests/_plugin/lint-rules.spec.ts. Keep the options of
+	// no-restricted-imports the same as in sap-tests/.oxlintrc.json.
+	"jsPlugins": [{ "name": "sap", "specifier": "../index.ts" }],
+	"categories": { "correctness": "off" },
+	"rules": {
+		"sap/no-secret-fill": "error",
+		"sap/no-literal-secret": "error",
+		"no-restricted-imports": [
+			"error",
+			{
+				"paths": [
+					{
+						"name": "@playwright/test",
+						"importNames": ["test", "expect"],
+						"message": "Import `test` and `expect` from sap-plugin (or sap-plugin/odata, sap-plugin/mfs)."
+					}
+				]
+			}
+		]
+	}
+}
