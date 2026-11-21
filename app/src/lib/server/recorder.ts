@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
-import { sameOrigin } from './origin.js';
+import { allowsCredentials, sameOrigin } from './origin.js';
 import {
 	childEnv,
 	playwrightNode,
@@ -170,6 +170,14 @@ export async function startRecording(
 				ok: false,
 				error:
 					'The recorder logs in with the stored SAP credentials, so the start URL must be on the same host as SAP_URL.'
+			};
+		}
+		// SAP_URL from .env was never checked on a Settings page.
+		if (!allowsCredentials(url)) {
+			return {
+				ok: false,
+				error:
+					'The recorder logs in with the stored SAP credentials, so the start URL must start with https:// (http:// only on this computer).'
 			};
 		}
 	}

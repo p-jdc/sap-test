@@ -2,9 +2,22 @@
  * The app's side of the Mock PLC: it starts the real emulator from sap-tests/mfs as its own process, in demo
  * mode (with the simulated EWM), and drives it only through the control API, like the page does.
  */
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import type { MfsSnapshot } from '#lib/shared/mfs.js';
-import { listSetups, mfsAction, mfsStatus, startEmulator, stopEmulator, watchMfs } from './mfs.js';
+import {
+	importedPackages,
+	listSetups,
+	mfsAction,
+	mfsStatus,
+	missingPackages,
+	startEmulator,
+	stopEmulator,
+	watchMfs
+} from './mfs.js';
+import { TESTS_ROOT } from './paths.js';
 
 /** Reads the live view until a snapshot passes `check`. Leaving the loop closes the live view. */
 async function waitFor(
@@ -27,6 +40,34 @@ const stopped = (s: MfsSnapshot) => !s.status.running;
 
 afterEach(async () => {
 	if (stopEmulator()) await waitFor(stopped);
+});
+
+describe('Mock PLC dependencies', () => {
+	test('the packages its source files import are found, without built-ins and relative files', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'mfs-deps-'));
+		writeFileSync(
+			join(dir, 'a.mts'),
+			[
+				"import { z } from 'zod';",
+				"import { thing } from '@scope/pkg/sub';",
+				"import { other } from './b.mts';",
+				"import { readFileSync } from 'node:fs';",
+				"import 'side-effect';"
+			].join('\n')
+		);
+		writeFileSync(join(dir, 'notes.json'), '{ "from": \'ignored\' }');
+		expect(importedPackages(dir)).toEqual(['@scope/pkg', 'side-effect', 'zod']);
+
+		mkdirSync(join(dir, 'node_modules', 'zod'), { recursive: true });
+		writeFileSync(join(dir, 'node_modules', 'zod', 'package.json'), '{}');
+		expect(missingPackages(dir, importedPackages(dir))).toEqual(['@scope/pkg', 'side-effect']);
+	});
+
+	test('the Mock PLC in sap-tests imports zod, and the setup installed it', () => {
+		const packages = importedPackages(resolve(TESTS_ROOT, 'mfs'));
+		expect(packages).toEqual(['zod']);
+		expect(missingPackages(TESTS_ROOT, packages)).toEqual([]);
+	});
 });
 
 describe('Mock PLC', () => {

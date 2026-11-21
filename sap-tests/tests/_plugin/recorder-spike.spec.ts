@@ -257,6 +257,107 @@ test('WebGUI stand-in: clicks and typing are recorded by SID and replay', async 
 	});
 });
 
+// Two pages of one flow. Each page is a document of its own and numbers its steps from 1.
+const sidButton = (n: number) =>
+	`<span lsdata='{"SID":"wnd[0]/usr/btn[${n}]"}'><button>Button ${n}</button></span>`;
+const twoPages: Flow = {
+	url: 'https://webgui.test/first',
+	prepare: async (context) => {
+		await context.route('https://webgui.test/first', (route) =>
+			route.fulfill(
+				html(`<!doctype html><html><body>${[1, 2, 3].map(sidButton).join('')}
+<span lsdata='{"SID":"wnd[0]/usr/lnkNEXT"}'><a href="/second">Next page</a></span></body></html>`)
+			)
+		);
+		await context.route('https://webgui.test/second', (route) =>
+			route.fulfill(
+				html(
+					`<!doctype html><html><body><h1>Second</h1>${[4, 5].map(sidButton).join('')}</body></html>`
+				)
+			)
+		);
+	}
+};
+
+test('steps on a second page come after the steps on the first', async ({ browser }, testInfo) => {
+	const steps = await record(browser, testInfo, twoPages, async (page) => {
+		for (const n of [1, 2, 3]) await page.getByRole('button', { name: `Button ${n}` }).click();
+		await page.getByRole('link', { name: 'Next page' }).click();
+		await expect(page.getByRole('heading', { name: 'Second' })).toBeVisible();
+		for (const n of [4, 5]) await page.getByRole('button', { name: `Button ${n}` }).click();
+	});
+	expect(steps.map((step) => step.sid)).toEqual([
+		'wnd[0]/usr/btn[1]',
+		'wnd[0]/usr/btn[2]',
+		'wnd[0]/usr/btn[3]',
+		'wnd[0]/usr/lnkNEXT',
+		'wnd[0]/usr/btn[4]',
+		'wnd[0]/usr/btn[5]'
+	]);
+});
+
+const withPassword: Flow = {
+	url: 'https://webgui.test/password',
+	prepare: (context) =>
+		context.route('https://webgui.test/password', (route) =>
+			route.fulfill(
+				html(`<!doctype html><html><body>
+<label>User <input lsdata='{"SID":"wnd[0]/usr/txtUSER"}' /></label>
+<label>New password <input type="password" lsdata='{"SID":"wnd[0]/usr/pwdNEW"}' /></label>
+<button onclick="document.querySelector('[type=password]').type='text'">Show</button>
+</body></html>`)
+			)
+		)
+};
+
+test('a typed password is not recorded, also after the field shows it', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, withPassword, async (page) => {
+		await page.getByLabel('User').fill('TESTER');
+		await page.getByLabel('New password').pressSequentially('Tr0ub4dor');
+		// "Show password" turns the field into a text field while it has the focus.
+		await page.getByRole('button', { name: 'Show' }).click();
+		await page.getByLabel('New password').pressSequentially('&3');
+		await page.getByLabel('User').click();
+	});
+	const fills = steps.filter((step) => step.action === 'fill');
+	expect(fills.map((step) => [step.sid, step.value, step.secret])).toEqual([
+		['wnd[0]/usr/txtUSER', 'TESTER', undefined],
+		['wnd[0]/usr/pwdNEW', undefined, true],
+		['wnd[0]/usr/pwdNEW', undefined, true]
+	]);
+	expect(JSON.stringify(steps)).not.toContain('Tr0ub4dor');
+	const spec = renderSpec(withPassword.url, steps, '../../sap-plugin');
+	expect(spec).not.toContain('Tr0ub4dor');
+	expect(spec).toContain(
+		`await fillSecret(page.locateSID('wnd[0]/usr/pwdNEW'), process.env.RECORDED_PASSWORD!);`
+	);
+	expect(spec).toContain(`import { test, fillSecret } from '../../sap-plugin';`);
+});
+
+test('the written spec stays valid code when a value or a hint has line breaks', () => {
+	const spec = renderSpec(
+		'https://x.test/',
+		[
+			{ seq: 1, action: 'fill', sid: 'wnd[0]/usr/txtNOTE', value: 'first line\r\nsecond third' },
+			{ seq: 2, action: 'click', problem: 'no selector', hint: 'Save\n\tdraft' }
+		],
+		'../../sap-plugin'
+	);
+	expect(spec.split('\n')).toEqual([
+		`import { test } from '../../sap-plugin';`,
+		``,
+		`test('recorded', async ({ page }) => {`,
+		`\tawait page.goto('https://x.test/');`,
+		`\tawait page.locateSID('wnd[0]/usr/txtNOTE').fill('first line\\r\\nsecond\\u2028third');`,
+		`\t// FIXME: no selector (Save draft)`,
+		`\t// click was not recorded`,
+		`});`,
+		``
+	]);
+});
+
 // A launchpad shows WebGUI and some apps inside an iframe.
 const shell = (source: string): Flow => ({
 	url: 'https://shell.test/',

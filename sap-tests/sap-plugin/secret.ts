@@ -1,6 +1,7 @@
 // Typing a password without writing it into the test's records.
 import { randomBytes } from 'node:crypto';
 import type { Locator } from '@playwright/test';
+import { isInsecureHttp } from './secure-url';
 
 /**
  * Types `secret` into a password field (`<input type="password">`) without it showing up in the
@@ -14,10 +15,18 @@ import type { Locator } from '@playwright/test';
  * A trace still holds the password, like any trace of a browser login: the page snapshots of later
  * steps record the field's value, and the network log records the login request.
  *
- * Like `fill`, it waits for the field to be visible and replaces what is in it.
+ * Like `fill`, it waits for the field to be visible and replaces what is in it. It refuses a page
+ * loaded over http:// from another computer, where the password would be sent unencrypted.
  */
 export async function fillSecret(field: Locator, secret: string): Promise<void> {
 	await field.waitFor();
+	// The field's own document: a login form can sit in a frame of another address.
+	const address = await field.evaluate((element) => element.ownerDocument.location.href);
+	if (isInsecureHttp(address)) {
+		throw new Error(
+			`fillSecret: ${new URL(address).origin} is not https://, so the password would cross the network unencrypted. Use the system's https:// address.`
+		);
+	}
 	const name = `__sapSecret_${randomBytes(12).toString('hex')}`;
 	let handedOver = false;
 	const binding = await field.page().exposeBinding(name, () => {

@@ -332,13 +332,18 @@ Same layout as the reference app, but stricter:
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
-lint, format check, spec discovery (`playwright test --list`), the plugin tests and the API tests on
+lint, format check, spec discovery (`playwright test --list`), the Mock PLC tests, the plugin tests and the API tests on
 the mock for `sap-tests`. The SAP flows themselves need a test system and are not run in CI.
 
 A second workflow (`.github/workflows/demo-kit.yml`) runs the flows in `tests/fiori/demokit` against
 SAP's public UI5 demo apps every weekday night, and on demand from the Actions tab. They are kept out
 of the pull request checks because they depend on a site outside the project. Locally:
 `bun run test:demokit` in `sap-tests`.
+
+Both workflows pin each action to a commit, with its version as a comment
+(`actions/checkout@<commit> # v7.0.1`): a tag like `v7` can be moved to other code, which would then
+run in CI. Dependabot (`.github/dependabot.yml`) opens a pull request each week an action has a new
+release, with the new commit and version.
 
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 one in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
@@ -381,10 +386,16 @@ lookups.
   file and line.
 - Settings saved in the app live in the system credential store (macOS Keychain, Windows
   Credential Manager, libsecret on Linux) under the service name `sap-test-lab`. A saved value wins
-  over `sap-tests/.env`, which wins over the app's own environment. Runs and recordings started
+  over the app's own environment, which wins over `sap-tests/.env` (as in any run: dotenv only
+  fills what is not set yet). Runs and recordings started
   from the app get the saved values as environment variables; `bun run test:sap` and
   `bun run codegen` from the terminal do not read the credential store and still need `.env`.
   Where no credential store exists (CI, headless Linux) the page says so and `.env` is used.
   Moving a system's URL to another host removes the saved user and password of that system.
+- Passwords go only to `https://` addresses: the Settings page does not save an `http://` address,
+  and `fillSecret` (and so `SAPLogin` and every sign-in), the OData tests' basic authentication and
+  the recorders refuse one, also when it comes from `.env`. Over `http://` the password would cross
+  the network unencrypted. Addresses on this computer (`localhost`, `127.x.x.x`, `::1`) may use
+  `http://`, for the OData mock and local stand-ins.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.

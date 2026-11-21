@@ -13,6 +13,13 @@ const path = require('node:path');
 
 const FLAG = '--sap-login-from-env';
 
+/** This computer (the same rule as sap-plugin/secure-url.ts, which this CommonJS file cannot load). */
+const loopback = (name) =>
+	name === 'localhost' ||
+	name.endsWith('.localhost') ||
+	name === '[::1]' ||
+	/^127(?:\.\d{1,3}){3}$/.test(name);
+
 const at = process.argv.indexOf(FLAG);
 if (at !== -1) {
 	try {
@@ -27,6 +34,18 @@ if (at !== -1) {
 	const password = process.env.SAP_PASSWORD;
 	if (!user || !password) {
 		console.error(`${FLAG} needs SAP_USERNAME and SAP_PASSWORD (environment or sap-tests/.env).`);
+		process.exit(1);
+	}
+	// The fork types the password into the start page: never over http:// to another computer.
+	const insecure = process.argv.find((arg) => {
+		if (!URL.canParse(arg)) return false;
+		const { protocol, hostname } = new URL(arg);
+		return protocol === 'http:' && !loopback(hostname.toLowerCase());
+	});
+	if (insecure) {
+		console.error(
+			`${FLAG}: ${new URL(insecure).origin} is not https://, so the password would cross the network unencrypted.`
+		);
 		process.exit(1);
 	}
 	process.argv.splice(at, 1);
