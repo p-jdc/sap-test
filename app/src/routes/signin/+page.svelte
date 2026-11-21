@@ -5,10 +5,18 @@
 
 	type State =
 		| { on: false }
-		| { on: true; signedIn: boolean; needsSetup: boolean; setup: boolean; invite: string | null };
+		| {
+				on: true;
+				signedIn: boolean;
+				needsSetup: boolean;
+				setup: boolean;
+				recover: boolean;
+				invite: string | null;
+		  };
 
 	const setup = page.url.searchParams.get('setup');
 	const invite = page.url.searchParams.get('invite');
+	const recover = page.url.searchParams.get('recover');
 	// Only a path on this app (the server checks the same before redirecting here).
 	const back = (() => {
 		const r = page.url.searchParams.get('redirect') ?? '/';
@@ -27,7 +35,8 @@
 	async function load() {
 		const params = [
 			invite ? `invite=${encodeURIComponent(invite)}` : '',
-			setup ? `setup=${encodeURIComponent(setup)}` : ''
+			setup ? `setup=${encodeURIComponent(setup)}` : '',
+			recover ? `recover=${encodeURIComponent(recover)}` : ''
 		].filter(Boolean);
 		const response = await fetch(
 			`/api/signin-state${params.length > 0 ? `?${params.join('&')}` : ''}`
@@ -90,8 +99,15 @@
 						{error}
 					</ui5-message-strip>
 				{/if}
-				{#if setup && info.setup}
-					<p>Nobody is registered yet. Create the first account: it becomes the admin.</p>
+				{#if (setup && info.setup) || (recover && info.recover)}
+					{#if setup && info.setup}
+						<p>Nobody is registered yet. Create the first account: it becomes the admin.</p>
+					{:else}
+						<p>
+							Recover admin access: this creates a new admin account with a new passkey. Remove the
+							old account afterwards under Settings → People.
+						</p>
+					{/if}
 					<ui5-label for="name" show-colon>Your name</ui5-label>
 					<ui5-input
 						id="name"
@@ -102,7 +118,7 @@
 						design="Emphasized"
 						icon="key"
 						disabled={busy || !name.trim() || undefined}
-						onclick={() => register({ setup, name })}
+						onclick={() => register(info?.on && info.setup ? { setup, name } : { recover, name })}
 					>
 						Create a passkey
 					</ui5-button>
@@ -120,6 +136,11 @@
 					{#if invite}
 						<ui5-message-strip design="Critical" hide-close-button>
 							This invite link is not valid any more. Ask an admin for a new one.
+						</ui5-message-strip>
+					{:else if recover}
+						<ui5-message-strip design="Critical" hide-close-button>
+							This recovery link is not valid any more. Restart the app with TEST_APP_RECOVERY=on
+							for a new one.
 						</ui5-message-strip>
 					{/if}
 					{#if info.needsSetup}

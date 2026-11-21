@@ -32,7 +32,9 @@ export default defineConfig({
 				DEV_HTTP: '1',
 				PREVIEW_PORT: '4181',
 				TEST_APP_AUTH: 'passkey',
-				TEST_APP_SETUP_TOKEN: 'e2e-setup-token-0123456789abcdef'
+				TEST_APP_SETUP_TOKEN: 'e2e-setup-token-0123456789abcdef',
+				TEST_APP_RECOVERY: 'on',
+				TEST_APP_RECOVERY_TOKEN: 'e2e-recovery-token-0123456789abcdef'
 			}
 		}
 	],

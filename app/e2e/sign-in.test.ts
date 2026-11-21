@@ -2,11 +2,12 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
 import { z } from 'zod';
 
 // Sign-in with passkeys, against the second preview server (playwright.config.ts): sign-in on,
-// an empty data directory and a fixed setup token. Chrome's virtual authenticator stands in for
+// an empty data directory, a fixed setup token and a fixed recovery token. Chrome's virtual authenticator stands in for
 // the passkey store of a computer (Touch ID, Windows Hello, a security key). It belongs to one
 // page, so the admin keeps one page across these tests, which run in order.
 const APP = 'http://localhost:4181';
 const SETUP = 'e2e-setup-token-0123456789abcdef';
+const RECOVER = 'e2e-recovery-token-0123456789abcdef';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -64,6 +65,7 @@ test('signed out, the app shows only the sign-in page and answers data requests 
 		signedIn: false,
 		needsSetup: true,
 		setup: false,
+		recover: false,
 		invite: null
 	});
 });
@@ -170,4 +172,36 @@ test('an admin invites a member, who registers once, cannot change settings, is 
 	await expect(admin.getByText('Blocked: Max Member', { exact: true })).toBeVisible();
 	await expect(admin.getByText('Made admin: Max Member', { exact: true })).toBeVisible();
 	await expect(admin.getByText('Removed: Max Member', { exact: true })).toBeVisible();
+});
+
+test('a recovery link registers a new admin once, for when no admin can sign in', async ({
+	browser
+}) => {
+	// Another computer: the admin's passkey is lost.
+	const again = await person(browser);
+	await again.goto(`${APP}/signin?recover=wrong`);
+	await expect(again.getByText('This recovery link is not valid any more.')).toBeVisible();
+
+	await again.goto(`${APP}/signin?recover=${RECOVER}`);
+	await expect(again.getByText('Recover admin access')).toBeVisible();
+	await again.locator('#name').locator('input').fill('Ada Again');
+	await button(again, 'Create a passkey').click();
+	await expect(again).toHaveURL(`${APP}/`);
+	await expect(signOutItem(again)).toHaveAttribute('text', 'Sign out: Ada Again (admin)');
+
+	// The new admin removes the old account and sees in the activity log how they got in.
+	await again.goto(`${APP}/settings`);
+	again.once('dialog', (dialog) => void dialog.accept());
+	await again.locator('[data-person="Ada Admin"] ui5-button', { hasText: 'Remove' }).click();
+	await expect(again.locator('[data-person="Ada Admin"]')).toHaveCount(0);
+	await expect(
+		again.getByText('Registered: as admin with a recovery link', { exact: true })
+	).toBeVisible();
+
+	// The link works once.
+	const other = await person(browser);
+	await other.goto(`${APP}/signin?recover=${RECOVER}`);
+	await expect(other.getByText('This recovery link is not valid any more.')).toBeVisible();
+	await other.context().close();
+	await again.context().close();
 });

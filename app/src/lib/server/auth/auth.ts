@@ -1,7 +1,9 @@
 // Sign-in with passkeys (TEST_APP_AUTH=passkey; see policy.ts). Better Auth keeps users, sessions
 // and passkeys in a SQLite file in the data directory (Bun's built-in SQLite). There is no
-// password: a passkey is registered either with the one-time setup link the server logs while
-// nobody is registered (the first person becomes admin), or with an invite link an admin creates.
+// password: a passkey is registered with the one-time setup link the server logs while nobody is
+// registered (the first person becomes admin), with an invite link an admin creates, or with a
+// recovery link the server logs when started with TEST_APP_RECOVERY=on (a new admin, for when no
+// admin can sign in any more).
 // Runs on Bun only; hooks.server.ts loads it when sign-in is on.
 import { passkey } from '@better-auth/passkey';
 import { APIError, betterAuth, type BetterAuthOptions } from 'better-auth';
@@ -34,7 +36,10 @@ function secret(): string {
 }
 
 /** What a passkey registration without a session must carry (the `context` of the request). */
-type Registration = { setup: string; name: string } | { invite: string };
+type Registration =
+	| { setup: string; name: string }
+	| { recover: string; name: string }
+	| { invite: string };
 
 function parseRegistration(context: string | null | undefined): Registration | null {
 	let value: unknown;
@@ -47,9 +52,12 @@ function parseRegistration(context: string | null | undefined): Registration | n
 	const field = (key: string): unknown => Reflect.get(value, key);
 	const invite = field('invite');
 	const setup = field('setup');
+	const recover = field('recover');
 	const name = field('name');
 	if (typeof invite === 'string' && invite) return { invite };
-	if (typeof setup === 'string' && setup && typeof name === 'string') return { setup, name };
+	if (typeof name !== 'string') return null;
+	if (typeof setup === 'string' && setup) return { setup, name };
+	if (typeof recover === 'string' && recover) return { recover, name };
 	return null;
 }
 
@@ -83,10 +91,16 @@ const appUrl = process.env.BETTER_AUTH_URL ? new URL(process.env.BETTER_AUTH_URL
 const clientIpHeader = process.env.TEST_APP_CLIENT_IP_HEADER?.trim().toLowerCase();
 
 function createAuth(db: AppDatabase, store: Store, setup: { token: string | null }) {
-	/** Who may register now, and as whom: the setup link while nobody is registered, or an invite. */
+	/**
+	 * Who may register now, and as whom: the setup link while nobody is registered, a recovery link,
+	 * or an invite.
+	 */
 	function registrationRight(context: string | null | undefined): { name: string; role: Role } {
 		const registration = parseRegistration(context);
-		if (registration && 'setup' in registration) {
+		if (registration && 'recover' in registration) {
+			const name = personName(registration.name);
+			if (name && store.recoveryValid(registration.recover)) return { name, role: 'admin' };
+		} else if (registration && 'setup' in registration) {
 			const name = personName(registration.name);
 			if (
 				setup.token &&
@@ -168,11 +182,19 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 					afterVerification: async ({ ctx, user, context }) => {
 						if (await ctx.context.internalAdapter.findUserById(user.id)) return {};
 						// Checked and used up with no await in between, so two registrations at once
-						// cannot both use the same setup link or invite.
+						// cannot both use the same setup, recovery or invite link.
 						const right = registrationRight(context);
 						const registration = parseRegistration(context);
 						if (registration && 'invite' in registration && !store.useInvite(registration.invite))
 							throw new APIError('FORBIDDEN', { message: 'This invite was used already.' });
+						if (
+							registration &&
+							'recover' in registration &&
+							!store.useRecovery(registration.recover)
+						)
+							throw new APIError('FORBIDDEN', {
+								message: 'This recovery link was used already.'
+							});
 						if (right.role === 'admin' && registration && 'setup' in registration)
 							setup.token = null;
 						const created = await ctx.context.internalAdapter.createUser(
@@ -185,7 +207,13 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 							},
 							{ method: 'passkey' }
 						);
-						store.record({ id: created.id, name: created.name }, 'Registered', `as ${right.role}`);
+						store.record(
+							{ id: created.id, name: created.name },
+							'Registered',
+							registration && 'recover' in registration
+								? 'as admin with a recovery link'
+								: `as ${right.role}`
+						);
 						return { userId: created.id };
 					}
 				}
@@ -213,10 +241,38 @@ let ready:
 	  }>
 	| undefined;
 
+/** A token from the environment, when it is long enough not to be guessed. */
+const fixedToken = (name: string) => {
+	const value = process.env[name];
+	return value && value.length >= 24 ? value : null;
+};
+
+/**
+ * Logs a recovery link when started with TEST_APP_RECOVERY=on: whoever opens it within the hour
+ * registers a passkey as a new admin, once. For when no admin can sign in any more (a lost
+ * passkey); only who starts the server and reads its log gets it. TEST_APP_RECOVERY_TOKEN fixes
+ * its token, for automation; a fixed token works once, also across restarts.
+ */
+function openRecovery(store: Store, base: string) {
+	if (process.env.TEST_APP_RECOVERY !== 'on') return;
+	const token = fixedToken('TEST_APP_RECOVERY_TOKEN') ?? randomBytes(24).toString('base64url');
+	const { opened, expiresAt } = store.openRecovery(token);
+	if (!opened) {
+		console.warn(
+			'TEST_APP_RECOVERY is on, but TEST_APP_RECOVERY_TOKEN was used already. Set another token, or unset it for a random one.'
+		);
+		return;
+	}
+	console.log(
+		`Recovery is on. Open ${base}/signin?recover=${token} on this app before ${expiresAt.toISOString()} to register a new admin. It works once; unset TEST_APP_RECOVERY afterwards.`
+	);
+	store.record(null, 'Recovery link opened', `valid until ${expiresAt.toISOString()}`);
+}
+
 /**
  * Opens the database (db/database.ts applies its migrations) and, while nobody is registered,
  * logs the one-time setup link for the first admin (TEST_APP_SETUP_TOKEN fixes its token, for
- * automation).
+ * automation). With TEST_APP_RECOVERY=on, also logs a recovery link (openRecovery).
  */
 export function signIn() {
 	ready ??= Promise.resolve().then(() => {
@@ -224,14 +280,14 @@ export function signIn() {
 		const setup = { token: null as string | null };
 		const store = openStore(db);
 		const { auth } = createAuth(db, store, setup);
+		const base = process.env.BETTER_AUTH_URL?.replace(/\/$/, '') ?? '';
 		if (store.userCount() === 0) {
-			const fixed = process.env.TEST_APP_SETUP_TOKEN;
-			setup.token = fixed && fixed.length >= 24 ? fixed : randomBytes(24).toString('base64url');
-			const base = process.env.BETTER_AUTH_URL?.replace(/\/$/, '') ?? '';
+			setup.token = fixedToken('TEST_APP_SETUP_TOKEN') ?? randomBytes(24).toString('base64url');
 			console.log(
 				`Sign-in is on and nobody is registered yet. Open ${base}/signin?setup=${setup.token} on this app to register the first admin.`
 			);
 		}
+		openRecovery(store, base);
 		const setupValid = (token: string) =>
 			!!setup.token && store.userCount() === 0 && sameText(token, setup.token);
 		return { auth, store, setupValid };

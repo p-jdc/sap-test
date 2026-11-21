@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import type { AppDatabase } from '../db/database.js';
-import { appActivity, appInvite, passkey, session, user } from '../db/schema.js';
+import { appActivity, appInvite, appRecovery, passkey, session, user } from '../db/schema.js';
 
 /**
  * The app's own sign-in data next to Better Auth's tables: invites and the activity log, plus
@@ -30,6 +30,9 @@ export interface ActivityEntry {
 
 /** An invite link is good for one passkey, for this long. */
 const INVITE_HOURS = 72;
+
+/** A recovery link is good for one passkey, for this long after the start that made it. */
+const RECOVERY_MINUTES = 60;
 
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -84,6 +87,58 @@ export function openStore(db: AppDatabase) {
 					)
 				)
 				.returning({ tokenHash: appInvite.tokenHash })
+				.all();
+			return used.length === 1;
+		},
+
+		/**
+		 * Opens a recovery link for this start. False when the token was used before (a fixed
+		 * TEST_APP_RECOVERY_TOKEN works once, also across restarts).
+		 */
+		openRecovery(token: string): { opened: boolean; expiresAt: Date } {
+			const now = new Date();
+			const expiresAt = new Date(now.getTime() + RECOVERY_MINUTES * 60_000);
+			const opened = db
+				.insert(appRecovery)
+				.values({ tokenHash: hash(token), createdAt: now, expiresAt })
+				.onConflictDoUpdate({
+					target: appRecovery.tokenHash,
+					set: { createdAt: now, expiresAt },
+					setWhere: isNull(appRecovery.usedAt)
+				})
+				.returning({ tokenHash: appRecovery.tokenHash })
+				.all();
+			return { opened: opened.length === 1, expiresAt };
+		},
+
+		/** Whether a recovery link is unused and not expired. */
+		recoveryValid(token: string): boolean {
+			return !!db
+				.select({ tokenHash: appRecovery.tokenHash })
+				.from(appRecovery)
+				.where(
+					and(
+						eq(appRecovery.tokenHash, hash(token)),
+						isNull(appRecovery.usedAt),
+						gt(appRecovery.expiresAt, new Date())
+					)
+				)
+				.get();
+		},
+
+		/** Uses up a recovery link; false when it was used or expired in the meantime. */
+		useRecovery(token: string): boolean {
+			const used = db
+				.update(appRecovery)
+				.set({ usedAt: new Date() })
+				.where(
+					and(
+						eq(appRecovery.tokenHash, hash(token)),
+						isNull(appRecovery.usedAt),
+						gt(appRecovery.expiresAt, new Date())
+					)
+				)
+				.returning({ tokenHash: appRecovery.tokenHash })
 				.all();
 			return used.length === 1;
 		},

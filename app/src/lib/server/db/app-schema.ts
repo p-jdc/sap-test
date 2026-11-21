@@ -20,3 +20,14 @@ export const appActivity = sqliteTable('app_activity', {
 	action: text('action').notNull(),
 	detail: text('detail')
 });
+
+/**
+ * Recovery links for admin access (lib/server/auth/auth.ts), made at a start with
+ * TEST_APP_RECOVERY=on. Kept after use, so a fixed token cannot be used twice.
+ */
+export const appRecovery = sqliteTable('app_recovery', {
+	tokenHash: text('token_hash').primaryKey(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+	usedAt: integer('used_at', { mode: 'timestamp_ms' })
+});
