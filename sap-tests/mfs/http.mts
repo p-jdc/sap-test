@@ -1,4 +1,5 @@
 // Small helpers for the JSON control APIs of the emulator and the fake EWM.
+import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 
@@ -22,10 +23,46 @@ export function fail(response: ServerResponse, error: unknown) {
 	json(response, status, { error: error instanceof Error ? error.message : String(error) });
 }
 
+/** The control API's bodies are a few fields; anything larger is not meant for it. */
+const MAX_BODY = 64 * 1024;
+
+const sameText = (a: string, b: string) => {
+	const [left, right] = [Buffer.from(a), Buffer.from(b)];
+	return left.length === right.length && timingSafeEqual(left, right);
+};
+
+/**
+ * Who may use the control API. It puts HUs in, switches devices off and breaks connections, so:
+ * - with a token set, every request must carry it (`Authorization: Bearer <token>`); only
+ *   `GET /health` is open, for the cluster's probes;
+ * - a request that changes something must be JSON. A web page open in a browser on the same
+ *   computer can send plain forms to any local port, but not JSON, without the server allowing it.
+ */
+export function authorize(request: IncomingMessage, token: string | undefined): void {
+	const { method, path } = requestTarget(request);
+	if (method === 'GET' && path === '/health') return;
+	if (token) {
+		const given = request.headers.authorization ?? '';
+		if (!sameText(given, `Bearer ${token}`))
+			throw new UserError('the control token is missing or wrong', 401);
+	}
+	const type = request.headers['content-type'] ?? '';
+	if (method !== 'GET' && !type.toLowerCase().startsWith('application/json'))
+		throw new UserError('send the body as JSON (content-type: application/json)', 415);
+}
+
+/** A host name or address that always means this computer. */
+export function isLoopback(host: string): boolean {
+	return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
 /** Reads a JSON body and checks it against a schema. */
 export async function readBody<T>(request: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
 	let text = '';
-	for await (const chunk of request) text += String(chunk);
+	for await (const chunk of request) {
+		text += String(chunk);
+		if (text.length > MAX_BODY) throw new UserError('the request body is too large', 413);
+	}
 	let value: unknown;
 	try {
 		value = text ? JSON.parse(text) : {};

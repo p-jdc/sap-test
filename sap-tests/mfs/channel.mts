@@ -3,7 +3,8 @@
 // - every telegram gets a sequence number;
 // - every telegram except acknowledgements and life telegrams is acknowledged with its sequence number;
 // - an unacknowledged telegram is sent again with the same number, a few times;
-// - a repeated number from the other side is acknowledged again but not processed twice;
+// - a number from the other side that was seen lately is acknowledged again but not processed twice;
+// - telegrams still unacknowledged when the connection ends are handed back, to be sent again after a reconnect;
 // - life telegrams go out at a fixed interval.
 import type { Socket } from 'node:net';
 import {
@@ -42,6 +43,16 @@ export interface ChannelFaults {
 	stopLife?: boolean;
 }
 
+/** A telegram that went out and was not acknowledged. */
+export type Unacknowledged = { type: string; fields: Fields };
+
+/**
+ * How many of the last received sequence numbers count as "seen". Several telegrams can be on
+ * their way at once, so when their acknowledgements are lost they come again together: remembering
+ * only the last number would process all but one of them twice.
+ */
+const SEEN = 64;
+
 let logCounter = 0;
 
 export class Channel {
@@ -50,13 +61,16 @@ export class Channel {
 	readonly remote: string;
 	faults: ChannelFaults = {};
 	lastLifeAt = 0;
+	/** When the other side was last heard from at all. A healthy one sends at least life telegrams. */
+	lastHeardAt = Date.now();
 	#layout: TelegramLayout;
 	#socket: Socket;
 	#timing: ChannelTiming;
 	#framer: Framer;
 	#seq = 0;
-	#pending = new Map<string, NodeJS.Timeout>();
-	#lastSeqIn: string | undefined;
+	#pending = new Map<string, { timer: NodeJS.Timeout } & Unacknowledged>();
+	#unacknowledged: Unacknowledged[] = [];
+	#seenIn = new Set<string>();
 	#lifeTimer: NodeJS.Timeout | undefined;
 	#closed = false;
 	#log: (entry: LogEntry) => void;
@@ -71,7 +85,8 @@ export class Channel {
 		timing: ChannelTiming;
 		log: (entry: LogEntry) => void;
 		onTelegram: (telegram: Telegram) => void;
-		onClose?: () => void;
+		/** Called once when the connection has ended, with the telegrams the other side never acknowledged. */
+		onClose?: (unacknowledged: Unacknowledged[]) => void;
 	}) {
 		this.name = options.name;
 		this.local = options.local;
@@ -87,8 +102,10 @@ export class Channel {
 		this.#socket.on('error', () => undefined);
 		this.#socket.on('close', () => {
 			this.#stop();
-			options.onClose?.();
+			options.onClose?.(this.#unacknowledged);
 		});
+		// Lets the operating system notice a peer that vanished without closing the connection.
+		this.#socket.setKeepAlive(true, this.#timing.lifeIntervalMs);
 		this.#lifeTimer = setInterval(() => {
 			if (!this.faults.stopLife) this.#write(this.#layout.roles.life, {});
 		}, this.#timing.lifeIntervalMs);
@@ -111,9 +128,13 @@ export class Channel {
 	}
 
 	#stop() {
+		if (this.#closed) return;
 		this.#closed = true;
 		clearInterval(this.#lifeTimer);
-		for (const timer of this.#pending.values()) clearTimeout(timer);
+		for (const { timer, type, fields } of this.#pending.values()) {
+			clearTimeout(timer);
+			this.#unacknowledged.push({ type, fields });
+		}
 		this.#pending.clear();
 	}
 
@@ -154,10 +175,11 @@ export class Channel {
 			this.#write(type, fields, seq, `resent (try ${tries + 1}): no acknowledgement`);
 			this.#expectAck(seq, type, fields, tries + 1);
 		}, this.#timing.ackTimeoutMs);
-		this.#pending.set(key, timer);
+		this.#pending.set(key, { timer, type, fields });
 	}
 
 	#receive(chunk: string) {
+		this.lastHeardAt = Date.now();
 		const { frames, garbage } = this.#framer.push(chunk);
 		for (const bytes of garbage)
 			this.#entry(
@@ -193,7 +215,7 @@ export class Channel {
 		const seq = telegram.header[roles.seqField] ?? '';
 		if (telegram.type === roles.ack) {
 			const acked = telegram.fields[roles.ackSeqField] ?? '';
-			clearTimeout(this.#pending.get(acked));
+			clearTimeout(this.#pending.get(acked)?.timer);
 			this.#pending.delete(acked);
 			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields);
 			return;
@@ -203,7 +225,7 @@ export class Channel {
 			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields);
 			return;
 		}
-		const duplicate = seq === this.#lastSeqIn;
+		const duplicate = this.#seenIn.has(seq);
 		this.#entry(
 			this.remote,
 			this.local,
@@ -226,7 +248,10 @@ export class Channel {
 			this.#write(roles.ack, { [roles.ackSeqField]: seq });
 		}
 		if (duplicate) return;
-		this.#lastSeqIn = seq;
+		this.#seenIn.add(seq);
+		// A Set keeps insertion order: its first entry is the oldest number.
+		const [oldest] = this.#seenIn;
+		if (this.#seenIn.size > SEEN && oldest !== undefined) this.#seenIn.delete(oldest);
 		this.#onTelegram(telegram);
 	}
 
