@@ -12,7 +12,7 @@ import {
 	UI5_RECORDER,
 	ui5RecorderCommand
 } from './node-cli.js';
-import { TESTS_DIR, TESTS_ROOT, within } from './paths.js';
+import { TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
 
 export type RecorderState = {
 	status: 'idle' | 'recording' | 'saved' | 'error';
@@ -40,6 +40,9 @@ export type RecordInput = {
 	noLogin?: boolean;
 };
 
+/** Where Fiori recordings without login are saved, relative to tests/. */
+const NO_LOGIN_FOLDER = 'fiori/demokit';
+
 const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
 
 /**
@@ -48,10 +51,7 @@ const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
  * pointed at the plugin, relative to the spec's own folder.
  */
 export function withPluginImport(source: string, specFile: string): string {
-	const plugin = relative(dirname(specFile), resolve(TESTS_ROOT, 'sap-plugin')).replaceAll(
-		'\\',
-		'/'
-	);
+	const plugin = toPosix(relative(dirname(specFile), resolve(TESTS_ROOT, 'sap-plugin')));
 	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
 }
 
@@ -138,7 +138,11 @@ export async function startRecording(
 		.replaceAll(/[^a-z0-9]+/g, '-')
 		.replaceAll(/^-|-$/g, '');
 	if (!slug) return { ok: false, error: 'Give the flow a name.' };
-	const file = `${input.surface}/${slug}.spec.ts`;
+	const noLogin = input.surface === 'fiori' && input.noLogin === true;
+	// The tests in tests/fiori start from a saved SAP session, which a run first signs in for
+	// (playwright.config.ts). A page recorded without login needs none, so its test goes to the
+	// folder that is exempt from that.
+	const file = `${noLogin ? NO_LOGIN_FOLDER : input.surface}/${slug}.spec.ts`;
 	const full = within(TESTS_DIR, file);
 	if (!full) return { ok: false, error: 'Invalid file name.' };
 	if (existsSync(full)) return { ok: false, error: `${file} already exists.` };
@@ -150,7 +154,6 @@ export async function startRecording(
 			error: `No URL given and ${input.surface === 'ariba' ? 'ARIBA_URL' : 'SAP_URL'} is not set (Settings page or sap-tests/.env).`
 		};
 
-	const noLogin = input.surface === 'fiori' && input.noLogin === true;
 	if (input.surface !== 'ariba' && !noLogin) {
 		if (!env.SAP_USERNAME || !env.SAP_PASSWORD) {
 			return {
@@ -172,7 +175,7 @@ export async function startRecording(
 	// Checked last, so a wrong name, URL or missing credentials are reported first.
 	if (!existsSync(invocation.needs.path)) return { ok: false, error: invocation.needs.hint };
 	mkdirSync(dirname(full), { recursive: true });
-	if (input.saveStorage) mkdirSync(`${TESTS_ROOT}/.auth`, { recursive: true });
+	if (input.saveStorage) mkdirSync(resolve(TESTS_ROOT, '.auth'), { recursive: true });
 
 	// The fork's recorder is the one part that still needs the tested Node; say so where a hang
 	// would show.

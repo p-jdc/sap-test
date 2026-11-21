@@ -2,7 +2,7 @@
 // the UI5 wait and model reads.
 // The UI5 tests use SAP's public demo kit and need internet access; the SID tests use a stand-in
 // page, because a real WebGUI needs a test system.
-import { test, expect } from '../../sap-plugin';
+import { test, expect, fillSecret, signingIn, type Page } from '../../sap-plugin';
 
 const TOOL_PAGE =
 	'https://ui5.sap.com/test-resources/sap/tnt/demokit/toolpageapp/webapp/index.html';
@@ -14,6 +14,20 @@ const WEBGUI_STAND_IN = `<!doctype html><html><body>
 <input lsdata='{"SID":"wnd[1]/usr/txt[3]"}' />
 <button lsdata='{"SID":"wnd[0]/tbar[1]/btn[8]"}' onclick="this.textContent='pressed'">Run</button>
 </body></html>`;
+
+// The NetWeaver login page as SAPLogin finds it: the "Required" marker is part of each name.
+const LOGIN_STAND_IN = `<!doctype html><html><body>
+<label>User <span>Required</span> <input id="user" /></label>
+<label>Password <span>Required</span> <input id="password" type="password" /></label>
+<button onclick="document.getElementById('sent').textContent =
+	document.getElementById('user').value + ':' + document.getElementById('password').value">
+	Log On <span>Emphasized</span>
+</button>
+<output id="sent"></output>
+</body></html>`;
+
+/** Names of the page's global functions that fillSecret hands values out through. */
+const secretBindings = () => Object.keys(window).filter((key) => key.startsWith('__sapSecret_'));
 
 test('ui5role: code in the shape the fork recorder emits finds the controls', async ({ page }) => {
 	await page.goto(TOOL_PAGE);
@@ -82,6 +96,20 @@ test('popups and new tabs get the SAP methods too', async ({ page, context }) =>
 	await expect(tab.locateSID('wnd[0]/tbar[1]/btn[8]')).toBeVisible();
 });
 
+test('pages of a context the test opens itself get the SAP methods too', async ({ browser }) => {
+	const ownContext = await browser.newContext();
+	const ownPage = await ownContext.newPage();
+	await ownPage.setContent(WEBGUI_STAND_IN);
+	await expect(ownPage.locateSID('wnd[0]/tbar[1]/btn[8]')).toBeVisible();
+	await ownContext.close();
+
+	// browser.newPage() opens a context of its own.
+	const lonePage = await browser.newPage();
+	await lonePage.setContent(WEBGUI_STAND_IN);
+	await expect(lonePage.getByRoleSID('button', { pos: 8, sub: 'tbar[1]' })).toBeVisible();
+	await lonePage.close();
+});
+
 // A worklist app on an OData V2 model, served by a mock server inside the page.
 const WORKLIST_PAGE =
 	'https://ui5.sap.com/test-resources/sap/m/demokit/tutorial/worklist/07/webapp/test/mockServer.html';
@@ -144,4 +172,102 @@ test('model reads: errors name what is missing', async ({ page }) => {
 	await expect(page.ui5ModelProperty(heading, 'name', 'noSuchModel')).rejects.toThrow(
 		/no model "noSuchModel"/
 	);
+});
+
+test('fillSecret: types into a password field like fill, and takes its binding away again', async ({
+	page
+}) => {
+	await page.setContent(LOGIN_STAND_IN);
+	const password = page.locator('#password');
+	await password.evaluate((el: HTMLInputElement) => {
+		el.value = 'old';
+		el.addEventListener(
+			'input',
+			() => (el.dataset.inputs = String(Number(el.dataset.inputs ?? 0) + 1))
+		);
+	});
+	await fillSecret(password, 's3cr3t "pw"');
+	await expect(password).toHaveValue('s3cr3t "pw"');
+	await expect(password).toHaveAttribute('data-inputs', /^[1-9]/);
+	expect(await page.evaluate(secretBindings)).toEqual([]);
+});
+
+test('fillSecret: refuses fields that would show the value in screenshots', async ({ page }) => {
+	await page.setContent(LOGIN_STAND_IN);
+	await expect(fillSecret(page.locator('#user'), 'secret')).rejects.toThrow(
+		/only for password fields/
+	);
+	await expect(page.locator('#user')).toHaveValue('');
+	expect(await page.evaluate(secretBindings)).toEqual([]);
+});
+
+test('SAPLogin: logs in on a NetWeaver login page', async ({ page }) => {
+	await page.setContent(LOGIN_STAND_IN);
+	await page.SAPLogin('TESTUSER', 'pw-123');
+	await expect(page.locator('#sent')).toHaveText('TESTUSER:pw-123');
+});
+
+/** A stand-in SAP system that shows `body` for every page; the context holds a session cookie. */
+async function withSavedSession(page: Page, body: string) {
+	await page.route('https://sap.test/**', (route) =>
+		route.fulfill({ contentType: 'text/html', body })
+	);
+	await page
+		.context()
+		.addCookies([{ name: 'SAP_SESSIONID', value: 'ok', url: 'https://sap.test' }]);
+}
+
+test('SAPLogin: with a saved session it only opens the URL', async ({ page }) => {
+	await withSavedSession(page, '<!doctype html><h1>Launchpad</h1>');
+	await page.SAPLogin('TESTUSER', 'pw-123', 'https://sap.test/launchpad');
+	await expect(page.getByRole('heading', { name: 'Launchpad' })).toBeVisible();
+});
+
+test('SAPLogin: an expired saved session fails instead of typing the password', async ({
+	page
+}) => {
+	await withSavedSession(page, LOGIN_STAND_IN);
+	await expect(page.SAPLogin('TESTUSER', 'pw-123', 'https://sap.test/')).rejects.toThrow(
+		/saved SAP session is no longer valid/
+	);
+	await expect(page.locator('#password')).toHaveValue('');
+});
+
+test('signingIn: a failed sign-in leaves no password in the page', async ({ page }) => {
+	await page.setContent(LOGIN_STAND_IN);
+	await expect(
+		signingIn(page, async () => {
+			await fillSecret(page.locator('#password'), 'pw-123');
+			throw new Error('login page did not go away');
+		})
+	).rejects.toThrow('login page did not go away');
+	await expect(page.locator('#password')).toHaveValue('');
+});
+
+test('fillSecret: a UI5 password input takes the value as if typed', async ({ page }) => {
+	await page.goto(TOOL_PAGE);
+	await page.waitForUI5();
+	// A sap.m.Input of type Password, like the one on the Fiori launchpad login, added to the demo app.
+	await page.evaluate(`new Promise((done) => {
+		const host = document.createElement('div');
+		host.id = 'password-host';
+		document.body.prepend(host);
+		window.seen = {};
+		sap.ui.require(['sap/m/Input'], (Input) => {
+			new Input({
+				type: 'Password',
+				placeholder: 'Password stand-in',
+				liveChange: (e) => (window.seen.liveChange = e.getParameter('value')),
+				change: (e) => (window.seen.change = e.getParameter('value'))
+			}).placeAt('password-host');
+			done();
+		});
+	})`);
+	await fillSecret(page.getByPlaceholder('Password stand-in'), 'Ui5-Secret');
+	// Leaving the field fires UI5's change event, as clicking "Log On" does.
+	await page.getByRoleUI5('Title', { text: 'Customer Overview' }, { exact: true }).click();
+	expect(await page.evaluate(() => Reflect.get(window, 'seen'))).toEqual({
+		liveChange: 'Ui5-Secret',
+		change: 'Ui5-Secret'
+	});
 });

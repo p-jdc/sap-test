@@ -65,12 +65,14 @@ export const SURFACE_LABEL: Record<Surface, string> = {
 	fiori: 'Fiori / UI5',
 	webgui: 'SAP WebGUI',
 	ariba: 'SAP Ariba',
+	api: 'SAP services (API)',
 	demo: 'Demo',
 	other: 'Other'
 };
 
 export const LOCATOR_LABEL: Record<LocatorKind, string> = {
 	ui5: 'UI5',
+	'ui5-xpath': 'UI5 XPath',
 	sid: 'SID',
 	'sid-path': 'SID path',
 	role: 'Role',

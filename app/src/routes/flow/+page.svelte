@@ -35,13 +35,19 @@
 		page.url.searchParams.get('run') ?? active ?? runs.current?.runs[0]?.id ?? null
 	);
 	const live = $derived(runId && runId === active);
-	const runQuery = $derived(runId ? (live ? watchRunLive(runId) : getRun(runId)) : undefined);
+	// A key is `<spec file>::<title>`. The live view carries the steps of that file's tests only.
+	const file = $derived(key.split('::')[0] ?? '');
+	const runQuery = $derived(
+		runId ? (live ? watchRunLive({ id: runId, file }) : getRun(runId)) : undefined
+	);
 	const run = $derived(runQuery?.current ?? null);
 	// Also resolves a test with a generated title, whose key differs between spec and run.
 	const flow = $derived(
 		matchFlow(specs.current?.flatMap((f) => f.tests) ?? [], run?.tests ?? [], key)
 	);
 	const test = $derived(flow.test);
+	/** Findings on the whole spec file, such as a missing reviewer; not tied to a step. */
+	const fileIssues = $derived(specs.current?.find((f) => f.file === test?.file)?.issues ?? []);
 	const runTest = $derived(flow.runTest);
 	const source = $derived(test ? getSpecSource(test.file) : undefined);
 	const overlay = $derived(test ? overlaySteps(test.steps, runTest) : {});
@@ -358,6 +364,11 @@
 							? 'Click a step to see its locator, rule findings and Playwright calls.'
 							: 'Click a step to see what it does and how it went.'}
 					</span>
+					{#each fileIssues as issue (issue.rule + issue.line)}
+						<ui5-message-strip design="Critical" hide-close-button>
+							{view.technical ? `Line ${issue.line}: ` : ''}{issue.message}
+						</ui5-message-strip>
+					{/each}
 					{#if test.issues.length}
 						<ui5-message-strip design="Critical" hide-close-button>
 							{test.issues.length} quality warning{test.issues.length > 1 ? 's' : ''} in this test, marked

@@ -5,10 +5,13 @@
 // (packages/playwright-core/src/utils/isomorphic/sap/locatorUtils.ts and client/page.ts,
 // Apache-2.0, Copyright Arpit Sureka). waitForUI5 and the ui5* model reads (ui5.ts) are our own
 // additions; the fork has no counterpart.
+import { existsSync } from 'node:fs';
 import { test as base, expect, selectors } from '@playwright/test';
-import type { Locator, Page, Response } from '@playwright/test';
+import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
 import { sapLogin } from './login';
+import { fillSecret } from './secret';
+import { sessionFile, type SapSession } from './session';
 import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
 import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
@@ -33,7 +36,11 @@ export interface SapPageMethods {
 	locateSID(sid: string): Locator;
 	/** A WebGUI element by role and name or position, e.g. `('textField', { name: 'VBAK-VBELN' })`. */
 	getByRoleSID(role: string, options: ByRoleSIDOptions): Locator;
-	/** Logs in on a Fiori launchpad or NetWeaver login page. */
+	/**
+	 * Logs in on a Fiori launchpad or NetWeaver login page. When the test starts with a saved
+	 * session (the SAP projects, see session.ts), it only opens `url` and types nothing; a login
+	 * page there means the session has expired, which fails the test.
+	 */
 	SAPLogin(username: string, password: string, url?: string): Promise<Response | null>;
 	/**
 	 * Waits until UI5 has rendered and is at rest (no open request, timer or rendering). For state
@@ -82,7 +89,11 @@ export function getByRoleSIDSelector(role: string, options: ByRoleSIDOptions): s
 	return `${ENGINES.sid}=${wnd}/${sub}/${prefix}${options.name ?? ''}${position}`;
 }
 
-/** Adds the SAP methods to one page object. Popups and new tabs are covered by the fixture below. */
+/**
+ * Adds the SAP methods to one page object. The fixture below does this for every page of the
+ * worker's browser; call it yourself only for a page from another browser (a second launch, a
+ * persistent context, a remote connection).
+ */
 export function withSapMethods(page: Page): Page {
 	const methods: SapPageMethods = {
 		getByRoleUI5: (role, properties, options) =>
@@ -100,7 +111,25 @@ export function withSapMethods(page: Page): Page {
 	return Object.assign(page, methods);
 }
 
-export const test = base.extend<object, { sapSelectorEngines: void }>({
+const onContext = (context: BrowserContext) => context.on('page', withSapMethods);
+
+/** Options of the SAP projects in playwright.config.ts. */
+export type SapOptions = {
+	/**
+	 * The saved session the tests start with (session.ts), or none. Set per project; the setup
+	 * project that saves it must be one of the project's dependencies.
+	 */
+	sapSession: SapSession | undefined;
+};
+
+export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
+	sapSession: [undefined, { option: true }],
+	// Read when the test starts, after the setup project has saved the session. Without the file
+	// (the setup was left out, e.g. with --no-deps), the test starts signed out.
+	storageState: async ({ sapSession, storageState }, use) => {
+		const file = sapSession ? sessionFile(sapSession) : undefined;
+		await use(file && existsSync(file) ? file : storageState);
+	},
 	// Once per worker. Not a content script: the UI5 engines read window.sap, which only the page's
 	// own JavaScript world has.
 	sapSelectorEngines: [
@@ -113,14 +142,21 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 		},
 		{ scope: 'worker', auto: true }
 	],
-	// Every page of the context gets the methods: the test's own page, popups and new tabs.
-	context: async ({ context }, use) => {
-		context.on('page', withSapMethods);
-		await use(context);
-	}
+	// Every page of every context of this worker's browser gets the methods: the test's own page,
+	// popups, new tabs, and the pages of contexts a test opens itself (browser.newContext()).
+	browser: [
+		async ({ browser }, use) => {
+			browser.on('context', onContext);
+			await use(browser);
+			browser.off('context', onContext);
+		},
+		{ scope: 'worker' }
+	]
 });
 
-export { expect };
+export { expect, fillSecret };
+export { sapLoginPage } from './login';
+export { clearSession, saveSession, signingIn, type SapSession } from './session';
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';
 export type { UI5ControlSelector } from './ui5control';

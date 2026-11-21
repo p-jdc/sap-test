@@ -71,6 +71,66 @@ test('recorded', async ({ page }) => {
 		expect(t.issues.map((i) => i.rule).toSorted()).toEqual(['has-assertion', 'prefer-sap-locator']);
 	});
 
+	test('reads the methods the SAP plugin adds: UI5 wait, model reads and locateUI5', () => {
+		const spec = parseSpec(
+			'fiori/model.spec.ts',
+			`test('t', async ({ page }) => {
+	await page.waitForUI5();
+	const table = page.getByRoleUI5('Table');
+	const rows = await page.ui5BoundData(table);
+	const name = await page.ui5ModelProperty(page.getByRoleUI5('Input', { label: 'Name' }), 'Name');
+	expect(rows.length).toBeGreaterThan(0);
+	await expect(page.locateUI5('//ToolPage//SideNavigation')).toHaveCount(1);
+});`
+		);
+		const t = must(spec.tests[0]);
+		expect(t.steps.map((s) => [s.kind, s.action, s.locator?.kind])).toEqual([
+			['wait', 'waitForUI5', undefined],
+			['other', 'ui5BoundData', 'other'],
+			['other', 'ui5ModelProperty', 'ui5'],
+			['assert', 'toBeGreaterThan', 'other'],
+			['assert', 'toHaveCount', 'ui5-xpath']
+		]);
+		expect(t.issues.map((i) => [i.rule, i.severity])).toEqual([['prefer-role-ui5', 'info']]);
+	});
+
+	test('reads requests to an SAP service and files such a test under API', () => {
+		const body = `
+	const [first] = await products.requestBuilder().getAll().top(1).execute(sapApi);
+	await products.requestBuilder().create(draft).execute(sapApi);
+	await products.requestBuilder().getByKey(id).execute(sapApi);
+	await products.requestBuilder().update(first).execute(sapApi);
+	await products.requestBuilder().delete(id).execute(sapApi);
+	await gwsample.batch(products.requestBuilder().getAll()).execute(sapApi);
+	await statement.execute(connection);
+	expect(first).toBeDefined();`;
+		const source = `test('t', async ({ sapApi, gwsample }) => {${body}\n});`;
+		const t = must(parseSpec('api/products.spec.ts', source).tests[0]);
+		expect(t.surface).toBe('api');
+		expect(t.steps.map((s) => [s.action, s.value])).toEqual([
+			['odata.getAll', 'products'],
+			['odata.create', 'products'],
+			['odata.getByKey', 'products'],
+			['odata.update', 'products'],
+			['odata.delete', 'products'],
+			['odata.batch', undefined],
+			['execute', undefined],
+			['toBeDefined', undefined]
+		]);
+		expect(t.issues).toEqual([]);
+		// Outside the api folder the requests still say what the test is.
+		expect(must(parseSpec('misc/p.spec.ts', source).tests[0]).surface).toBe('api');
+	});
+
+	test('the plugin self-tests are one surface, whatever locators each test uses', () => {
+		const spec = parseSpec(
+			'_plugin/p.spec.ts',
+			`test('a', async ({ page }) => { await expect(page.getByRoleUI5('Title')).toBeVisible(); });
+test('b', async ({ page }) => { await expect(page.locateSID('wnd[0]')).toBeVisible(); });`
+		);
+		expect(spec.tests.map((t) => t.surface)).toEqual(['other', 'other']);
+	});
+
 	test('applies beforeEach steps and describe titles', () => {
 		const spec = parseSpec(
 			'_demo/x.spec.ts',
@@ -105,8 +165,7 @@ test('recorded', async ({ page }) => {
 				'no-css-xpath',
 				'no-fixed-wait',
 				'no-literal-secret',
-				'prefer-sap-locator',
-				'ui5-single-property'
+				'prefer-sap-locator'
 			].toSorted()
 		);
 	});
@@ -160,16 +219,51 @@ test('recorded', async ({ page }) => {
 	test.each([
 		[
 			'an env value held in a variable',
-			`const pw = process.env.SAP_PASSWORD!;\n\tawait page.getByLabel('Password').fill(pw);`
+			`const pw = process.env.SAP_PASSWORD!;\n\tawait fillSecret(page.getByLabel('Password'), pw);`
 		],
-		['a property of an env object', `await page.getByLabel('Password').fill(env.SAP_PASSWORD);`],
-		['process.env directly', `await page.getByLabel('Kennwort').fill(process.env.SAP_PASSWORD!);`],
+		[
+			'a property of an env object',
+			`await fillSecret(page.getByLabel('Password'), env.SAP_PASSWORD);`
+		],
+		[
+			'process.env directly',
+			`await fillSecret(page.getByLabel('Kennwort'), process.env.SAP_PASSWORD!);`
+		],
 		[
 			'SAPLogin with env values',
 			`await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!);`
 		]
-	])('no-literal-secret accepts %s', (_name, body) => {
+	])('the password rules accept %s', (_name, body) => {
 		expect(rulesOf('_demo/s.spec.ts', `${body}\n\tawait expect(page).toHaveURL('/');`)).toEqual([]);
+	});
+
+	test.each([
+		[
+			'an env value held in a variable',
+			`const pw = process.env.SAP_PASSWORD!;\n\tawait page.getByLabel('Password').fill(pw);`
+		],
+		['a property of an env object', `await page.getByLabel('Password').fill(env.SAP_PASSWORD);`],
+		['process.env directly', `await page.getByLabel('Kennwort').fill(process.env.SAP_PASSWORD!);`],
+		['a password env value in any field', `await page.locator('#p').fill(process.env.ARIBA_PASS!);`]
+	])('no-secret-fill flags %s', (_name, body) => {
+		expect(rulesOf('_demo/s.spec.ts', `${body}\n\tawait expect(page).toHaveURL('/');`)).toEqual([
+			'no-secret-fill'
+		]);
+	});
+
+	test('fillSecret is a step that enters the password, and a literal in it is flagged', () => {
+		const spec = parseSpec(
+			'_demo/s.spec.ts',
+			`test('t', async ({ page }) => {\n\tawait fillSecret(page.getByLabel('Password'), process.env.SAP_PASSWORD!);\n\tawait fillSecret(page.getByLabel('Password'), 'secret');\n\tawait expect(page).toHaveURL('/');\n});`
+		);
+		const parsed = must(spec.tests[0]);
+		expect(must(parsed.steps[0])).toMatchObject({
+			kind: 'action',
+			action: 'fillSecret',
+			locator: { kind: 'label' },
+			value: '$SAP_PASSWORD'
+		});
+		expect(parsed.issues.map((i) => [i.rule, i.line])).toEqual([['no-literal-secret', 3]]);
 	});
 
 	test.each([
@@ -243,20 +337,13 @@ test('recorded', async ({ page }) => {
 		).toEqual(['assert-after-change', 'has-assertion']);
 	});
 
-	test('ui5-single-property counts properties, not punctuation in a value', () => {
-		const ok = `await expect(page).toHaveURL('/');`;
+	test('getByRoleUI5 with several properties is not a finding', () => {
 		expect(
 			rulesOf(
 				'fiori/u.spec.ts',
-				`await page.getByRoleUI5('Button', { text: 'Time: 10,30 at: x' }).click();\n\t${ok}`
+				`await page.getByRoleUI5('Input', { label: 'A', value: '' }).fill('1');\n\tawait expect(page).toHaveURL('/');`
 			)
 		).toEqual([]);
-		expect(
-			rulesOf(
-				'fiori/u.spec.ts',
-				`await page.getByRoleUI5('Input', {\n\t\tlabel: 'A',\n\t\tvalue: ''\n\t}).fill('1');\n\t${ok}`
-			)
-		).toEqual(['ui5-single-property']);
 	});
 
 	test('a test.step group does not repeat the findings of the steps inside it', () => {
@@ -349,6 +436,17 @@ test.describe(() => {
 			'fiori/ai.spec.ts',
 			`// KI-generiert, geprüft von: <Name>\ntest('x', async () => {});`
 		);
-		expect(spec.issues[0]?.rule).toBe('ai-review');
+		expect(spec.issues).toMatchObject([{ rule: 'ai-review', severity: 'warning', line: 1 }]);
+	});
+
+	test('a reviewer name, or no marker at all, is not a finding', () => {
+		const body = `test('x', async () => {});`;
+		expect(
+			parseSpec('fiori/ai.spec.ts', `// KI-generiert, geprüft von: A. Reviewer\n${body}`).issues
+		).toEqual([]);
+		expect(
+			parseSpec('fiori/ai.spec.ts', `// KI-generiert, geprüft von:\n${body}`).issues
+		).toHaveLength(1);
+		expect(parseSpec('fiori/own.spec.ts', body).issues).toEqual([]);
 	});
 });

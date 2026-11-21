@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
-import { TESTS_DIR } from './paths.js';
-import type { Attachment, RunState, RunTest, TestStatus } from '#lib/shared/types.js';
+import { SETUP_DIR, TESTS_DIR, toPosix, within } from './paths.js';
+import type { Attachment, LiveView, RunState, RunTest, TestStatus } from '#lib/shared/types.js';
 
 /** Marks a reporter event line in the Playwright process's stdout. */
 export const PREFIX = '@@pwlive@@';
@@ -12,7 +12,12 @@ export const ANSI = /\u001B\[[0-9;?]*[A-Za-z]/g;
 function specRel(file: string | undefined): string | undefined {
 	if (!file) return undefined;
 	const rel = relative(TESTS_DIR, file);
-	return rel.startsWith('..') ? undefined : rel;
+	return rel.startsWith('..') ? undefined : toPosix(rel);
+}
+
+/** A sign-in from sap-tests/setup, which Playwright runs as a test before the tests that need it. */
+function isSetup(file: string): boolean {
+	return within(SETUP_DIR, relative(SETUP_DIR, file)) !== null;
 }
 
 type Loc = { file: string; line: number; column: number };
@@ -56,12 +61,14 @@ export function applyEvent(state: RunState, dir: string, ev: ReporterEvent) {
 		case 'begin':
 			state.tests = ev.tests.map((t): RunTest => {
 				const file = specRel(t.location?.file) ?? '';
+				const setup = t.location !== undefined && isSetup(t.location.file);
 				return {
 					testId: t.id,
 					key: `${file}::${t.titlePath.join(' › ')}`,
 					file,
 					title: t.title,
 					line: t.location?.line ?? 0,
+					...(setup ? { setup } : {}),
 					steps: [],
 					attachments: []
 				};
@@ -123,7 +130,7 @@ export function applyEvent(state: RunState, dir: string, ev: ReporterEvent) {
 			}
 			t.attachments = ev.attachments.flatMap((a) => {
 				const rel = relative(dir, a.path);
-				return rel.startsWith('..') ? [] : [{ ...a, path: rel }];
+				return rel.startsWith('..') ? [] : [{ ...a, path: toPosix(rel) }];
 			});
 			break;
 		}
@@ -143,4 +150,22 @@ export function recount(state: RunState) {
 		else if (t.status && t.status !== 'interrupted') s.failed++;
 	}
 	state.stats = s;
+}
+
+/**
+ * A copy of a running run's state for one watching page, reduced to what its view needs: finished
+ * tests outside `view.file` come without their steps (marked `stepsOmitted`), and the log is
+ * left out unless asked for. Every snapshot is complete for its view, so a page can show the
+ * newest one without having seen the ones before.
+ */
+export function liveSnapshot(state: RunState, view: LiveView): RunState {
+	return structuredClone({
+		...state,
+		log: view.log ? state.log : [],
+		tests: state.tests.map((t) =>
+			t.running || t.steps.length === 0 || (view.file !== undefined && t.file === view.file)
+				? t
+				: { ...t, steps: [], stepsOmitted: true }
+		)
+	});
 }

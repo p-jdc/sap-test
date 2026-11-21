@@ -15,6 +15,7 @@
 	import {
 		getRun,
 		getRuns,
+		getRunTestSteps,
 		getStability,
 		stopTestRun,
 		watchRunLive
@@ -24,8 +25,10 @@
 	const id = $derived(page.params.id ?? '');
 	const runs = getRuns();
 	const isLive = $derived(runs.current?.active === id);
-	const query = $derived(isLive ? watchRunLive(id) : getRun(id));
+	const query = $derived(isLive ? watchRunLive({ id, log: true }) : getRun(id));
 	const run = $derived(query.current);
+	/** The tests of a sign-in that failed did not run (Playwright skips them). */
+	const signInFailed = $derived(run?.tests.some((t) => t.setup && t.status === 'failed') ?? false);
 	let error = $state<string | null>(null);
 
 	// When a live run ends, refresh the lists that depend on it.
@@ -50,8 +53,26 @@
 	);
 	const done = $derived(run ? run.tests.filter((t) => t.status).length : 0);
 
+	// A live snapshot leaves out the steps of finished tests; they are fetched once per test (and
+	// again after a retry). Until they arrive, the steps last seen while the test ran are shown, so
+	// the timeline does not blink.
+	const seen: Record<string, RunStep[] | undefined> = {};
+	const fetched: Record<string, ReturnType<typeof getRunTestSteps> | undefined> = {};
+	function stepsOf(t: RunTest): RunStep[] {
+		if (!t.stepsOmitted) {
+			seen[t.testId] = t.steps;
+			return t.steps;
+		}
+		const retry = t.retry ?? 0;
+		const steps = (fetched[`${t.testId}:${retry}`] ??= getRunTestSteps({
+			id,
+			testId: t.testId,
+			retry
+		}));
+		return steps.current ?? seen[t.testId] ?? [];
+	}
 	function topSteps(t: RunTest): RunStep[] {
-		return t.steps.filter((s) => !s.parentId);
+		return stepsOf(t).filter((s) => !s.parentId);
 	}
 	function bars(t: RunTest) {
 		const steps = topSteps(t);
@@ -121,6 +142,12 @@
 	{#if error}
 		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 	{/if}
+	{#if run.artifactsRemoved}
+		<ui5-message-strip design="Information" hide-close-button>
+			The report, screenshots, videos and traces of this run were removed to save space. Its results
+			are kept.
+		</ui5-message-strip>
+	{/if}
 
 	<div class="grid summary">
 		<ui5-card>
@@ -159,7 +186,7 @@
 	</div>
 
 	{#each run.tests as t (t.testId)}
-		{@const b = bars(t)}
+		{@const b = view.technical ? bars(t) : []}
 		{@const tr = traceUrl(t)}
 		<ui5-panel
 			collapsed={t.status === 'passed' || t.status === 'skipped' || undefined}
@@ -178,8 +205,14 @@
 				<span class="muted dur">{duration(t.duration)}</span>
 			</div>
 			<div class="test-body">
+				{#if t.setup}
+					<span class="muted">
+						Signs in once for the tests of this run, which start signed in. It runs without a trace
+						or video, so the password stays out of the run's records.
+					</span>
+				{/if}
 				<div class="row">
-					<a href={flowHref(t.key, id)}>View the steps</a>
+					{#if !t.setup}<a href={flowHref(t.key, id)}>View the steps</a>{/if}
 					{#if run.hasReport && t.status}
 						<a
 							href={reportHref(id, t.testId)}
@@ -195,7 +228,7 @@
 							Replay step by step
 						</a>
 					{/if}
-					{#if !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
+					{#if !t.setup && !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
 						<ui5-button
 							design="Transparent"
 							icon="play"
@@ -205,7 +238,9 @@
 						</ui5-button>
 					{/if}
 				</div>
-				{#if t.status === 'skipped' && !view.technical}
+				{#if t.status === 'skipped' && signInFailed && !t.setup}
+					<span class="muted">This test did not run because signing in failed.</span>
+				{:else if t.status === 'skipped' && !view.technical}
 					<span class="muted">
 						This test was skipped. Most often the SAP connection is not set up yet; check
 						<a href={settingsHref()}>Settings</a>.
@@ -213,6 +248,13 @@
 				{/if}
 				{#if t.error && view.technical}
 					<pre class="log">{t.error.message}</pre>
+				{:else if t.error && t.setup}
+					<ui5-message-strip design="Negative" hide-close-button>
+						Signing in failed, so the tests that need it did not run. Check the user and password in
+						<a href={settingsHref()}>Settings</a>{t.attachments.length
+							? '; the picture below shows the screen at that moment'
+							: ''}.
+					</ui5-message-strip>
 				{:else if t.error}
 					<ui5-message-strip design="Negative" hide-close-button>
 						This test did not finish successfully. “View the steps” shows where it stopped{t
@@ -225,7 +267,7 @@
 						<pre class="log">{t.error.message}</pre>
 					</details>
 				{/if}
-				{#if b.length && view.technical}
+				{#if b.length}
 					<div class="timeline" aria-label="Step timeline">
 						{#each b as bar (bar.s.stepId)}
 							<div class="tl-row">

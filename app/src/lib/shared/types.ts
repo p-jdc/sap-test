@@ -1,7 +1,8 @@
-export type Surface = 'fiori' | 'webgui' | 'ariba' | 'demo' | 'other';
+export type Surface = 'fiori' | 'webgui' | 'ariba' | 'api' | 'demo' | 'other';
 
 export type LocatorKind =
 	| 'ui5'
+	| 'ui5-xpath'
 	| 'sid'
 	| 'sid-path'
 	| 'role'
@@ -107,9 +108,30 @@ export interface RunTest {
 	retry?: number;
 	/** A `test.fail()` test that failed as declared; its status is `passed`. */
 	expectedFailure?: boolean;
+	/**
+	 * A sign-in from sap-tests/setup that saves the session the tests start with. Playwright runs
+	 * it as a test, but it is no flow of a spec file.
+	 */
+	setup?: boolean;
 	error?: { message: string; line?: number; file?: string };
 	steps: RunStep[];
+	/**
+	 * Set in a live snapshot for a test whose steps were left out to keep the snapshot small
+	 * (LiveView); `steps` is then empty although the test has steps.
+	 */
+	stepsOmitted?: boolean;
 	attachments: Attachment[];
+}
+
+/**
+ * What a page watching a running run needs besides the test list. A snapshot goes out to every
+ * open page several times a second, so it carries the steps of the tests that are running and of
+ * the tests in `file`, and the log only when asked for.
+ */
+export interface LiveView {
+	/** Spec file whose tests keep their steps after they finished (the flow page shows one of them). */
+	file?: string;
+	log?: boolean;
 }
 
 export type RunStatus = 'running' | 'passed' | 'failed' | 'interrupted' | 'error';
@@ -129,6 +151,8 @@ export interface RunState extends RunMeta {
 	tests: RunTest[];
 	log: string[];
 	hasReport: boolean;
+	/** The report, screenshots, videos and traces of this run were deleted to save space. */
+	artifactsRemoved?: boolean;
 }
 
 export interface StabilityRow {
@@ -141,7 +165,10 @@ export interface StabilityRow {
 	lastStatus?: TestStatus;
 }
 
-/** The settings of the test project: SAP and Ariba access, and an optional browser path. */
+/**
+ * The settings of the test project: SAP and Ariba access, the system the OData tests call, and an
+ * optional browser path.
+ */
 export const SETTING_NAMES = [
 	'SAP_URL',
 	'SAP_USERNAME',
@@ -149,9 +176,20 @@ export const SETTING_NAMES = [
 	'ARIBA_URL',
 	'ARIBA_USER',
 	'ARIBA_PASS',
+	'SAP_API_URL',
+	'SAP_API_USERNAME',
+	'SAP_API_PASSWORD',
+	'SAP_CLIENT',
 	'CHROMIUM_PATH'
 ] as const;
 export type SettingName = (typeof SETTING_NAMES)[number];
+
+/** Stored exactly as typed and never trimmed. */
+export const SECRET_SETTINGS: readonly SettingName[] = [
+	'SAP_PASSWORD',
+	'ARIBA_PASS',
+	'SAP_API_PASSWORD'
+];
 
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
 export type SettingSource = 'keychain' | 'file' | 'process';
@@ -161,7 +199,11 @@ export interface EnvStatus {
 	envFile: boolean;
 	/** Whether the system credential store can be used on this machine. */
 	keychain: boolean;
-	vars: { name: SettingName; set: boolean; source?: SettingSource }[];
+	/**
+	 * `withheld`: a credential set in .env or the environment that is not used, because the URL
+	 * saved in the app points at another host than the URL set there.
+	 */
+	vars: { name: SettingName; set: boolean; source?: SettingSource; withheld?: SettingSource }[];
 	/** Stock Playwright in sap-tests, which runs the tests. */
 	playwrightVersion?: string;
 	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */

@@ -25,6 +25,35 @@ which also runs on stock Playwright. It asks UI5 itself (`sap.ui.test.RecordRepl
 control and writes `page.locateUI5Control({...})`, a locator that can name a row by the record it
 shows instead of by its position.
 
+Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
+itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
+HTML report of every run. `fillSecret` hands the value to the password field through a one-time
+page binding instead. The app also masks every password it knows of in the run state and log it
+keeps.
+
+### Signing in once per run
+
+A Playwright trace records the password of any browser login: the page snapshots show the filled
+field and the network log the login request. So the tests do not sign in themselves. Two setup
+projects in `sap-tests/playwright.config.ts` sign in once per run, with trace and video off, and
+save the session in `sap-tests/.auth/` (gitignored):
+
+| Project | Tests | Signs in with | Session |
+| --- | --- | --- | --- |
+| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference`, `tests/_agents/seed-sap.spec.ts` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
+| `ariba` | `tests/ariba` | `setup/ariba.setup.ts`: `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` | `.auth/ariba-session.json` |
+| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – | – |
+
+The tests of the `sap` and `ariba` projects start signed in. `page.SAPLogin(…)` stays in the
+specs and in recordings, but with a saved session it only opens the URL. A login page there means
+the session has expired, which fails the test instead of typing the password into its trace. A
+setup project runs only when a selected test needs it (also with a file or `--grep` filter). If it
+fails, the tests that need it do not run, and the Results page says so. With `--no-deps`, or for a
+second test user signing in within a test, the password is typed in a traced test again.
+
+A trace still holds the session cookies, which are valid until the SAP session ends. Treat
+`app/.data/runs` and `sap-tests/.auth` as secret.
+
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
 WebGUI and Ariba only, because its codegen is what writes SID locators and the plugin's recorder has
 not been tried on a real WebGUI system. The app starts the matching recorder for "Record a test";
@@ -42,12 +71,12 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Page | What it shows |
 | --- | --- |
 | Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values) |
-| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, `getByRoleUI5` with two properties, missing assertion after a save, literal passwords, unreviewed `KI-generiert` tests |
+| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
 | Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4). Technical details: optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
-| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. Technical details: where each value comes from and an optional Chromium path |
+| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
 Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
@@ -111,7 +140,7 @@ to the SAP locators:
 
 | Fixture | What it is |
 | --- | --- |
-| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
+| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
 | `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC` |
 | `cleanup` | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test |
 
@@ -120,6 +149,10 @@ the UI and check the result over the API. The bundled tests target `GWSAMPLE_BAS
 service that ships with SAP Gateway in every ABAP system. It is often active in development systems,
 otherwise activate it in `/IWFND/MAINT_SERVICE`; the ABAP Cloud Developer Trial (Docker) works too.
 SAP's public demo system ES5 (sapes5.sapdevcenter.com), which used to host it, has been shut down.
+
+The app's Settings page has a group for these values (`SAP_API_URL`, `SAP_API_USERNAME`,
+`SAP_API_PASSWORD`, `SAP_CLIENT`); saved there, runs started from the app use them. The mock mode
+below is started from the terminal only.
 
 Without a system, `bun run test:api:mock` (in `sap-tests`) runs the same tests against a local
 mock of the services: SAP's Fiori mock server (`@sap-ux/fe-mockserver-core`) serves each metadata
@@ -141,8 +174,8 @@ bun run typecheck        # tests that use a changed or removed field fail here
 Commit the metadata: its diff shows the change to the interface in review. The generated clients
 are large (about 7,000 lines for `GWSAMPLE_BASIC`) and are rebuilt from it, so they stay out of git.
 For a new service, check `basePath` in `options-per-service.json`, add a fixture next to `gwsample`
-in `sap-plugin/odata.ts` and mock data under `odata/mock/data/<directoryName>/`. The app lists `tests/api` under "other" for now. Its Settings
-page does not store the `SAP_API_*` values yet; runs read them from `sap-tests/.env`.
+in `sap-plugin/odata.ts` and mock data under `odata/mock/data/<directoryName>/`. The app lists these tests under
+"SAP services (API)" and shows each request as a step.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One
@@ -156,14 +189,46 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
+| `TEST_APP_KEEP_ARTIFACTS` | `50` | Runs that keep their report, screenshots, videos and traces. Older runs lose these files (most of a run's size) after each run but keep their results, steps and log, so the history and the reliability table stay complete. `all` never deletes them |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 | `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
+| `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
+
+### AI test agents (guide §5.4, §6.4)
+
+Playwright's own test agents are set up for Claude Code and adapted to the SAP rules in
+`sap-tests/CLAUDE.md`. They were generated with `playwright init-agents --loop=claude` in `sap-tests`
+and then moved to the repo root, where Claude Code sessions start:
+
+| File | Role |
+| --- | --- |
+| `.claude/agents/playwright-test-planner.md` | Explores the running application and writes a test plan to `sap-tests/specs/`. No code |
+| `.claude/agents/playwright-test-generator.md` | Turns a plan into a test under `sap-tests/tests/`, with SAP locators, and runs it |
+| `.claude/agents/playwright-test-healer.md` | Finds the cause of a failing test and repairs the test, or reports an application error. Never removes or loosens a check |
+
+They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
+started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
+from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page, project `chromium`) or
+`seed-sap.spec.ts` (project `sap`: its setup signs in first with the values from `sap-tests/.env`,
+in a browser of its own, so the agents' browser never sends the password; values saved on the
+Settings page are not read). The seeds
+import from `sap-plugin`, which is what makes `page.getByRoleUI5` and the other SAP locators work in
+the agents' browser.
+
+Ask for a role by name in Claude Code, for example "use the planner agent to plan the checkout of
+<address>". A person reviews every plan and every generated or repaired test; such tests carry
+`// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there, and the app lists
+them as not reviewed. What the agents see on screen is sent to the AI provider, so use them on test
+systems with synthetic data only (guide §9).
+
+After a Playwright upgrade, run `init-agents` again in a scratch folder and compare: the tool lists
+in the three files name tools of that Playwright version.
 
 ## Development
 
@@ -203,8 +268,13 @@ Same layout as the reference app, but stricter:
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
-lint, format check and spec discovery (`playwright test --list`) for `sap-tests`. The SAP flows
-themselves need a test system and are not run in CI.
+lint, format check, spec discovery (`playwright test --list`), the plugin tests and the API tests on
+the mock for `sap-tests`. The SAP flows themselves need a test system and are not run in CI.
+
+A second workflow (`.github/workflows/demo-kit.yml`) runs the flows in `tests/fiori/demokit` against
+SAP's public UI5 demo apps every weekday night, and on demand from the Actions tab. They are kept out
+of the pull request checks because they depend on a site outside the project. Locally:
+`bun run test:demokit` in `sap-tests`.
 
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 one in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.

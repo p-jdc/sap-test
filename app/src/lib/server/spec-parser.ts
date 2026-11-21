@@ -15,6 +15,7 @@ export type HelperMap = Record<string, { locator?: LocatorKind; isAction: boolea
 const LOCATOR_METHODS: Record<string, LocatorKind> = {
 	getByRoleUI5: 'ui5',
 	locateUI5Control: 'ui5',
+	locateUI5: 'ui5-xpath',
 	getByRoleSID: 'sid',
 	locateSID: 'sid-path',
 	getByRole: 'role',
@@ -49,8 +50,13 @@ const WAITS = new Set([
 	'waitForURL',
 	'waitForLoadState',
 	'waitForSelector',
-	'waitForResponse'
+	'waitForResponse',
+	'waitForUI5'
 ]);
+/** The plugin's reads of UI5 model state; their first argument is the control to read from. */
+const MODEL_READS = new Set(['ui5BoundData', 'ui5ModelProperty', 'ui5HasPendingChanges']);
+/** What a request built with a generated OData client does, by the builder method that says so. */
+const ODATA_OPERATIONS = ['batch', 'getAll', 'getByKey', 'create', 'update', 'delete'] as const;
 /** Clicks on these labels change data, so the guide wants an assertion right after them (§5.2). */
 const DATA_CHANGING =
 	/\b(save|post|submit|confirm|approve|delete|sichern|speichern|buchen|löschen|genehmigen)\b/i;
@@ -59,8 +65,10 @@ const SAP_SURFACES = new Set<Surface>(['fiori', 'webgui']);
 
 function surfaceFromPath(file: string): Surface | undefined {
 	const top = file.split('/')[0];
-	if (top === 'fiori' || top === 'webgui' || top === 'ariba') return top;
+	if (top === 'fiori' || top === 'webgui' || top === 'ariba' || top === 'api') return top;
 	if (top === '_demo') return 'demo';
+	// The plugin's own tests mix UI5 and WebGUI stand-ins; they are no business flow of a surface.
+	if (top === '_plugin') return 'other';
 	return undefined;
 }
 
@@ -71,8 +79,8 @@ function surfaceFromPath(file: string): Surface | undefined {
 type Facts = {
 	/** A password given as a literal (or a literal constant) instead of an env value. */
 	literalSecret: boolean;
-	/** A `getByRoleUI5` call whose options object has more than one property. */
-	ui5MultiProperty: boolean;
+	/** A password typed with fill, which writes it into the step titles (report, run data). */
+	secretFill: boolean;
 	nth: boolean;
 	/** Steps inside a control-flow statement, which the flow shows as one opaque node. */
 	inner: FlowStep[];
@@ -132,27 +140,16 @@ function isLiteral(ctx: Ctx, node: ts.Expression | undefined): boolean {
 	return false;
 }
 
-/** Finds the calls inside one statement that the per-step rules care about. */
-function scanCalls(node: ts.Node): Pick<Facts, 'ui5MultiProperty' | 'nth'> {
-	const found = { ui5MultiProperty: false, nth: false };
-	const visit = (n: ts.Node) => {
-		if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-			const name = n.expression.name.text;
-			const options = n.arguments[1];
-			if (name === 'nth') found.nth = true;
-			if (
-				name === 'getByRoleUI5' &&
-				options &&
-				ts.isObjectLiteralExpression(options) &&
-				options.properties.length > 1
-			) {
-				found.ui5MultiProperty = true;
-			}
-		}
-		ts.forEachChild(n, visit);
-	};
-	visit(node);
-	return found;
+/** Whether a statement calls `.nth()` anywhere in it. */
+function callsNth(node: ts.Node): boolean {
+	if (
+		ts.isCallExpression(node) &&
+		ts.isPropertyAccessExpression(node.expression) &&
+		node.expression.name.text === 'nth'
+	) {
+		return true;
+	}
+	return ts.forEachChild(node, callsNth) ?? false;
 }
 
 /** `node` is absent for property-access segments such as `keyboard` in `page.keyboard.press()`. */
@@ -244,15 +241,16 @@ function makeStep(
 	ctx: Ctx,
 	stmt: ts.Node,
 	partial: Omit<FlowStep, 'id' | 'line' | 'endLine' | 'code' | 'issues'>,
-	facts: { literalSecret?: boolean; inner?: FlowStep[] } = {}
+	facts: { literalSecret?: boolean; secretFill?: boolean; inner?: FlowStep[] } = {}
 ): FlowStep {
 	const id = `s${++ctx.seq}`;
 	// A group or control-flow statement contains other steps, which are scanned on their own.
 	const container = partial.kind === 'group' || facts.inner !== undefined;
 	ctx.facts.set(id, {
 		literalSecret: facts.literalSecret ?? false,
+		secretFill: facts.secretFill ?? false,
 		inner: facts.inner ?? [],
-		...(container ? { ui5MultiProperty: false, nth: false } : scanCalls(stmt))
+		nth: !container && callsNth(stmt)
 	});
 	return {
 		id,
@@ -289,6 +287,12 @@ function expectChain(
 	return undefined;
 }
 
+/** What an expression points at: a locator if it is one, otherwise its source text. */
+function subjectOf(ctx: Ctx, node: ts.Expression): LocatorInfo {
+	const { root, segments } = flatten(node);
+	return describeLocator(ctx, root, segments) ?? { kind: 'other', display: node.getText(ctx.sf) };
+}
+
 /** Turns one awaited expression into a flow step, or undefined if it is not test-relevant. */
 function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | undefined {
 	const { root, segments } = flatten(expr);
@@ -298,14 +302,7 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	const assertion = expectChain(root, segments);
 	if (assertion) {
 		const { target } = assertion;
-		let locator: LocatorInfo | undefined;
-		if (target) {
-			const inner = flatten(target);
-			locator = describeLocator(ctx, inner.root, inner.segments) ?? {
-				kind: 'other',
-				display: target.getText(ctx.sf)
-			};
-		}
+		const locator = target ? subjectOf(ctx, target) : undefined;
 		const matcher = assertion.matchers.findLast((s) => s.name !== 'not');
 		const firstArg = matcher?.args[0];
 		const negated = assertion.matchers.some((s) => s.name === 'not');
@@ -319,6 +316,27 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	}
 
 	// test.step groups are handled by the caller (collectSteps).
+
+	// fillSecret(field, process.env.SAP_PASSWORD!) from sap-plugin: types a password unrecorded.
+	if (
+		segments.length === 0 &&
+		ts.isCallExpression(root) &&
+		ts.isIdentifier(root.expression) &&
+		root.expression.text === 'fillSecret'
+	) {
+		const [field, value] = root.arguments;
+		return makeStep(
+			ctx,
+			stmt,
+			{
+				kind: 'action',
+				action: 'fillSecret',
+				locator: field ? subjectOf(ctx, field) : undefined,
+				value: value ? argText(ctx, value) : undefined
+			},
+			{ literalSecret: isLiteral(ctx, value) }
+		);
+	}
 
 	// Bare helper call: runTransaction(page, 'VA03')
 	if (segments.length === 0 && ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
@@ -361,10 +379,11 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	}
 	if (ACTIONS.has(last.name)) {
 		const locator = describeLocator(ctx, root, segments.slice(0, -1));
-		const literalSecret =
+		const password =
 			last.name === 'fill' &&
-			/pass|kennwort/i.test(locator?.display ?? '') &&
-			isLiteral(ctx, last.args[0]);
+			(/pass|kennwort/i.test(locator?.display ?? '') ||
+				/^\$\w*(PASS|KENNWORT)/i.test(lastArgs[0] ?? ''));
+		const literalSecret = password && isLiteral(ctx, last.args[0]);
 		return makeStep(
 			ctx,
 			stmt,
@@ -376,8 +395,28 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 					? lastArgs[0]
 					: undefined
 			},
-			{ literalSecret }
+			{ literalSecret, secretFill: password && !literalSecret }
 		);
+	}
+	if (MODEL_READS.has(last.name) && segments.length === 1) {
+		const [control] = last.args;
+		return makeStep(ctx, stmt, {
+			kind: 'other',
+			action: last.name,
+			locator: control ? subjectOf(ctx, control) : undefined
+		});
+	}
+	// products.requestBuilder().getAll().top(5).execute(sapApi) / gwsample.batch(…).execute(sapApi)
+	if (last.name === 'execute') {
+		const operation = ODATA_OPERATIONS.find((name) => segments.some((s) => s.name === name));
+		if (operation || segments.some((s) => s.name === 'requestBuilder')) {
+			return makeStep(ctx, stmt, {
+				kind: 'other',
+				action: `odata.${operation ?? 'request'}`,
+				// The entity API the request goes to, as the spec names it: `products`.
+				value: operation !== 'batch' && ts.isIdentifier(root) ? root.text : undefined
+			});
+		}
 	}
 	return makeStep(ctx, stmt, { kind: 'other', action: last.name });
 }
@@ -480,9 +519,11 @@ function fnArg(call: ts.CallExpression) {
 function detectSurface(file: string, steps: FlowStep[]): Surface {
 	const byPath = surfaceFromPath(file);
 	if (byPath) return byPath;
-	if (steps.some((s) => s.locator?.kind === 'ui5')) return 'fiori';
+	if (steps.some((s) => s.locator?.kind === 'ui5' || s.locator?.kind === 'ui5-xpath'))
+		return 'fiori';
 	if (steps.some((s) => s.locator?.kind === 'sid' || s.locator?.kind === 'sid-path'))
 		return 'webgui';
+	if (steps.some((s) => s.action.startsWith('odata.'))) return 'api';
 	return 'other';
 }
 
@@ -519,8 +560,12 @@ function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[
 					`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
 				);
 			}
-			if (facts?.ui5MultiProperty) {
-				add('ui5-single-property', 'error', 'getByRoleUI5 supports only one property per call.');
+			if (kind === 'ui5-xpath') {
+				add(
+					'prefer-role-ui5',
+					'info',
+					'Path through the UI5 control tree. Prefer getByRoleUI5 where a property identifies the control.'
+				);
 			}
 			if (facts?.nth) {
 				add('avoid-nth', 'info', '.nth() only when no property identifies the control uniquely.');
@@ -538,6 +583,13 @@ function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[
 			}
 			if (facts?.literalSecret) {
 				add('no-literal-secret', 'error', 'Password typed as a literal. Read it from .env.');
+			}
+			if (facts?.secretFill) {
+				add(
+					'no-secret-fill',
+					'warning',
+					'fill writes the password into the report and the step list. Use fillSecret from sap-plugin.'
+				);
 			}
 			if (
 				step.kind === 'action' &&
@@ -790,14 +842,16 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 	walk(sf.statements, [], [], false);
 
 	const fileIssues: Issue[] = [];
-	const marker = /KI-generiert,\s*geprüft von:\s*(.*)/.exec(source);
+	// The name must be on the marker's own line: an empty name is not filled by the next line.
+	const marker = /KI-generiert,\s*geprüft von:[ \t]*(.*)/.exec(source);
 	const reviewer = marker?.[1]?.trim() ?? '';
 	if (marker && (!reviewer || /<name>/i.test(reviewer))) {
 		const line = source.slice(0, marker.index).split('\n').length;
 		fileIssues.push({
 			rule: 'ai-review',
 			severity: 'warning',
-			message: 'AI-generated test without a named reviewer.',
+			message:
+				'AI-generated test without a named reviewer. Whoever reviewed it puts their name in the comment at the top of the file.',
 			line
 		});
 	}

@@ -37,6 +37,21 @@
 			]
 		},
 		{
+			title: 'SAP services (API)',
+			subtitle:
+				'Optional: only for tests that call SAP services directly. They create and change data, so use a development system',
+			fields: [
+				{
+					name: 'SAP_API_URL',
+					label: 'Web address',
+					hint: 'https://your-dev-system.example.com (no path)'
+				},
+				{ name: 'SAP_API_USERNAME', label: 'User name' },
+				{ name: 'SAP_API_PASSWORD', label: 'Password', secret: true },
+				{ name: 'SAP_CLIENT', label: 'Client', hint: 'Three digits, for example 100' }
+			]
+		},
+		{
 			title: 'Browser',
 			subtitle: 'Optional',
 			technical: true,
@@ -66,6 +81,8 @@
 	let notice = $state<string | null>(null);
 
 	const sourceOf = (name: SettingName) => env.current?.vars.find((v) => v.name === name)?.source;
+	const withheldOf = (name: SettingName) =>
+		env.current?.vars.find((v) => v.name === name)?.withheld;
 
 	async function change(name: SettingName, action: () => Promise<{ cleared: SettingName[] }>) {
 		busy = name;
@@ -137,6 +154,7 @@
 				<div class="card-body">
 					{#each group.fields as field (field.name)}
 						{@const source = sourceOf(field.name)}
+						{@const withheld = withheldOf(field.name)}
 						{@const draft = drafts[field.name] ?? ''}
 						<div class="field" data-setting={field.name}>
 							<div class="what">
@@ -154,8 +172,11 @@
 									if (e.key === 'Enter' && draft && busy === null) void save(field.name);
 								}}
 							></ui5-input>
-							<ui5-tag design={source ? 'Positive' : 'Neutral'} hide-state-icon>
-								{source ? sourceLabel(source) : 'Not set'}
+							<ui5-tag
+								design={source ? 'Positive' : withheld ? 'Critical' : 'Neutral'}
+								hide-state-icon
+							>
+								{source ? sourceLabel(source) : withheld ? 'Not used' : 'Not set'}
 							</ui5-tag>
 							<div class="row">
 								<ui5-button
@@ -173,6 +194,13 @@
 									Remove
 								</ui5-button>
 							</div>
+							{#if withheld && !source}
+								<p class="withheld">
+									{view.technical
+										? `${field.name} is set ${withheld === 'file' ? 'in sap-tests/.env' : 'in the environment'}, but not used: it belongs to the URL set there, and the URL saved here points at another host. Save it here for this host.`
+										: 'Your admin set this for a different address than the one saved here, so it is not used. Enter it here for this address.'}
+								</p>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -195,6 +223,11 @@
 		grid-template-columns: 11rem minmax(12rem, 1fr) 9rem auto;
 		gap: 0.75rem;
 		align-items: center;
+	}
+	.field .withheld {
+		grid-column: 1 / -1;
+		margin: 0;
+		color: var(--sapCriticalTextColor);
 	}
 	.field ui5-input {
 		width: 100%;

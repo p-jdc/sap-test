@@ -119,6 +119,16 @@ describe('settings in the credential store', () => {
 		expect(await env.keychainEnv(NONE)).toEqual({});
 	});
 
+	test('a run gets the stored values and every password in effect, to mask', async () => {
+		const env = await withEnvFile(FILE);
+		vi.stubEnv('ARIBA_PASS', 'env-ariba');
+		const { store } = fakeStore({ SAP_API_PASSWORD: 'stored-api', ARIBA_USER: 'buyer' });
+		expect(await env.runSettings(store)).toEqual({
+			env: { SAP_API_PASSWORD: 'stored-api', ARIBA_USER: 'buyer' },
+			secrets: ['file-pw', 'env-ariba', 'stored-api']
+		});
+	});
+
 	test('saving and removing a setting changes what is resolved', async () => {
 		const env = await withEnvFile(FILE);
 		const { store } = fakeStore();
@@ -145,6 +155,31 @@ describe('settings in the credential store', () => {
 		expect([...values.keys()].toSorted()).toEqual(['ARIBA_PASS', 'SAP_URL']);
 	});
 
+	test('the API system has its own credentials, cleared only when its own URL moves', async () => {
+		const env = await withEnvFile(null);
+		const { store, values } = fakeStore({
+			SAP_URL: 'https://sap.example.com',
+			SAP_PASSWORD: 'P',
+			SAP_API_URL: 'https://dev.example.com',
+			SAP_API_USERNAME: 'API',
+			SAP_API_PASSWORD: 'AP',
+			SAP_CLIENT: '100'
+		});
+		expect(await env.keychainEnv(store)).toMatchObject({
+			SAP_API_URL: 'https://dev.example.com',
+			SAP_CLIENT: '100'
+		});
+		expect(await env.changeSetting('SAP_API_URL', 'https://other.example.com', store)).toEqual({
+			cleared: ['SAP_API_USERNAME', 'SAP_API_PASSWORD']
+		});
+		expect([...values.keys()].toSorted()).toEqual([
+			'SAP_API_URL',
+			'SAP_CLIENT',
+			'SAP_PASSWORD',
+			'SAP_URL'
+		]);
+	});
+
 	test('removing a stored URL that hid a different .env URL also removes the credentials', async () => {
 		const env = await withEnvFile(FILE);
 		const { store, values } = fakeStore({
@@ -162,5 +197,51 @@ describe('settings in the credential store', () => {
 			cleared: []
 		});
 		expect(values.size).toBe(3);
+	});
+
+	test('credentials from .env are not used with a stored URL on another host', async () => {
+		const env = await withEnvFile(FILE);
+		const { store } = fakeStore();
+		await env.changeSetting('SAP_URL', 'https://evil.example.net', store);
+		const resolved = await env.readTestEnv(store);
+		expect(resolved.SAP_URL).toBe('https://evil.example.net');
+		expect(resolved).not.toHaveProperty('SAP_USERNAME');
+		expect(resolved).not.toHaveProperty('SAP_PASSWORD');
+		// Empty values, so the test project's dotenv does not load them from .env either.
+		expect(await env.keychainEnv(store)).toEqual({
+			SAP_URL: 'https://evil.example.net',
+			SAP_USERNAME: '',
+			SAP_PASSWORD: ''
+		});
+		const status = await env.envStatus(store);
+		expect(status.vars.find((v) => v.name === 'SAP_PASSWORD')).toEqual({
+			name: 'SAP_PASSWORD',
+			set: false,
+			source: undefined,
+			withheld: 'file'
+		});
+		expect(JSON.stringify(status)).not.toContain('file-pw');
+
+		// Back on the host of the .env URL, they are used again.
+		await env.changeSetting('SAP_URL', 'https://file.example.com/fiori', store);
+		expect((await env.readTestEnv(store)).SAP_PASSWORD).toBe('file-pw');
+		expect(await env.keychainEnv(store)).toEqual({ SAP_URL: 'https://file.example.com/fiori' });
+	});
+
+	test('credentials from the environment, which sets no URL, are not used with a stored URL', async () => {
+		const env = await withEnvFile(null);
+		vi.stubEnv('SAP_USERNAME', 'ENV_USER');
+		vi.stubEnv('SAP_PASSWORD', 'env-pw');
+		const { store } = fakeStore({ SAP_URL: 'https://sap.example.com', ARIBA_PASS: 'A' });
+		expect(await env.keychainEnv(store)).toEqual({
+			SAP_URL: 'https://sap.example.com',
+			ARIBA_PASS: 'A',
+			SAP_USERNAME: '',
+			SAP_PASSWORD: ''
+		});
+		const status = await env.envStatus(store);
+		expect(status.vars.find((v) => v.name === 'SAP_USERNAME')?.withheld).toBe('process');
+		// Without a stored URL, the environment's credentials are used as before.
+		expect((await env.readTestEnv(fakeStore().store)).SAP_PASSWORD).toBe('env-pw');
 	});
 });

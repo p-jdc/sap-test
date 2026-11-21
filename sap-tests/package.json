@@ -5,6 +5,8 @@
 		"test": "playwright test",
 		"test:ui": "playwright test --ui",
 		"test:api:mock": "SAP_API_MOCK=1 playwright test tests/api",
+		"test:plugin": "playwright test tests/_plugin",
+		"test:demokit": "playwright test tests/fiori/demokit",
 		"report": "playwright show-report",
 		"postinstall": "bun run odata:generate",
 		"odata:fetch": "node odata/fetch-metadata.mjs",

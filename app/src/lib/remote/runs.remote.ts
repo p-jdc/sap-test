@@ -1,7 +1,14 @@
 import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
-import { activeRunId, getLiveState, startRun, stopRun, watchRun } from '#lib/server/runner.js';
+import {
+	activeRunId,
+	getLiveState,
+	startRun,
+	stopRun,
+	testSteps,
+	watchRun
+} from '#lib/server/runner.js';
 import { listRuns, PILOT_STREAK, readRunState, stability } from '#lib/server/runs-store.js';
 
 const runId = z.string().regex(/^[0-9]{8}-[0-9]{6}-[a-z0-9]{4}$/);
@@ -10,7 +17,27 @@ export const getRuns = query(() => ({ runs: listRuns(), active: activeRunId() })
 
 export const getRun = query(runId, (id) => getLiveState(id) ?? readRunState(id));
 
-export const watchRunLive = query.live(runId, (id) => watchRun(id));
+/**
+ * A running run as a stream of snapshots, each reduced to what the asking page shows: see LiveView.
+ * The steps a snapshot leaves out come from getRunTestSteps.
+ */
+export const watchRunLive = query.live(
+	z.object({ id: runId, file: z.string().max(500).optional(), log: z.boolean().optional() }),
+	({ id, ...view }) => watchRun(id, view)
+);
+
+/**
+ * The steps of one test. `retry` is not used on the server: a test that runs again gets new
+ * steps under the same id, and the new number makes the page ask again.
+ */
+export const getRunTestSteps = query(
+	z.object({
+		id: runId,
+		testId: z.string().min(1).max(200),
+		retry: z.number().int().min(0).max(100)
+	}),
+	({ id, testId }) => testSteps(id, testId)
+);
 
 export const getStability = query(() => ({ rows: stability(), target: PILOT_STREAK }));
 

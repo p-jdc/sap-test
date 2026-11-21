@@ -1,13 +1,27 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { keychainEnv } from './env-file.js';
+import { runSettings } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
-import { ANSI, applyEvent, PREFIX, recount, type ReporterEvent } from './run-events.js';
-import { markLive, pruneRuns, readRunState, rememberFinished } from './runs-store.js';
-import type { RunState, RunStatus } from '#lib/shared/types.js';
+import { redactor } from './redact.js';
+import {
+	ANSI,
+	applyEvent,
+	liveSnapshot,
+	PREFIX,
+	recount,
+	type ReporterEvent
+} from './run-events.js';
+import {
+	markLive,
+	pruneRuns,
+	readRunState,
+	rememberFinished,
+	trimArtifacts
+} from './runs-store.js';
+import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
 const LOG_TAIL = 400;
 
@@ -47,7 +61,7 @@ export type StartRunInput = {
 };
 
 /** The arguments of `playwright test` for one run. `files` are relative to tests/. */
-export function runArgs(input: StartRunInput, files: string[], results: string): string[] {
+function runArgs(input: StartRunInput, files: string[], results: string): string[] {
 	return [
 		'test',
 		...files.map((f) => 'tests/' + f),
@@ -66,7 +80,10 @@ export async function startRun(
 	// Settings saved in the app live in the system credential store; the tests get them as
 	// environment variables. Read before the check below: nothing after it yields, so two requests
 	// cannot both start a run.
-	const settings = await keychainEnv();
+	const settings = await runSettings();
+	// Playwright writes typed values into step titles (`Fill "…"`) and errors; a password must not
+	// reach the run state, the log or the UI that way.
+	const redact = redactor(settings.secrets);
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
 	if (!existsSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test'))) {
 		return {
@@ -87,7 +104,7 @@ export async function startRun(
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
 		env: childEnv({
-			...settings,
+			...settings.env,
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'
@@ -121,13 +138,14 @@ export async function startRun(
 			try {
 				// The line comes from reporter/live-reporter.ts in this repo, so its shape is trusted.
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion
-				applyEvent(live.state, dir, JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent);
+				const event = JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent;
+				applyEvent(live.state, dir, redact(event));
 			} catch {
 				// a malformed line must not kill the run
 			}
 			return;
 		}
-		const line = raw.replaceAll(ANSI, '').replaceAll('\r', '');
+		const line = redact(raw.replaceAll(ANSI, '').replaceAll('\r', ''));
 		if (!line.trim()) return;
 		appendFileSync(logFile, line + '\n');
 		live.state.log.push(line);
@@ -175,10 +193,14 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 		state.status = 'error';
 		state.log.push('No tests were run.');
 	} else if (state.status === 'running') state.status = code === 0 ? 'passed' : 'failed';
+	// Playwright does not run the tests of a sign-in that failed, and reports nothing for them.
+	const signInFailed = state.tests.some((t) => t.setup && t.status === 'failed');
 	for (const t of state.tests) {
 		if (t.running) {
 			t.running = false;
 			t.status = 'interrupted';
+		} else if (!t.status && signInFailed) {
+			t.status = 'skipped';
 		}
 	}
 	recount(state);
@@ -186,6 +208,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	persist(live);
 	rememberFinished(state.id);
 	pruneRuns();
+	trimArtifacts();
 	notify(live);
 }
 
@@ -199,6 +222,12 @@ export function getLiveState(id: string): RunState | null {
 	return active && active.state.id === id ? active.state : null;
 }
 
+/** The steps of one test of a run, running or finished. */
+export function testSteps(id: string, testId: string): RunStep[] {
+	const state = getLiveState(id) ?? readRunState(id);
+	return state?.tests.find((t) => t.testId === testId)?.steps ?? [];
+}
+
 function notify(live: Live) {
 	live.updates.dispatchEvent(new Event('update'));
 }
@@ -208,8 +237,15 @@ const sleep = (ms: number) =>
 		setTimeout(done, ms);
 	});
 
-/** Snapshot stream for query.live: yields on change (throttled), ends when the run finishes. */
-export async function* watchRun(id: string): AsyncGenerator<RunState> {
+/** The shortest time between two snapshots of a running run. */
+const SNAPSHOT_INTERVAL = 500;
+
+/**
+ * Snapshot stream for query.live: yields on change (throttled), ends when the run finishes. With a
+ * `view`, each snapshot is reduced to what that view shows (liveSnapshot); without, it is the
+ * whole state. A run that is not running yields its stored state once, in full.
+ */
+export async function* watchRun(id: string, view?: LiveView): AsyncGenerator<RunState> {
 	const live = active && active.state.id === id ? active : null;
 	if (!live || live.state.status !== 'running') {
 		const done = readRunState(id);
@@ -235,10 +271,10 @@ export async function* watchRun(id: string): AsyncGenerator<RunState> {
 			// oxlint-disable-next-line no-await-in-loop
 			if (!dirty) await nextUpdate();
 			dirty = false;
-			yield structuredClone(live.state);
+			yield view ? liveSnapshot(live.state, view) : structuredClone(live.state);
 			if (!running()) return;
 			// oxlint-disable-next-line no-await-in-loop
-			await sleep(200);
+			await sleep(SNAPSHOT_INTERVAL);
 		}
 	} finally {
 		live.updates.removeEventListener('update', onUpdate);

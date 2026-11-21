@@ -1,4 +1,4 @@
-import { test } from '../../sap-plugin';
+import { test } from '../../../sap-plugin';
 
 test('cart demo', async ({ page }) => {
 	await page.goto('https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html');

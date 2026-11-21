@@ -24,8 +24,15 @@
 			return acc;
 		}, {})
 	);
+	// Findings on steps, plus findings on a whole file (an AI-generated test nobody has signed off).
 	const issueCount = $derived(
-		tests.reduce((n, t) => n + t.issues.filter((i) => i.severity !== 'info').length, 0)
+		(specs.current ?? []).reduce(
+			(n, f) =>
+				n +
+				f.issues.length +
+				f.tests.reduce((m, t) => m + t.issues.filter((i) => i.severity !== 'info').length, 0),
+			0
+		)
 	);
 	const target = $derived(stab.current?.target ?? 10);
 	const stableCount = $derived(stab.current?.rows.filter((r) => r.streak >= target).length ?? 0);
@@ -35,6 +42,7 @@
 	const toolsReady = $derived(!!env.current?.playwrightVersion);
 	const sapReady = $derived(has('SAP_URL', 'SAP_USERNAME', 'SAP_PASSWORD'));
 	const aribaReady = $derived(has('ARIBA_URL', 'ARIBA_USER', 'ARIBA_PASS'));
+	const apiReady = $derived(has('SAP_API_URL', 'SAP_API_USERNAME', 'SAP_API_PASSWORD'));
 	const hasRuns = $derived((runs.current?.runs.length ?? 0) > 0);
 	// The first steps stay on the page until both are done; before the data is there, nothing shows.
 	const gettingStarted = $derived(!!env.current && !!runs.current && !(hasRuns && sapReady));
@@ -140,6 +148,13 @@
 						label={aribaReady ? 'Ready' : 'Not set up'}
 					/>
 				</div>
+				<div class="check">
+					<span>SAP services (API) <span class="muted">(optional)</span></span>
+					<StatusTag
+						status={apiReady ? 'passed' : undefined}
+						label={apiReady ? 'Ready' : 'Not set up'}
+					/>
+				</div>
 				{#if !toolsReady}
 					<span class="muted">Ask the person who installed this app to run its setup again.</span>
 				{/if}
@@ -216,7 +231,8 @@
 			</div>
 			{#if issueCount}
 				<span class="muted">
-					Quality warnings point at steps that are written in a fragile way. The tests still run.
+					Quality warnings point at steps that are written in a fragile way, or at tests nobody has
+					signed off yet. The tests still run.
 				</span>
 			{/if}
 			<a href={testsHref()}>See all tests</a>

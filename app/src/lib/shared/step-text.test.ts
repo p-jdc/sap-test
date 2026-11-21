@@ -74,7 +74,8 @@ test.each<[LocatorInfo, string | undefined]>([
 		'the “Compare” link'
 	],
 	[loc('css', `locator('#__button3-inner')`), undefined],
-	[loc('sid-path', `locateSID('wnd[0]/tbar[1]/btn[8]')`), undefined]
+	[loc('sid-path', `locateSID('wnd[0]/tbar[1]/btn[8]')`), undefined],
+	[loc('ui5-xpath', `locateUI5('//ToolPage//SideNavigation')`), undefined]
 ])('names the target of %o', (locator, expected) => {
 	expect(targetText(locator)).toBe(expected);
 });
@@ -89,6 +90,10 @@ test.each<[FlowStep, string]>([
 		'Open ui5.sap.com'
 	],
 	[step({ kind: 'navigate', action: 'goto', value: '$ARIBA_URL' }), 'Open the Ariba address'],
+	[
+		step({ kind: 'navigate', action: 'goto', value: '$SAP_API_URL' }),
+		'Open the SAP services address'
+	],
 	[step({ kind: 'login', action: 'SAPLogin', value: '$SAP_USERNAME' }), 'Log in to SAP'],
 	[
 		step({
@@ -109,6 +114,15 @@ test.each<[FlowStep, string]>([
 		'Enter the Ariba password in “Password”'
 	],
 	[
+		step({
+			kind: 'action',
+			action: 'fillSecret',
+			locator: loc('label', `getByLabel('Password')`),
+			value: '$SAP_PASSWORD'
+		}),
+		'Enter the SAP password in “Password”'
+	],
+	[
 		step({ kind: 'action', action: 'click', locator: loc('css', `locator('#__button3-inner')`) }),
 		'Click an element on the screen'
 	],
@@ -117,7 +131,47 @@ test.each<[FlowStep, string]>([
 	[step({ kind: 'wait', action: 'waitForLoadState' }), 'Wait until the page is ready'],
 	[step({ kind: 'helper', action: 'runTransaction', value: 'VA03' }), 'Run transaction: VA03'],
 	[step({ kind: 'group', action: 'test.step', value: 'Create the order' }), 'Create the order'],
+	[step({ kind: 'wait', action: 'waitForUI5' }), 'Wait until the page is ready'],
 	[step({ kind: 'other', action: 'for' }), 'Repeat the next steps'],
+	[step({ kind: 'other', action: 'if' }), 'Depending on the situation'],
+	[
+		step({ kind: 'other', action: 'ui5BoundData', locator: loc('other', 'table') }),
+		'Read the entries loaded in the table'
+	],
+	[
+		step({
+			kind: 'other',
+			action: 'ui5ModelProperty',
+			locator: loc('ui5', `getByRoleUI5('Input', { label: 'Price' })`)
+		}),
+		'Read a value behind the “Price” input'
+	],
+	[step({ kind: 'other', action: 'ui5HasPendingChanges' }), 'Look for unsaved changes'],
+	[
+		step({ kind: 'other', action: 'odata.getAll', value: 'salesOrders' }),
+		'Read data from the SAP service: sales orders'
+	],
+	[
+		step({ kind: 'other', action: 'odata.batch' }),
+		'Send several requests to the SAP service at once'
+	],
+	[
+		step({ kind: 'assert', action: 'toBeGreaterThan', locator: loc('other', 'products.length') }),
+		'Check the products'
+	],
+	[
+		step({
+			kind: 'assert',
+			action: 'toBe',
+			locator: loc('other', 'created.price?.toNumber()'),
+			value: '9.99'
+		}),
+		'Check a result'
+	],
+	[
+		step({ kind: 'assert', action: 'toBeVisible', locator: loc('other', 'rows.first()') }),
+		'Check that an element on the screen is shown'
+	],
 	[
 		step({
 			kind: 'assert',

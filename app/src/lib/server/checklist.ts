@@ -3,13 +3,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DATA_DIR } from './paths.js';
 
-/** Guide §12, one entry per checklist line. */
+/**
+ * Guide §12, one entry per checklist line. Phase 3 differs from the guide: instead of upgrading the
+ * Playwright-SAP fork, the project moved to stock Playwright with the fork's locators as a plugin
+ * (sap-tests/sap-plugin). The two replaced lines have new ids, so old ticks do not carry over.
+ */
 export const CHECKLIST: { phase: string; items: { id: string; text: string }[] }[] = [
 	{
 		phase: 'Phase 1 – Pilot',
 		items: [
 			{ id: 'p1-system', text: 'Test system, test user and roles are ready' },
-			{ id: 'p1-project', text: 'Project created and version 1.53.x confirmed' },
+			{ id: 'p1-project', text: 'Project created and Playwright version confirmed' },
 			{ id: 'p1-flows', text: 'Three flows recorded, cleaned up and passed ten times in a row' },
 			{ id: 'p1-helpers', text: 'Helper layer in use; WebGUI wait problems noted' }
 		]
@@ -24,11 +28,14 @@ export const CHECKLIST: { phase: string; items: { id: string; text: string }[] }
 		]
 	},
 	{
-		phase: 'Phase 3 – Fork upgrade',
+		phase: 'Phase 3 – Off the fork',
 		items: [
 			{ id: 'p3-measure', text: 'Fork measured and decision recorded' },
-			{ id: 'p3-maintainer', text: 'Maintainer contacted' },
-			{ id: 'p3-upgrade', text: 'Upgrade built, tested, published; pilot flows re-run' },
+			{
+				id: 'p3-plugin',
+				text: 'SAP locators run on stock Playwright as a plugin, with their own tests'
+			},
+			{ id: 'p3-rerun', text: 'Pilot flows re-run on stock Playwright' },
 			{ id: 'p3-agents', text: 'Built-in agents set up and merged with own rules' }
 		]
 	},

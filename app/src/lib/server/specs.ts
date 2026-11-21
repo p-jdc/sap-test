@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { HELPERS_DIR, TESTS_DIR, within } from './paths.js';
+import { HELPERS_DIR, TESTS_DIR, toPosix, within } from './paths.js';
 import { parseHelpers, parseSpec, type HelperMap } from './spec-parser.js';
 import type { SpecFile } from '#lib/shared/types.js';
 
@@ -18,30 +18,34 @@ function walk(dir: string, match: (f: string) => boolean): string[] {
 
 const cache = new Map<string, { mtime: number; helpersKey: string; parsed: SpecFile }>();
 
+let helpers: { map: HelperMap; key: string } | undefined;
+
+/** The helper functions, parsed again only when a helper file was added, removed or changed. */
 function loadHelpers(): { map: HelperMap; key: string } {
 	const files = walk(HELPERS_DIR, (f) => f.endsWith('.ts'));
 	const key = files.map((f) => `${f}:${statSync(f).mtimeMs}`).join('|');
-	return {
-		key,
-		map: parseHelpers(files.map((f) => ({ file: f, source: readFileSync(f, 'utf8') })))
-	};
+	if (helpers?.key !== key) {
+		const sources = files.map((f) => ({ file: f, source: readFileSync(f, 'utf8') }));
+		helpers = { key, map: parseHelpers(sources) };
+	}
+	return helpers;
 }
 
 /** Parses every spec under sap-tests/tests, re-parsing only files whose mtime or helpers changed. */
 export function listSpecs(): SpecFile[] {
-	const helpers = loadHelpers();
+	const current = loadHelpers();
 	return walk(TESTS_DIR, (f) => /\.(spec|test)\.[cm]?[jt]s$/.test(f)).map((full) => {
-		const file = relative(TESTS_DIR, full);
+		const file = toPosix(relative(TESTS_DIR, full));
 		const mtime = statSync(full).mtimeMs;
 		const hit = cache.get(file);
-		if (hit && hit.mtime === mtime && hit.helpersKey === helpers.key) return hit.parsed;
+		if (hit && hit.mtime === mtime && hit.helpersKey === current.key) return hit.parsed;
 		let parsed: SpecFile;
 		try {
-			parsed = parseSpec(file, readFileSync(full, 'utf8'), helpers.map);
+			parsed = parseSpec(file, readFileSync(full, 'utf8'), current.map);
 		} catch (e) {
 			parsed = { file, surface: 'other', tests: [], issues: [], parseError: String(e) };
 		}
-		cache.set(file, { mtime, helpersKey: helpers.key, parsed });
+		cache.set(file, { mtime, helpersKey: current.key, parsed });
 		return parsed;
 	});
 }
