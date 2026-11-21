@@ -71,14 +71,14 @@ Die meisten SAP-Belege lassen sich nicht löschen, nur stornieren. `undo` in `cl
 
 ## Was der Linter prüft
 
-`bun run lint` schlägt bei diesen Regeln fehl; die Test-App zeigt dieselben Befunde je Test an:
+`bun run lint` schlägt bei diesen Regeln fehl. Die Test-App zeigt verwandte Befunde je Test an, erkennt Passwörter aber etwas anders (siehe tools/oxlint/sap-rules/README.md): Ein Befund kann in nur einem der beiden Werkzeuge erscheinen.
 
 - `waitForTimeout` (feste Wartezeit).
 - `test` oder `expect` aus '@playwright/test' in einer Datei unter tests/. Typen und andere Exporte (z. B. `chromium`) sind erlaubt.
-- `fill`, `type` oder `pressSequentially` auf einem Passwortfeld oder mit einem Passwort als Wert (`sap/no-secret-fill`).
-- Ein in den Code geschriebenes Passwort bei `fillSecret` oder `page.SAPLogin` (`sap/no-literal-secret`).
+- `fill`, `type` oder `pressSequentially` auf einem Passwortfeld oder mit einem Passwort als Wert (`sap/no-secret-fill`), auch als `page.fill(selektor, wert)`.
+- Ein in den Code geschriebenes Passwort bei `fillSecret` oder `page.SAPLogin`, auch über eine Konstante (`sap/no-literal-secret`).
 
-Die beiden Passwortregeln erkennen Passwörter am Namen (Beschriftung des Felds, Name der Variable). Ein Passwortfeld mit anderem Namen erkennen sie nicht; `fillSecret` selbst prüft beim Lauf, dass das Feld ein Passwortfeld ist. Alle anderen Regeln dieser Datei prüft kein Werkzeug.
+Die beiden Passwortregeln erkennen Passwörter am Namen (Beschriftung des Felds, Name der Variable). Ein Passwortfeld mit anderem Namen erkennen sie nicht, und ein Feld, das nur „Password“ im Namen trägt (z. B. „Password policy“), halten sie für eines; dann die Zeile mit `// oxlint-disable-next-line sap/no-secret-fill -- <Grund>` ausnehmen. Außerdem gilt: `fillSecret` selbst prüft beim Lauf, dass das Feld ein Passwortfeld ist. Alle anderen Regeln dieser Datei prüft kein Werkzeug.
 
 ## KI-Rollen (Planner, Generator, Healer)
 

@@ -1,6 +1,4 @@
 {
-	// Only the rules under test, for tests/_plugin/lint-rules.spec.ts. Keep the options of
-	// no-restricted-imports the same as in sap-tests/.oxlintrc.json.
 	"jsPlugins": [{ "name": "sap", "specifier": "../index.ts" }],
 	"categories": { "correctness": "off" },
 	"rules": {
