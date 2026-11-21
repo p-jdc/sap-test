@@ -248,6 +248,13 @@ describe('applyRetention', () => {
 			error: { message: 'The error message was removed to save space.', line: 7 }
 		});
 		expect(JSON.stringify(state)).not.toContain('4711');
+		// Nor is it left readable in the database file or its write-ahead log.
+		const raw = ['app.sqlite', 'app.sqlite-wal']
+			.map((f) => join(dataDir, f))
+			.filter((f) => existsSync(f))
+			.map((f) => readFileSync(f, 'latin1'))
+			.join('');
+		expect(raw).not.toContain('Order 4711');
 		expect(store.readRunState(newest)?.artifactsRemoved).toBeUndefined();
 		expect(
 			store
@@ -351,14 +358,25 @@ describe('runs kept in files before the database', () => {
 		const passed = writeOldRun({ flow: 'passed' });
 		const failed = writeOldRun({ flow: 'failed' }, 'failed');
 		writeFileSync(join(failed.dir, 'artifacts-removed'), '2026-02-01T00:00:00.000Z');
+		// The app stopped while writing this state.json: meta.json and results.json still tell.
+		const cut = writeOldRun({ flow: 'passed' });
+		writeFileSync(join(cut.dir, 'state.json'), '{"id":');
+		writeFileSync(
+			join(cut.dir, 'results.json'),
+			JSON.stringify([{ key: 'flow', file: 'a.spec.ts', title: 'flow', status: 'passed' }])
+		);
 		// A run that was cut off before its state was written has nothing to move.
 		mkdirSync(join(dataDir, 'runs', '20260101-000099-none'));
 		vi.stubEnv('TEST_APP_DATA_DIR', dataDir);
 		vi.resetModules();
 		const store = await import('./runs-store.js');
 
-		expect(store.listRuns().map((r) => r.id)).toEqual([failed.id, passed.id]);
-		expect(store.stability()[0]?.history.map((h) => h.status)).toEqual(['passed', 'failed']);
+		expect(store.listRuns().map((r) => r.id)).toEqual([cut.id, failed.id, passed.id]);
+		expect(store.stability()[0]?.history.map((h) => h.status)).toEqual([
+			'passed',
+			'failed',
+			'passed'
+		]);
 		expect(store.readRunState(failed.id)).toMatchObject({
 			status: 'failed',
 			artifactsRemoved: true,
@@ -372,6 +390,6 @@ describe('runs kept in files before the database', () => {
 		// Moved once: a restart finds them in the database.
 		vi.resetModules();
 		const restarted = await import('./runs-store.js');
-		expect(restarted.listRuns()).toHaveLength(2);
+		expect(restarted.listRuns()).toHaveLength(3);
 	});
 });

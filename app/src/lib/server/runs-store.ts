@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, isNotNull, lt, notInArray, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { database, type AppDatabase } from './db/database.js';
@@ -111,17 +111,44 @@ const OLD_FILES = [
 	'details-removed'
 ];
 
-function readOldRun(dir: string): RunState | null {
-	for (const name of ['state.json', 'meta.json']) {
-		const file = join(dir, name);
-		if (!existsSync(file)) continue;
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
-		const stored = JSON.parse(readFileSync(file, 'utf8')) as Omit<RunState, 'tests'> & {
-			tests?: RunTest[];
-		};
-		return { ...stored, tests: stored.tests ?? [] };
+/** A file of an old run, or null when it is missing or cut off (the app stopped while writing). */
+function readOldFile(dir: string, name: string): unknown {
+	try {
+		return JSON.parse(readFileSync(join(dir, name), 'utf8'));
+	} catch {
+		return null;
 	}
-	return null;
+}
+
+/** What results.json kept of each test: enough for the list and the reliability table. */
+type OldResult = Pick<RunTest, 'key' | 'file' | 'title' | 'status' | 'setup'> & {
+	failedAt?: string;
+};
+
+/**
+ * An old run from its state.json; when that is missing or cut off, from meta.json with the tests
+ * from results.json (without steps).
+ */
+function readOldRun(dir: string): RunState | null {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const state = readOldFile(dir, 'state.json') as RunState | null;
+	if (state) return state;
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const meta = readOldFile(dir, 'meta.json') as Omit<RunState, 'tests'> | null;
+	if (!meta) return null;
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const results = (readOldFile(dir, 'results.json') as OldResult[] | null) ?? [];
+	const tests = results.map(({ failedAt, ...t }): RunTest => {
+		const [file, line] = failedAt?.split(':') ?? [];
+		return {
+			...t,
+			testId: t.key,
+			line: 0,
+			steps: [],
+			...(failedAt ? { error: { message: '', file, line: Number(line) || undefined } } : {})
+		};
+	});
+	return { ...meta, tests };
 }
 
 /**
@@ -297,6 +324,15 @@ export function stability(): StabilityRow[] {
 	return [...rows.values()].toSorted((a, b) => a.key.localeCompare(b.key));
 }
 
+/**
+ * Clears the write-ahead log once rows were deleted or details removed: it still holds the earlier
+ * versions of the changed pages. The pages in the database file itself are overwritten as they are
+ * freed (secure_delete, db/database.ts).
+ */
+function dropDeleted() {
+	history().run(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
+}
+
 /** Deletes a run's directory and its rows. */
 function deleteRun(id: string): boolean {
 	const dir = within(RUNS_DIR, id);
@@ -312,10 +348,12 @@ function deleteRun(id: string): boolean {
  */
 export function pruneRuns(keep = Number(process.env.TEST_APP_KEEP_RUNS)): string[] {
 	if (!Number.isInteger(keep) || keep < 1) return [];
-	return listRuns()
+	const removed = listRuns()
 		.slice(keep)
 		.map((r) => r.id)
 		.filter((id) => deleteRun(id));
+	if (removed.length > 0) dropDeleted();
+	return removed;
 }
 
 /** Removes the steps and error messages of the run's tests not in `keep`. True when one changed. */
@@ -423,5 +461,6 @@ export function applyRetention(
 		if (Object.keys(set).length > 0) d.update(run).set(set).where(eq(run.id, r.id)).run();
 		if (touched) changed.push(r.id);
 	}
+	if (changed.length > 0) dropDeleted();
 	return changed;
 }

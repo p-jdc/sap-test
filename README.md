@@ -132,7 +132,9 @@ The run history (each run and the result and steps of each test) is kept in the 
 `app/.data/app.sqlite`, next to sign-in. The log, HTML report, screenshots, videos and traces of a
 run stay files in `app/.data/runs/<id>/`. Runs kept in files by an earlier version
 (`state.json`, `meta.json`) move into the database at the first start, and those files are
-deleted (the retention rules delete steps and error messages in the database only).
+deleted (the retention rules delete steps and error messages in the database only). An earlier
+version started afterwards shows no runs: it reads only those files. What retention deletes is
+overwritten in the database file, not left readable in it.
 
 ## Setup
 

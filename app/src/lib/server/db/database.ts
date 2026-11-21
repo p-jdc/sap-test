@@ -19,7 +19,9 @@ function openDatabase() {
 	if (!existsSync(FILE)) writeFileSync(FILE, '', { mode: 0o600 });
 	chmodSync(FILE, 0o600);
 	const client = new Database(FILE, { create: true });
-	client.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+	// secure_delete: what is deleted (by the retention rules, a removed person) is overwritten, not
+	// left readable in free pages of the file.
+	client.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;');
 	const db = drizzle({ client, schema });
 	migrate(db, { migrationsFolder: MIGRATIONS });
 	return db;
