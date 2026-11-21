@@ -406,6 +406,10 @@ bun install --cwd .claude/mcp
 `.mcp.json` points at `.claude/mcp/node_modules/@sveltejs/mcp`; use the `svelte-docs` subagent for
 lookups.
 
+Skills for Claude Code are in `.claude/skills/` (Svelte 5 practice and testing, checking before
+claiming something works, and how to start and drive this app for a look in the browser); the
+README there lists them and where each came from.
+
 ### Notes
 
 - SSR is off (`app/src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
