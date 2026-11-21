@@ -32,12 +32,14 @@ bun run idoc:certs    # test certificates for HTTPS and mutual TLS, in idoc/cert
   - Nothing sends these tables yet. They are ready for tRFC with SNC, through a JCo sidecar or through open-rfc once it supports SNC and tRFC.
   - A data record carries the segment's fields in `SDATA`: one fixed-width string. Reading and writing it therefore needs the field lengths of each segment, a `SegmentLayout`.
 
-- **`inbox.mts`**: what the receiver keeps, in memory: each IDoc with its partner and the reply it got, the raw request bodies, the reply mode per partner, and the requests it refused. It keeps the newest 1,000 IDocs and up to 50 million characters of raw bodies.
+- **`inbox.mts`**: what the receiver keeps, in memory: each IDoc with its partner and the reply it got, the raw request bodies, the reply mode per partner, and the requests it refused. It keeps the newest 1,000 IDocs and up to 50 MB of raw bodies.
 - **`receiver.mts`**: the receiver, with two listeners like the Mock PLC (it reuses `mfs/http.mts`).
   - **The IDoc endpoint**, which SAP posts to: `POST /idoc/<partner>`. It accepts IDoc-XML plain or in SOAP, in the encoding its XML declaration names. It answers 200, or a SOAP envelope for SOAP.
   - **The control API**, for tests and the app: see below.
 - **`server.mts`**: runs the receiver as a service, set up by environment (the list is at the top of the file). Once ready it prints `IDOC_READY {"idocUrl":…,"controlUrl":…}`, so the app can start it the way it starts the Mock PLC.
 - **`certs.mts`**: makes a test CA, a server certificate and a client certificate standing in for SAP's, with openssl. For local use and the tests only.
+  - The CA may only vouch for the hosts it was made for (name constraints), and its private key is deleted once both certificates are signed. Trusting it in STRUST therefore can't let it stand in for another server SAP talks to.
+  - The private keys are readable by their owner only.
 
 Reading refuses anything that isn't IDoc-XML and says why. It refuses a `DOCTYPE` outright: IDoc-XML never has one, and this rules out entity expansion attacks on the receiver.
 
@@ -45,21 +47,21 @@ Reading refuses anything that isn't IDoc-XML and says why. It refuses a `DOCTYPE
 
 ### Connecting SAP
 
-1. **SM59:** a type G destination to the receiver's host and port, path prefix `/idoc/<partner>`, for example `/idoc/PWMOCK`. With SSL active and the receiver's CA in STRUST. Either a user and password (`IDOC_USER`, `IDOC_PASSWORD`) or SAP's client certificate (`IDOC_TLS_CA`).
+1. **SM59:** a type G destination to the receiver's host and port, path prefix `/idoc/<partner>`, for example `/idoc/PWMOCK`. With SSL active and the receiver's CA in STRUST. Either a user and password (`IDOC_USER`, `IDOC_PASSWORD`), or SAP's client certificate: `IDOC_TLS_CA` for the CA that signed it, and `IDOC_TLS_CLIENT_FINGERPRINT` for the certificate itself. The fingerprint matters: without it, every certificate that CA signed would get in.
 2. **WE21:** an XML HTTP port using that destination, with or without "SOAP Protocol".
 3. **WE20:** the partner profile with outbound parameters for the message types, using that port.
 
-The receiver refuses to start in a way that would open it to the network unprotected. Beyond this computer, the IDoc endpoint needs a TLS certificate and a login (user and password, or a CA for client certificates). The control API needs a token.
+The receiver refuses to start in a way that would open it to the network unprotected. Beyond this computer, the IDoc endpoint needs a TLS certificate and a login: a user and password, or SAP's pinned client certificate. The control API needs a token. Without a token, it answers only requests addressed to this computer by name (`localhost`, `127.0.0.1`, `::1`), so a web page that points its own domain at this computer can't read the IDocs.
 
 ### How it answers
 
 Per partner, set through the control API or `idocInbox.reply`:
 
-| Mode     | SAP sees                                                               |
-| -------- | ---------------------------------------------------------------------- |
-| `accept` | HTTP 200. The default.                                                 |
-| `reject` | The given HTTP error (default 500) and message. A SOAP fault for SOAP. |
-| `slow`   | HTTP 200, after the given delay. For testing SAP's timeout.            |
+| Mode     | SAP sees                                                                                                               |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `accept` | HTTP 200. The default.                                                                                                 |
+| `reject` | The given HTTP error (default 500) and message. A SOAP fault for SOAP.                                                 |
+| `slow`   | HTTP 200, after the given delay. For testing SAP's timeout. If SAP hangs up first, the IDoc is marked as not accepted. |
 
 Requests that aren't IDoc-XML get 400 with the reason, and are listed under `GET /failures`.
 
@@ -71,7 +73,7 @@ All JSON. With `IDOC_CONTROL_TOKEN` set, every request needs `Authorization: Bea
 | --------------------------- | ---------------------------------------------------------------------------------------------- |
 | `GET /idocs`                | The IDocs received, oldest first, and the `cursor` (the newest `seq`). Filters below.          |
 | `GET /idocs/<seq>`          | One IDoc.                                                                                      |
-| `GET /idocs/<seq>/raw`      | The request it came in, as SAP sent it.                                                        |
+| `GET /idocs/<seq>/raw`      | The request it came in: the bytes as SAP sent them, with their encoding.                       |
 | `DELETE /idocs`             | Clears the inbox. Numbering goes on, so a cursor stays valid.                                  |
 | `GET /replies`              | The partners whose reply isn't `accept`.                                                       |
 | `PUT /replies/<partner>`    | Sets a partner's reply, for example `{"mode":"reject","status":503,"message":"Partner down"}`. |
@@ -91,9 +93,10 @@ expect(findSegments(idoc, 'E1EDK01')[0].fields.BELNR).toBe(orderNumber);
 ```
 
 - `waitFor` only sees IDocs received since the test started, so IDocs from earlier tests never match. It waits up to 60 s by default, because SAP may send IDocs from a scheduled job. On timeout it lists what did arrive.
+  - If the receiver restarts during the test, it numbers from 1 again. The fixture notices, and then counts everything the restarted receiver holds.
 - `where` narrows by anything in the IDoc, for example a document number in a segment.
 - `received(match)` returns what has arrived so far.
-- `reply(partner, mode)` sets how the receiver answers, until the test ends.
+- `reply(partner, mode)` sets how the receiver answers, until the test ends. Then the partner's reply from before the test is back, so a setting made by another run or a person survives.
 
 The inbox is shared by everyone using the receiver. Tests that run in parallel against one receiver should match on something unique to them, such as the document number.
 

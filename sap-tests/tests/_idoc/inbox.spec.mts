@@ -18,7 +18,11 @@ function sapSends(partner: string, xml: string) {
 	});
 }
 
-// The tests share one receiver, and the last one checks what an earlier one left behind.
+// Only against the local receiver of `bun run test:idoc`: these tests post IDocs themselves and change replies,
+// which they must not do on a receiver SAP really sends to.
+test.skip(!process.env.IDOC_MOCK_URL, 'only with the local receiver (bun run test:idoc)');
+
+// The tests share one receiver, and the last ones check what earlier ones left behind.
 test.describe.configure({ mode: 'serial' });
 
 test('waitFor finds the IDoc a step produced', async ({ idocInbox }) => {
@@ -69,4 +73,27 @@ test('a reply set in a test makes SAP see an error, until the test ends', async 
 test('the reply is back to accept in the next test', async ({ idocInbox }) => {
 	expect((await sapSends('PWMOCK', sample('orders05.xml'))).status).toBe(200);
 	expect((await idocInbox.waitFor({ partner: 'PWMOCK' })).accepted).toBe(true);
+});
+
+/** The control API directly, as another run or a person would use it. */
+function controlElsewhere(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: unknown) {
+	const init: RequestInit = { method, headers: { 'content-type': 'application/json' } };
+	if (body !== undefined) init.body = JSON.stringify(body);
+	return fetch(`${process.env.IDOC_HUB_URL}${path}`, init);
+}
+
+test('a reply set by someone else before the test is changed during it', async ({ idocInbox }) => {
+	await controlElsewhere('PUT', '/replies/SHARED', {
+		mode: 'reject',
+		status: 502,
+		message: 'Set elsewhere'
+	});
+	await idocInbox.reply('SHARED', { mode: 'slow', delayMs: 10 });
+	expect((await sapSends('SHARED', sample('orders05.xml'))).status).toBe(200);
+});
+
+test('and is back after the test, instead of accept', async () => {
+	const response = await controlElsewhere('GET', '/replies/SHARED');
+	expect(await response.json()).toEqual({ mode: 'reject', status: 502, message: 'Set elsewhere' });
+	await controlElsewhere('DELETE', '/replies/SHARED');
 });

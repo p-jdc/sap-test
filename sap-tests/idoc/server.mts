@@ -5,9 +5,13 @@
 //   IDOC_PORT           its port (default 47200; 0 = a free port)
 //   IDOC_TLS_CERT       server certificate (PEM file); HTTPS instead of HTTP. Required beyond this computer.
 //   IDOC_TLS_KEY        its private key (PEM file)
-//   IDOC_TLS_CA         CA (PEM file) that signed SAP's client certificate: mutual TLS, only SAP gets in
+//   IDOC_TLS_CA         CA (PEM file) that signed SAP's client certificate: mutual TLS
+//   IDOC_TLS_CLIENT_FINGERPRINT
+//                       SHA-256 fingerprint of SAP's client certificate: only that one gets in, not every
+//                       certificate the CA signed (openssl x509 -noout -fingerprint -sha256 -in sap.pem)
 //   IDOC_USER           user of the type G destination (basic authentication) ...
-//   IDOC_PASSWORD       ... and its password. Beyond this computer, set these or IDOC_TLS_CA.
+//   IDOC_PASSWORD       ... and its password. Beyond this computer, set these, or IDOC_TLS_CA with
+//                       IDOC_TLS_CLIENT_FINGERPRINT. Set both, and SAP needs both.
 //   IDOC_CONTROL_HOST   address of the control API (default 127.0.0.1)
 //   IDOC_CONTROL_PORT   its port (default 47201; 0 = a free port)
 //   IDOC_CONTROL_TOKEN  token every control API request must carry; required when IDOC_CONTROL_HOST is not
@@ -35,6 +39,13 @@ if (Boolean(env.IDOC_USER) !== Boolean(env.IDOC_PASSWORD)) {
 	process.exit(1);
 }
 const ca = file('IDOC_TLS_CA');
+const clientFingerprint = env.IDOC_TLS_CLIENT_FINGERPRINT || undefined;
+if (clientFingerprint && !ca) {
+	console.error(
+		'IDOC_TLS_CLIENT_FINGERPRINT needs IDOC_TLS_CA: the CA that signed that certificate.'
+	);
+	process.exit(1);
+}
 if (ca && !cert) {
 	console.error(
 		'IDOC_TLS_CA needs IDOC_TLS_CERT and IDOC_TLS_KEY: client certificates only work over HTTPS.'
@@ -47,7 +58,7 @@ try {
 	receiver = await startReceiver({
 		host: env.IDOC_HOST || '127.0.0.1',
 		port: port(env.IDOC_PORT, 47200),
-		tls: cert && key ? { cert, key, ca } : undefined,
+		tls: cert && key ? { cert, key, ca, clientFingerprint } : undefined,
 		basicAuth:
 			env.IDOC_USER && env.IDOC_PASSWORD
 				? { user: env.IDOC_USER, password: env.IDOC_PASSWORD }
@@ -62,10 +73,13 @@ try {
 }
 
 const { idocUrl, controlUrl, inbox } = receiver;
-const login = [env.IDOC_USER && 'user and password', ca && 'client certificate'].filter(Boolean);
+const login = [
+	env.IDOC_USER && 'user and password',
+	ca && (clientFingerprint ? 'the pinned client certificate' : 'a client certificate from the CA')
+].filter(Boolean);
 console.log('IDoc receiver');
 console.log(
-	`  IDoc endpoint on ${idocUrl}/idoc/<partner> (login: ${login.join(' or ') || 'none'})`
+	`  IDoc endpoint on ${idocUrl}/idoc/<partner> (login: ${login.join(' and ') || 'none'})`
 );
 console.log(`  control API on ${controlUrl} (GET /health, /idocs, /replies, /failures)`);
 console.log(`IDOC_READY ${JSON.stringify({ idocUrl, controlUrl })}`);

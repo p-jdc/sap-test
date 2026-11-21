@@ -13,6 +13,7 @@ import {
 } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { timingSafeEqual } from 'node:crypto';
+import { TLSSocket } from 'node:tls';
 import {
 	authorize,
 	fail,
@@ -32,7 +33,14 @@ export interface ReceiverOptions {
 	/** Port of the IDoc endpoint (default 0: a free port). */
 	port?: number;
 	/** Server certificate and key (PEM). With `ca`, SAP must present a client certificate signed by it. */
-	tls?: { cert: string | Buffer; key: string | Buffer; ca?: string | Buffer };
+	tls?: {
+		cert: string | Buffer;
+		key: string | Buffer;
+		ca?: string | Buffer;
+		/** SHA-256 fingerprint of SAP's client certificate (hex, colons optional): only that certificate gets
+		 * in, not every one the CA signed. */
+		clientFingerprint?: string;
+	};
 	/** The user and password of the type G destination. */
 	basicAuth?: { user: string; password: string };
 	controlHost?: string;
@@ -67,17 +75,21 @@ function soapEnvelope(body: string): string {
 const escapeXml = (text: string) =>
 	text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-/** Reads the whole body as bytes, then decodes it in the encoding its XML declaration names (UTF-8 if none). */
+/**
+ * Reads the whole body as bytes, then decodes it in the encoding its XML declaration names (UTF-8 if none).
+ * `counted.bytes` follows the reading, so a refused request is logged with its size too.
+ */
 async function readXml(
 	request: IncomingMessage,
-	maxBody: number
-): Promise<{ text: string; bytes: number }> {
+	maxBody: number,
+	counted: { bytes: number }
+): Promise<{ text: string; body: Buffer; encoding: string }> {
 	const chunks: Buffer[] = [];
-	let bytes = 0;
 	for await (const chunk of request) {
 		const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-		bytes += buffer.length;
-		if (bytes > maxBody) throw new UserError(`the request is larger than ${maxBody} bytes`, 413);
+		counted.bytes += buffer.length;
+		if (counted.bytes > maxBody)
+			throw new UserError(`the request is larger than ${maxBody} bytes`, 413);
 		chunks.push(buffer);
 	}
 	const body = Buffer.concat(chunks);
@@ -91,10 +103,22 @@ async function readXml(
 		throw new UserError(`unknown encoding "${declared}" in the XML declaration`, 415);
 	}
 	try {
-		return { text: decoder.decode(body), bytes };
+		return { text: decoder.decode(body), body, encoding: declared ?? 'utf-8' };
 	} catch {
 		throw new UserError(`the body is not valid ${declared ?? 'UTF-8'}`, 400);
 	}
+}
+
+const normalizeFingerprint = (value: string) => value.replaceAll(':', '').toUpperCase();
+
+/** With a pinned fingerprint, only that client certificate may send, not every one its CA signed. */
+function checkClientCertificate(request: IncomingMessage, fingerprint: string | undefined): void {
+	if (!fingerprint) return;
+	const socket = request.socket;
+	const given =
+		socket instanceof TLSSocket ? socket.getPeerCertificate().fingerprint256 : undefined;
+	if (!given || !sameText(normalizeFingerprint(given), normalizeFingerprint(fingerprint)))
+		throw new UserError('this client certificate is not the one allowed to send IDocs', 403);
 }
 
 function checkLogin(request: IncomingMessage, login: ReceiverOptions['basicAuth']): void {
@@ -104,7 +128,20 @@ function checkLogin(request: IncomingMessage, login: ReceiverOptions['basicAuth'
 		throw new UserError('user or password missing or wrong', 401);
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits `ms`, or less if the caller hangs up first. True when it hung up. */
+function delayUnlessClosed(response: ServerResponse, ms: number): Promise<boolean> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(() => {
+			response.off('close', onClose);
+			resolve(false);
+		}, ms);
+		const onClose = () => {
+			clearTimeout(timer);
+			resolve(true);
+		};
+		response.once('close', onClose);
+	});
+}
 
 /** Answers SAP in the form it sent: a SOAP envelope (or fault) for SOAP, plain text otherwise. */
 function answer(response: ServerResponse, soap: boolean, reply: Reply, count: number) {
@@ -140,23 +177,27 @@ function idocHandler(inbox: IdocInbox, options: ReceiverOptions) {
 		const partner = parts[1] ?? '';
 		if (method !== 'POST' || parts[0] !== 'idoc' || parts.length !== 2)
 			throw new UserError('SAP sends IDocs with POST to /idoc/<partner>', 404);
-		let bytes = 0;
+		const counted = { bytes: 0 };
 		try {
 			if (!PARTNER.test(partner))
 				throw new UserError(`"${partner}" is not a partner name (letters, digits, _ . -)`, 404);
+			checkClientCertificate(request, options.tls?.clientFingerprint);
 			checkLogin(request, options.basicAuth);
-			const body = await readXml(request, maxBody);
-			bytes = body.bytes;
-			const parsed = parseIdocXml(body.text);
+			const { text, body, encoding } = await readXml(request, maxBody, counted);
+			const parsed = parseIdocXml(text);
 			const reply = inbox.replyFor(partner);
-			inbox.add(partner, parsed, body.text, reply);
-			if (reply.mode === 'slow') await delay(reply.delayMs);
+			const added = inbox.add(partner, parsed, { body, encoding }, reply);
+			// SAP gave up waiting: for SAP the IDoc was not sent.
+			if (reply.mode === 'slow' && (await delayUnlessClosed(response, reply.delayMs))) {
+				inbox.markUnanswered(added.map((idoc) => idoc.seq));
+				return;
+			}
 			answer(response, parsed.soap, reply, parsed.idocs.length);
 		} catch (error) {
 			const status =
 				error instanceof UserError ? error.status : error instanceof IdocError ? 400 : 500;
 			const message = error instanceof Error ? error.message : String(error);
-			inbox.fail({ partner, status, error: message, bytes });
+			inbox.fail({ partner, status, error: message, bytes: counted.bytes });
 			if (status === 401) response.setHeader('www-authenticate', 'Basic realm="IDoc mock"');
 			response.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' });
 			response.end(message);
@@ -164,8 +205,28 @@ function idocHandler(inbox: IdocInbox, options: ReceiverOptions) {
 	};
 }
 
+/**
+ * Without a token, the control API answers only requests addressed to this computer by name. A web page that
+ * points its own domain at 127.0.0.1 (DNS rebinding) sends its domain in the Host header and is turned away.
+ */
+function checkHost(request: IncomingMessage): void {
+	const header = request.headers.host ?? '';
+	// The port is not checked: a port forward (kubectl, ssh) arrives with its own local port.
+	const name =
+		/^(\[[^\]]+\]|[^:]+)(?::\d+)?$/
+			.exec(header)?.[1]
+			?.replace(/^\[|\]$/g, '')
+			.toLowerCase() ?? '';
+	if (!(name.endsWith('.localhost') || isLoopback(name)))
+		throw new UserError(
+			`the control API answers only requests to this computer, not to "${header}"`,
+			403
+		);
+}
+
 function controlHandler(inbox: IdocInbox, token: string | undefined, idocUrl: () => string) {
 	return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+		if (!token) checkHost(request);
 		authorize(request, token);
 		const { method, path, parts, params } = requestTarget(request);
 		if (method === 'GET' && path === '/health') return json(response, 200, { ok: true });
@@ -189,8 +250,14 @@ function controlHandler(inbox: IdocInbox, token: string | undefined, idocUrl: ()
 			if (method === 'GET' && parts.length === 3 && parts[2] === 'raw') {
 				const raw = Number.isInteger(seq) ? inbox.rawOf(seq) : undefined;
 				if (raw === undefined) throw new UserError(`no raw request kept for IDoc ${parts[1]}`, 404);
-				response.writeHead(200, { 'content-type': 'text/xml; charset=utf-8' });
-				response.end(raw);
+				// The bytes as SAP sent them. Whoever can post to the IDoc endpoint decides what they hold, so a
+				// browser must neither guess another type nor run anything in them.
+				response.writeHead(200, {
+					'content-type': `application/xml; charset=${raw.encoding}`,
+					'x-content-type-options': 'nosniff',
+					'content-security-policy': "default-src 'none'; sandbox"
+				});
+				response.end(raw.body);
 				return;
 			}
 		}
@@ -221,6 +288,10 @@ function checkExposure(options: ReceiverOptions): void {
 		if (!options.basicAuth && !options.tls.ca)
 			throw new Error(
 				`The IDoc endpoint on ${host} accepts IDocs from anyone: set a user and password, or a CA for SAP's client certificate.`
+			);
+		if (!options.basicAuth && !options.tls.clientFingerprint)
+			throw new Error(
+				`The IDoc endpoint on ${host} accepts every client certificate its CA signed: set the fingerprint of SAP's certificate, or a user and password as well.`
 			);
 	}
 	const controlHost = options.controlHost ?? '127.0.0.1';

@@ -30,7 +30,8 @@ export interface IdocInbox {
 	waitFor(match: IdocMatch, options?: { timeout?: number }): Promise<ReceivedIdoc>;
 	/** The IDocs received since the test started that match, oldest first. */
 	received(match?: IdocMatch): Promise<ReceivedIdoc[]>;
-	/** How the receiver answers this partner's IDocs, until the end of the test. */
+	/** How the receiver answers this partner's IDocs, until the end of the test; then the partner's reply from
+	 * before the test is back. */
 	reply(partner: string, reply: ReplyInput): Promise<void>;
 }
 
@@ -120,8 +121,18 @@ export const test = base.extend<IdocFixtures>({
 			);
 		const client = new InboxClient(url!, token);
 		// Everything before this point belongs to earlier tests.
-		const { cursor: start } = await client.list({}, Number.MAX_SAFE_INTEGER);
-		const changedReplies = new Set<string>();
+		let { cursor: start } = await client.list({}, Number.MAX_SAFE_INTEGER);
+		/** The IDocs since the test started. A receiver that restarted meanwhile numbers from 1 again: then
+		 * everything it holds arrived during the test. */
+		const sinceStart = async (match: IdocMatch) => {
+			const found = await client.list(match, start);
+			if (found.cursor >= start) return found.idocs;
+			start = 0;
+			return (await client.list(match, start)).idocs;
+		};
+		/** The reply each changed partner had before, restored after the test, so another run's or a person's
+		 * setting on a shared receiver survives. */
+		const previousReplies = new Map<string, unknown>();
 
 		await use({
 			waitFor: (match, options = {}) =>
@@ -129,27 +140,29 @@ export const test = base.extend<IdocFixtures>({
 					const timeout = options.timeout ?? 60_000;
 					const deadline = Date.now() + timeout;
 					for (;;) {
-						const { idocs } = await client.list(match, start);
-						if (idocs[0]) return idocs[0];
+						const [first] = await sinceStart(match);
+						if (first) return first;
 						if (Date.now() >= deadline) break;
 						await new Promise((resolve) => setTimeout(resolve, POLL_MS));
 					}
-					const { idocs: all } = await client.list({}, start);
+					const all = await sinceStart({});
 					const seen = all.length > 0 ? all.map(summary).join('; ') : 'none';
 					throw new Error(
 						`No IDoc (${describe(match)}) arrived within ${timeout / 1000} s. Received since the test started: ${seen}.`
 					);
 				}),
-			received: async (match = {}) => (await client.list(match, start)).idocs,
+			received: (match = {}) => sinceStart(match),
 			reply: (partner, reply) =>
 				base.step(`idocInbox.reply ${partner}: ${reply.mode}`, async () => {
-					await client.call('PUT', `/replies/${encodeURIComponent(partner)}`, reply);
-					changedReplies.add(partner);
+					const path = `/replies/${encodeURIComponent(partner)}`;
+					if (!previousReplies.has(partner))
+						previousReplies.set(partner, await client.call('GET', path));
+					await client.call('PUT', path, reply);
 				})
 		});
 
-		for (const partner of changedReplies)
-			await client.call('DELETE', `/replies/${encodeURIComponent(partner)}`);
+		for (const [partner, previous] of previousReplies)
+			await client.call('PUT', `/replies/${encodeURIComponent(partner)}`, previous);
 	}
 });
 

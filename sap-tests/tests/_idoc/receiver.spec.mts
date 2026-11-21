@@ -1,9 +1,12 @@
 // KI-generiert, geprüft von: <Name>
 // The IDoc receiver (idoc/receiver.mts) on its own: each test starts a receiver in this process and posts IDocs
 // to it the way SAP's XML HTTP port would. No browser, no SAP system.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { join } from 'node:path';
 import { test, expect } from '../../sap-plugin';
+import { X509Certificate } from 'node:crypto';
 import { hasOpenssl, makeTestCerts } from '../../idoc/certs.mts';
 import { z } from 'zod';
 import {
@@ -166,6 +169,20 @@ test('a partner set to slow gets its answer only after the delay', async () => {
 	expect((await listed(r))[0]).toMatchObject({ accepted: true, reply: 'slow' });
 });
 
+test('an IDoc whose sender hangs up before the slow answer counts as not accepted', async () => {
+	const r = await receiver();
+	await control(r, 'PUT', '/replies/PWMOCK', { mode: 'slow', delayMs: 5000 });
+	// SAP's HTTP timeout, much shorter than the delay.
+	const sending = fetch(`${r.idocUrl}/idoc/PWMOCK`, {
+		method: 'POST',
+		headers: { 'content-type': 'text/xml' },
+		body: orders,
+		signal: AbortSignal.timeout(300)
+	});
+	await expect(sending).rejects.toThrow();
+	await expect.poll(async () => (await listed(r))[0]?.accepted).toBe(false);
+});
+
 async function refused(response: Promise<Response>, status: number, text: RegExp) {
 	const answer = await response;
 	expect(answer.status).toBe(status);
@@ -195,8 +212,14 @@ test('requests that are not IDocs are refused with a reason and logged', async (
 		z
 			.array(FailureSchema)
 			.parse(body)
-			.map((f) => f.status)
-	).toEqual([400, 413, 404, 415]);
+			.map(({ status, bytes }) => ({ status, bytes }))
+	).toEqual([
+		{ status: 400, bytes: 14 },
+		// Counted up to where reading stopped.
+		{ status: 413, bytes: 1001 },
+		{ status: 404, bytes: 0 },
+		{ status: 415, bytes: 48 }
+	]);
 });
 
 test('an IDoc in ISO-8859-1, as its XML declaration says, is decoded as such', async () => {
@@ -207,6 +230,13 @@ test('an IDoc in ISO-8859-1, as its XML declaration says, is decoded as such', a
 	expect((await send(r, 'PWMOCK', new Blob([new Uint8Array(latin1)]))).status).toBe(200);
 	const [received] = await listed(r);
 	expect(received.idoc.segments[3].fields.NAME1).toBe('Müller & Söhne GmbH');
+
+	// The raw request comes back as the bytes SAP sent, in their encoding, and a browser may not run it.
+	const raw = await fetch(`${r.controlUrl}/idocs/${received.seq}/raw`);
+	expect(raw.headers.get('content-type')).toBe('application/xml; charset=ISO-8859-1');
+	expect(raw.headers.get('x-content-type-options')).toBe('nosniff');
+	expect(raw.headers.get('content-security-policy')).toBe("default-src 'none'; sandbox");
+	expect(Buffer.from(await raw.arrayBuffer()).equals(latin1)).toBe(true);
 });
 
 const basic = (login: string) => ({
@@ -238,26 +268,59 @@ test('with a control token set, the control API needs it; changes need JSON', as
 	expect(form.status).toBe(415);
 });
 
+/** A control API request with a Host header of our choosing, as a page using DNS rebinding sends it. */
+function getWithHost(r: RunningReceiver, host: string) {
+	return new Promise<number>((resolve, reject) => {
+		const req = httpRequest(`${r.controlUrl}/idocs`, { headers: { host } }, (response) => {
+			response.resume();
+			resolve(response.statusCode ?? 0);
+		});
+		req.on('error', reject);
+		req.end();
+	});
+}
+
+test('without a token, the control API answers only requests addressed to this computer', async () => {
+	const r = await receiver();
+	const port = new URL(r.controlUrl).port;
+	expect(await getWithHost(r, `127.0.0.1:${port}`)).toBe(200);
+	expect(await getWithHost(r, `localhost:${port}`)).toBe(200);
+	// A port forward arrives with its own local port.
+	expect(await getWithHost(r, 'localhost:9000')).toBe(200);
+	expect(await getWithHost(r, `evil.example:${port}`)).toBe(403);
+	expect(await getWithHost(r, `127.0.0.1.evil.example:${port}`)).toBe(403);
+
+	// With a token, the token decides.
+	const withToken = await receiver({ controlToken: 'tok-123' });
+	expect((await control(withToken, 'GET', '/idocs', undefined, 'tok-123')).status).toBe(200);
+});
+
 test('settings that would open the receiver to the network unprotected are refused', async () => {
 	const tls = { cert: 'cert', key: 'key' };
 	await expect(startReceiver({ host: '0.0.0.0' })).rejects.toThrow(/TLS certificate/);
 	await expect(startReceiver({ host: '0.0.0.0', tls })).rejects.toThrow(
 		/accepts IDocs from anyone/
 	);
+	// Every certificate the CA signed would get in.
+	await expect(startReceiver({ host: '0.0.0.0', tls: { ...tls, ca: 'ca' } })).rejects.toThrow(
+		/fingerprint of SAP's certificate/
+	);
 	await expect(startReceiver({ controlHost: '0.0.0.0' })).rejects.toThrow(/control token/);
 });
+
+const raw = (text: string) => ({ body: Buffer.from(text), encoding: 'utf-8' });
 
 test('the inbox keeps the newest IDocs and drops the raw body with the last IDoc of its request', () => {
 	const inbox = new IdocInbox({ keep: 2 });
 	const parsed = { root: 'X', soap: false, idocs: [{ control: { IDOCTYP: 'X' }, segments: [] }] };
-	for (const raw of ['one', 'two', 'three']) inbox.add('P', parsed, raw, { mode: 'accept' });
+	for (const text of ['one', 'two', 'three']) inbox.add('P', parsed, raw(text), { mode: 'accept' });
 	expect(inbox.list().map((i) => i.seq)).toEqual([2, 3]);
-	expect(inbox.rawOf(2)).toBe('two');
+	expect(inbox.rawOf(2)?.body.toString()).toBe('two');
 	expect(inbox.cursor).toBe(3);
 
 	const budget = new IdocInbox({ rawBudget: 5 });
-	budget.add('P', parsed, 'abcd', { mode: 'accept' });
-	budget.add('P', parsed, 'efgh', { mode: 'accept' });
+	budget.add('P', parsed, raw('abcd'), { mode: 'accept' });
+	budget.add('P', parsed, raw('efgh'), { mode: 'accept' });
 	expect(budget.list().map((i) => i.seq)).toEqual([2]);
 });
 
@@ -298,5 +361,26 @@ test.describe('over HTTPS', () => {
 			})
 		).toBe(200);
 		expect(mutual.inbox.list()).toHaveLength(1);
+	});
+
+	test('with a pinned fingerprint, only that client certificate may send', async () => {
+		const dir = test.info().outputPath('certs');
+		const certs = makeTestCerts(dir);
+		const tls = { cert: certs.serverCert, key: certs.serverKey, ca: certs.ca };
+		const client = { ca: certs.ca, cert: certs.clientCert, key: certs.clientKey };
+
+		const pinned = await receiver({ tls: { ...tls, clientFingerprint: certs.clientFingerprint } });
+		expect(await post(`${pinned.idocUrl}/idoc/PWMOCK`, orders, client)).toBe(200);
+		// The same certificate, pinned against another one's fingerprint (lower case, no colons).
+		const other = new X509Certificate(certs.serverCert).fingerprint256
+			.replaceAll(':', '')
+			.toLowerCase();
+		const wrong = await receiver({ tls: { ...tls, clientFingerprint: other } });
+		expect(await post(`${wrong.idocUrl}/idoc/PWMOCK`, orders, client)).toBe(403);
+		expect(wrong.inbox.list()).toEqual([]);
+
+		// The keys are for this user only, and the CA cannot sign anything more.
+		expect(statSync(join(dir, 'client.key')).mode & 0o077).toBe(0);
+		expect(existsSync(join(dir, 'ca.key'))).toBe(false);
 	});
 });

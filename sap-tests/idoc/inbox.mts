@@ -40,7 +40,8 @@ export const ReceivedIdocSchema = z.object({
 	request: z.number().int(),
 	soap: z.boolean(),
 	root: z.string(),
-	/** False when the partner's reply mode rejected it: SAP then sees an error, not a sent IDoc. */
+	/** False when SAP sees an error instead of a sent IDoc: the partner's reply mode rejected it, or SAP hung up
+	 * before a slow answer came. */
 	accepted: z.boolean(),
 	reply: z.enum(['accept', 'reject', 'slow']),
 	idoc: z.object({
@@ -75,10 +76,16 @@ export const IdocFilterSchema = z.object({
 
 export type IdocFilter = z.infer<typeof IdocFilterSchema>;
 
+/** A request body as SAP sent it, with the encoding its XML declaration named. */
+export interface RawRequest {
+	body: Buffer;
+	encoding: string;
+}
+
 export interface InboxLimits {
 	/** IDocs kept; the oldest go first. */
 	keep: number;
-	/** Characters of raw request bodies kept, over all requests. */
+	/** Bytes of raw request bodies kept, over all requests. */
 	rawBudget: number;
 	failures: number;
 }
@@ -88,7 +95,7 @@ const DEFAULT_LIMITS: InboxLimits = { keep: 1000, rawBudget: 50_000_000, failure
 export class IdocInbox {
 	readonly limits: InboxLimits;
 	private idocs: ReceivedIdoc[] = [];
-	private raw = new Map<number, string>();
+	private raw = new Map<number, RawRequest>();
 	private rawSize = 0;
 	private replies = new Map<string, Reply>();
 	private failureLog: Failure[] = [];
@@ -125,7 +132,7 @@ export class IdocInbox {
 	}
 
 	/** Records one request's IDocs with the reply they get. */
-	add(partner: string, parsed: ParsedIdocXml, raw: string, reply: Reply): ReceivedIdoc[] {
+	add(partner: string, parsed: ParsedIdocXml, raw: RawRequest, reply: Reply): ReceivedIdoc[] {
 		const request = this.nextRequest++;
 		const receivedAt = new Date().toISOString();
 		const added = parsed.idocs.map((idoc: Idoc): ReceivedIdoc => ({
@@ -141,10 +148,15 @@ export class IdocInbox {
 		}));
 		this.idocs.push(...added);
 		this.raw.set(request, raw);
-		this.rawSize += raw.length;
+		this.rawSize += raw.body.length;
 		this.evict();
 		for (const idoc of added) for (const listener of this.listeners) listener(idoc);
 		return added;
+	}
+
+	/** SAP hung up before the answer: for SAP these IDocs were not sent. */
+	markUnanswered(seqs: number[]): void {
+		for (const idoc of this.idocs) if (seqs.includes(idoc.seq)) idoc.accepted = false;
 	}
 
 	fail(failure: Omit<Failure, 'at'>): void {
@@ -173,7 +185,7 @@ export class IdocInbox {
 	}
 
 	/** The request body an IDoc came in, as SAP sent it, while it is still kept. */
-	rawOf(seq: number): string | undefined {
+	rawOf(seq: number): RawRequest | undefined {
 		const idoc = this.get(seq);
 		return idoc && this.raw.get(idoc.request);
 	}
@@ -198,7 +210,7 @@ export class IdocInbox {
 			const oldest = this.idocs.shift()!;
 			if (this.idocs[0]?.request === oldest.request) continue;
 			// The last IDoc of its request is gone, and with it the request's body.
-			this.rawSize -= this.raw.get(oldest.request)?.length ?? 0;
+			this.rawSize -= this.raw.get(oldest.request)?.body.length ?? 0;
 			this.raw.delete(oldest.request);
 		}
 	}
