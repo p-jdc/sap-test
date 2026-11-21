@@ -1,6 +1,6 @@
 // KI-generiert, geprüft von: <Name>
 // Covers SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo); needs internet access.
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from '../../../sap-plugin';
 import { button, iconButton, title } from '../../../helpers/fiori';
 
 const URL =

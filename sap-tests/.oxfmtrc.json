@@ -21,5 +21,12 @@
 			}
 		}
 	],
-	"ignorePatterns": ["package-lock.json", "test-results", "playwright-report", "blob-report"]
+	"ignorePatterns": [
+		"package-lock.json",
+		"test-results",
+		"playwright-report",
+		"blob-report",
+		"sap-plugin/vendor",
+		"recorder/node_modules"
+	]
 }

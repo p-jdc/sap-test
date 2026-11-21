@@ -1,0 +1,11 @@
+{
+	"name": "sap-recorder",
+	"private": true,
+	"description": "Recorder only: the Playwright-SAP fork's codegen writes SAP locators (getByRoleUI5, locateSID). Tests never run on it; they run on stock Playwright with ../sap-plugin.",
+	"scripts": {
+		"codegen": "playwright codegen"
+	},
+	"devDependencies": {
+		"@playwright/test": "npm:@playwright-sap/test@1.1.6"
+	}
+}

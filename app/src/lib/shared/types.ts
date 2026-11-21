@@ -162,8 +162,12 @@ export interface EnvStatus {
 	/** Whether the system credential store can be used on this machine. */
 	keychain: boolean;
 	vars: { name: SettingName; set: boolean; source?: SettingSource }[];
+	/** Stock Playwright in sap-tests, which runs the tests. */
 	playwrightVersion?: string;
-	playwrightSap: boolean;
+	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */
+	sapPlugin: boolean;
+	/** The Playwright-SAP fork in sap-tests/recorder, used for recording only. */
+	recorderVersion?: string;
 	/** The Node that runs Playwright; `warning` is set when it is not the supported major. */
 	node: { path: string; version: string | null; warning: string | null };
 }

@@ -1,6 +1,7 @@
 # Regeln für SAP-Tests
 
-Dieses Projekt nutzt Playwright-SAP (Fork auf Basis von Playwright 1.53). Tests importieren aus '@playwright/test'.
+Dieses Projekt nutzt Standard-Playwright mit dem SAP-Plugin in sap-plugin/ (Locators aus Playwright-SAP). Tests importieren `test` und `expect` aus sap-plugin (z. B. '../../sap-plugin'), nicht aus '@playwright/test'.
+Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen.
 Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge

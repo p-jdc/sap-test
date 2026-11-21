@@ -1,6 +1,6 @@
 // Playwright reporter loaded by the Test-App into the sap-tests run (by absolute path).
-// It runs inside the Playwright-SAP process (Playwright 1.53), which transpiles it: type-only
-// imports, no runtime dependencies, and only reporter API that exists in 1.53.
+// It runs inside the Playwright process of sap-tests, which transpiles it: type-only imports and
+// no runtime dependencies.
 // Every event is one stdout line prefixed with PREFIX; the app parses those and ignores the rest.
 import type {
 	FullConfig,

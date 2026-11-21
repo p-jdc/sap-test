@@ -1,6 +1,6 @@
 // KI-generiert, geprüft von: <Name>
 // Covers SAP's public UI5 demo kit app "Tool Page App" (sap.tnt ToolPage); needs internet access.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../sap-plugin';
 import { iconButton, navItem, title } from '../../../helpers/fiori';
 
 const URL =

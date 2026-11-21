@@ -49,3 +49,14 @@ describe('startRecording refuses', () => {
 		expect(JSON.stringify(ariba)).toContain('ARIBA_URL is not set');
 	});
 });
+
+describe('withPluginImport', () => {
+	test('points a recorded spec at sap-plugin, relative to its folder', async () => {
+		const { dir, recorder } = await recorderWith(SAP);
+		const recorded = `import { test, expect } from '@playwright/test';\n\ntest('test', async ({ page }) => {\n  await page.getByRoleUI5('Button', { text: 'Save' }).click();\n});\n`;
+		const spec = join(dir, 'tests', 'fiori', 'create-order.spec.ts');
+		expect(recorder.withPluginImport(recorded, spec)).toBe(
+			recorded.replace(`'@playwright/test'`, `'../../sap-plugin'`)
+		);
+	});
+});

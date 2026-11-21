@@ -1,18 +1,27 @@
 # SAP Test Lab
 
 A test app for the open-source SAP test automation described in *SAP-Testautomatisierung-Leitfaden*
-(Playwright + Playwright-SAP for Fiori/UI5, SAP WebGUI and SAP Ariba). It runs Playwright tests,
+(Playwright with SAP locators for Fiori/UI5, SAP WebGUI and SAP Ariba). It runs Playwright tests,
 shows them as step flows, streams runs live, and tracks the pilot's exit criteria.
 
 ```
 sap-test/
 ├── app/          SvelteKit 3 + Bun + UI5 Web Components – the Test-App
-└── sap-tests/    Playwright-SAP test project (guide §4), driven by the app
+└── sap-tests/    SAP test project (guide §4), driven by the app
+    ├── sap-plugin/   SAP locators for stock Playwright (ported from Playwright-SAP)
+    └── recorder/     Playwright-SAP fork, used for recording only
 ```
 
-They are separate packages on purpose: `sap-tests` pins the Playwright-SAP fork (Playwright 1.53,
-aliased as `@playwright/test`), the app never imports Playwright itself and starts the fork's CLI
-in `sap-tests/` with real Node.
+The tests run on stock Playwright. `sap-tests/sap-plugin` adds the SAP locators of the
+[Playwright-SAP](https://github.com/ArpitSureka/playwright-sap) fork to it (`page.getByRoleUI5`,
+`locateUI5`, `locateSID`, `getByRoleSID`, `SAPLogin`): the fork's selector engines, vendored
+unchanged under Apache-2.0 and registered as custom selector engines. Specs import `test` and
+`expect` from `sap-plugin` instead of `@playwright/test`.
+
+The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
+only, because its codegen is what writes SAP locators. The app starts it for "Record a test" and
+then points the recorded spec's import at `sap-plugin`. The app never imports Playwright itself;
+it starts both CLIs with real Node.
 
 ## What the app does
 
@@ -24,11 +33,11 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 
 | Page | What it shows |
 | --- | --- |
-| Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright-SAP and Node version, which `.env` values are set (never their values) |
+| Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values) |
 | Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, `getByRoleUI5` with two properties, missing assertion after a save, literal passwords, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Starts `playwright codegen --sap-login` (§4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts`. Technical details: optionally saves the session (§7.4) |
+| Record a test | Starts the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts` and makes it import from `sap-plugin`. Technical details: optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
 | Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. Technical details: where each value comes from and an optional Chromium path |
 
@@ -37,7 +46,7 @@ Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 ## Setup
 
 Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright always runs on Node; CI
-uses 22). If the `node` on your PATH is another version, install 22 next to it and point
+uses 22, and the recorder is only tested on 22). If the `node` on your PATH is another version, install 22 next to it and point
 `PLAYWRIGHT_NODE` at it, e.g. with Homebrew:
 
 ```bash
@@ -45,9 +54,9 @@ brew install node@22   # keg-only, leaves the default node alone
 echo 'export PLAYWRIGHT_NODE=/opt/homebrew/opt/node@22/bin/node' >> ~/.zshrc
 ```
 
-The home page (with technical details on) shows which Node runs Playwright and warns, as does each run's log, when it is not 22.
+The home page (with technical details on) shows which Node runs Playwright and warns, as does each recording's log, when it is not 22.
 Other versions are untested rather than known broken: on Node 26 the tests run and report correct
-lines (see the CommonJS note below), but the fork's `playwright install chromium` was seen hanging
+lines (see the CommonJS note below), but the recorder's `playwright install chromium` was seen hanging
 while it extracts the browser.
 
 Run everything from the repo root:
@@ -74,13 +83,14 @@ to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference a
 | `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
 | `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
 | `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
-| `codegen`, `report` | Playwright-SAP recorder and HTML report |
+| `codegen`, `report` | Playwright-SAP recorder (from `sap-tests/recorder`) and HTML report |
+| `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
 | `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
 | `ci` | Everything CI runs, in order |
 | `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
 
-The root is deliberately not a workspace: `app/` and `sap-tests/` (Playwright-SAP aliased as
-`@playwright/test`) keep separate dependency trees so the fork and the app's own Playwright never collide.
+The root is deliberately not a workspace: `sap-tests/recorder` holds the fork aliased as
+`@playwright/test`, and separate dependency trees keep it from colliding with stock Playwright.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One
@@ -100,7 +110,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 | `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
 
-In `sap-tests/.env`, `CHROMIUM_PATH` lets the fork use an already installed Chromium where
+In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
 
 ## Development
@@ -145,7 +155,7 @@ lint, format check and spec discovery (`playwright test --list`) for `sap-tests`
 themselves need a test system and are not run in CI.
 
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
-fork in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
+one in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
 
 The Svelte MCP server for Claude Code is installed locally and pinned, like in the reference app:
 
@@ -163,11 +173,11 @@ lookups.
 - UI5 loads its "72" font from a CDN by default; behind a strict proxy the app falls back to system fonts.
 - Bun installs everything. Stock Playwright runs on Bun 1.4 (the app's own Playwright 1.63 lists and
   runs its e2e tests under `bun --bun`), but the Playwright-SAP fork (1.53) does not: under `bun --bun`
-  it exits 0 without loading any test. The app therefore starts the fork's CLI with the first real
-  `node` on PATH (`PLAYWRIGHT_NODE` overrides), which is why Node 22 is still required. Re-check after
-  the fork upgrade (guide §6); with a newer base the whole repo may run on Bun alone.
+  it exits 0 without loading any test. The app therefore starts both Playwright CLIs with the first
+  real `node` on PATH (`PLAYWRIGHT_NODE` overrides). `sap-tests` moved to stock Playwright after this
+  was observed; whether its suite also runs on Bun alone has not been tried.
 - `sap-tests/package.json` deliberately has no `"type": "module"`. As ES modules the specs go through
-  the fork's loader thread, and on newer Node (seen on 26) its source maps arrive after the spec has
+  Playwright's loader thread, and on newer Node (seen on 26 with the fork) its source maps arrive after the spec has
   run, so Playwright reports the transpiled line numbers. `file:line` runs then find no tests and the
   flow overlay matches the wrong steps. Loaded as CommonJS the source maps are set in-process.
 - The recorder passes the SAP password to `codegen --sap-login` as a command-line argument (the

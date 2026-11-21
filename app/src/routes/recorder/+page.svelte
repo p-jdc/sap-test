@@ -44,9 +44,10 @@
 
 <ui5-message-strip design="Information" hide-close-button>
 	{#if view.technical}
-		Starts <span class="mono">npx playwright codegen</span> from Playwright-SAP (guide §4.4). The
-		browser and the recorder window open on the machine that runs this app, so record from a local
-		install. Fiori and WebGUI log in automatically with the credentials from
+		Starts <span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide
+		§4.4); the recorded test runs on stock Playwright. The browser and the recorder window open on
+		the machine that runs this app, so record from a local install. Fiori and WebGUI log in
+		automatically with the credentials from
 		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
 		log in by hand.
 	{:else}

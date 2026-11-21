@@ -1,10 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, relative, resolve } from 'node:path';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { sameOrigin } from './origin.js';
-import { childEnv, playwrightCommand } from './node-cli.js';
+import { childEnv, playwrightNode, RECORDER_PACKAGE, recorderCommand } from './node-cli.js';
 import { TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 
 export type RecorderState = {
@@ -28,10 +28,26 @@ export type RecordInput = {
 	saveStorage?: boolean;
 };
 
+const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
+
+/**
+ * The recorder writes `from '@playwright/test'`, but the SAP methods it uses (page.getByRoleUI5,
+ * locateSID, …) exist only on the `test` of sap-tests/sap-plugin. Returns the spec with that import
+ * pointed at the plugin, relative to the spec's own folder.
+ */
+export function withPluginImport(source: string, specFile: string): string {
+	const plugin = relative(dirname(specFile), resolve(TESTS_ROOT, 'sap-plugin')).replaceAll(
+		'\\',
+		'/'
+	);
+	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
+}
+
 /**
  * Guide §4.4: `codegen <url> --sap-login <user> <password>` for Fiori/WebGUI (credentials come from
  * the settings and are passed as arguments, never back to the UI); plain codegen for Ariba.
- * The browser opens on the machine running this app.
+ * Recording uses the Playwright-SAP fork in sap-tests/recorder; the recorded spec then runs on
+ * stock Playwright. The browser opens on the machine running this app.
  */
 export async function startRecording(
 	input: RecordInput
@@ -76,19 +92,31 @@ export async function startRecording(
 		}
 		args.push('--sap-login', env.SAP_USERNAME, env.SAP_PASSWORD);
 	}
+	// Checked last, so a wrong name, URL or missing credentials are reported first.
+	if (!existsSync(RECORDER_PACKAGE)) {
+		return {
+			ok: false,
+			error: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
+		};
+	}
 	mkdirSync(dirname(full), { recursive: true });
 	if (input.saveStorage) {
 		mkdirSync(`${TESTS_ROOT}/.auth`, { recursive: true });
 		args.push('--save-storage', `.auth/${input.surface}.json`);
 	}
 
+	// The recorder is the one part that still needs the tested Node; say so where a hang would show.
+	const nodeWarning = playwrightNode().warning;
 	state = {
 		status: 'recording',
 		file,
-		log: [`Recording ${file} – browser opens on the app host.`],
+		log: [
+			`Recording ${file} – browser opens on the app host.`,
+			...(nodeWarning ? [`Warning: ${nodeWarning}`] : [])
+		],
 		startedAt: new Date().toISOString()
 	};
-	const command = playwrightCommand(args);
+	const command = recorderCommand(args);
 	proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
 		env: childEnv(),
@@ -118,6 +146,7 @@ export async function startRecording(
 		proc = null;
 		for (const lines of outputs) lines.flush();
 		const saved = existsSync(full);
+		if (saved) writeFileSync(full, withPluginImport(readFileSync(full, 'utf8'), full));
 		state = {
 			...state,
 			status: saved ? 'saved' : 'error',

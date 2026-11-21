@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../sap-plugin';
 import { ORDER_FORM } from './fixture';
 
 const SOLD_TO_PARTY = '1000';

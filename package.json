@@ -1,9 +1,10 @@
 {
 	"name": "sap-test",
 	"private": true,
-	"description": "Run from the repo root. Bun installs everything; Playwright itself always runs on Node (its CLI's shebang). Deliberately not a workspace: app/ and sap-tests/ keep separate dependency trees, or the fork's @playwright/test alias (Playwright-SAP 1.53) and the app's own Playwright 1.63 collide when hoisted.",
+	"description": "Run from the repo root. Bun installs everything; Playwright itself always runs on Node (its CLI's shebang). Deliberately not a workspace: sap-tests/recorder holds the Playwright-SAP fork (Playwright 1.53, recording only) under the @playwright/test alias, which would collide with stock Playwright when hoisted.",
 	"scripts": {
-		"setup": "bun install --cwd app && cd sap-tests && bun install --frozen-lockfile && bunx playwright install chromium && cd ../app && bunx playwright install chromium",
+		"setup": "bun install --cwd app && cd sap-tests && bun install --frozen-lockfile && bunx playwright install chromium && cd ../app && bunx playwright install chromium && cd .. && bun run setup:recorder",
+		"setup:recorder": "cd sap-tests/recorder && bun install --frozen-lockfile && ${PLAYWRIGHT_NODE:-node} node_modules/@playwright/test/cli.js install chromium",
 		"setup:mcp": "bun install --cwd .claude/mcp --frozen-lockfile",
 		"setup:cert": "cd app && bun run setup:cert",
 		"dev": "cd app && bun run dev",

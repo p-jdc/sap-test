@@ -12,8 +12,10 @@ concurrency:
 permissions:
   contents: read
 
-# Pinned to 24.04: the Playwright-SAP fork is based on Playwright 1.53, which cannot install
-# browsers on newer Ubuntu releases (ubuntu-latest is 26.04). Revisit after the fork upgrade (guide §6).
+# Pinned to 24.04 from when sap-tests ran on the Playwright-SAP fork (Playwright 1.53), which cannot
+# install browsers on newer Ubuntu releases. The tests now run on stock Playwright and the fork is
+# used for recording only (sap-tests/recorder, not installed in CI), so the pin can go once a run on
+# ubuntu-latest has been tried.
 jobs:
   sap-tests:
     name: sap-tests (types, lint, format, spec discovery)
@@ -35,8 +37,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check
-      # Loads every spec with the Playwright-SAP fork without running it: catches syntax and
-      # import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
+      # Loads every spec without running it: catches syntax and import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
       - run: bunx playwright test --list
 
   app:
@@ -45,7 +46,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      # Node runs Playwright (both the fork in sap-tests and the app's own) and Vitest.
+      # Node runs Playwright (in sap-tests and the app's own) and Vitest.
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -54,7 +55,7 @@ jobs:
           bun-version: 1.4.4
 
       # The e2e suite starts a real run of the offline _demo tests through the app,
-      # so the fork and its browser are needed here too.
+      # so sap-tests and its browser are needed here too.
       - name: Install sap-tests
         working-directory: sap-tests
         run: |

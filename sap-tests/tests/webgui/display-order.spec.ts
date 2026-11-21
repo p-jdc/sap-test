@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../sap-plugin';
 import { field, runTransaction } from '../../helpers/webgui';
 import { requireEnv } from '../../helpers/env';
 
