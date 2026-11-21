@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { setTechnical, view } from '#lib/client/view.svelte.js';
+	import { setShowBrowser, setTechnical, view } from '#lib/client/view.svelte.js';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -53,7 +53,20 @@
 			tooltip="Show or hide the menu"
 		></ui5-button>
 		<ui5-shellbar-spacer slot="content"></ui5-shellbar-spacer>
-		<div slot="content" class="technical" title="Also show file names, code and logs">
+		<div
+			slot="content"
+			class="bar-switch"
+			title="Open a browser window when a test runs, so you can watch it"
+		>
+			<ui5-label for="show-browser">Show browser</ui5-label>
+			<ui5-switch
+				id="show-browser"
+				accessible-name="Show browser"
+				checked={view.showBrowser || undefined}
+				onchange={(e: Event) => setShowBrowser((e.target as HTMLInputElement).checked)}
+			></ui5-switch>
+		</div>
+		<div slot="content" class="bar-switch" title="Also show file names, code and logs">
 			<ui5-label for="technical">Technical details</ui5-label>
 			<ui5-switch
 				id="technical"
@@ -81,13 +94,14 @@
 </div>
 
 <style>
-	.technical {
+	.bar-switch {
+		margin-left: 1rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
 		white-space: nowrap;
 	}
-	.technical ui5-label {
+	.bar-switch ui5-label {
 		color: var(--sapShell_TextColor);
 	}
 </style>

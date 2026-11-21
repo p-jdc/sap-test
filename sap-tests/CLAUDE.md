@@ -1,12 +1,13 @@
 # Regeln für SAP-Tests
 
 Dieses Projekt nutzt Standard-Playwright mit dem SAP-Plugin in sap-plugin/ (Locators aus Playwright-SAP). Tests importieren `test` und `expect` aus sap-plugin (z. B. '../../sap-plugin'), nicht aus '@playwright/test'.
-Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen.
+Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und Ariba.
 Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge
 
 1. Fiori/UI5: page.getByRoleUI5(controlType, { eigenschaft: wert }). Mehrere Eigenschaften in einem Aufruf müssen alle zutreffen; so wenige wie nötig angeben, damit das Control eindeutig ist.
+   Bestimmen auch mehrere Eigenschaften das Control nicht eindeutig (Zeile einer Liste, gleichlautende Links): page.locateUI5Control({ ... }) mit `bindingPath` oder `ancestor`, so wie der Recorder es schreibt. Aufgezeichnete locateUI5Control-Schritte bleiben, wie sie sind.
 2. WebGUI: page.getByRoleSID(role, { name, pos, sub, wnd }). Für Tabellenzellen und eigene Controls: page.locateSID('<vollständiger SID-Pfad>').
 3. Ariba und Nicht-SAP-Seiten: getByRole, getByLabel, getByText.
 

@@ -1,6 +1,7 @@
 import { goto } from '$app/navigation';
 import { startTestRun } from '#lib/remote/runs.remote.js';
 import { runHref } from './links.js';
+import { view } from './view.svelte.js';
 
 export function errorMessage(e: unknown): string {
 	// SvelteKit's HttpError carries `{ body: { message } }`.
@@ -18,13 +19,16 @@ export function errorMessage(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }
 
-/** Starts a run and opens its live page. Returns an error message instead of throwing. */
+/**
+ * Starts a run and opens its live page; with "Show browser" on, the tests run in a visible window.
+ * Returns an error message instead of throwing.
+ */
 export async function runAndOpen(
 	input: { files?: string[]; grep?: string },
 	open = true
 ): Promise<string | null> {
 	try {
-		const { id } = await startTestRun(input);
+		const { id } = await startTestRun({ ...input, headed: view.showBrowser });
 		if (open) await goto(runHref(id));
 		return null;
 	} catch (e) {

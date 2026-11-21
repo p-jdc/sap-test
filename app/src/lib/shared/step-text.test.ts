@@ -29,6 +29,50 @@ test.each<[LocatorInfo, string | undefined]>([
 	[loc('ui5', `button("Save")`, 'button'), 'the “Save” button'],
 	[loc('sid', `field("VBAK-VBELN")`, 'field'), 'the “VBAK-VBELN” field'],
 	[loc('other', 'reviewsTile'), 'the reviews tile'],
+	// UI5 control selectors, as the recorder in sap-plugin writes them.
+	[
+		loc(
+			'ui5',
+			`locateUI5Control({ controlType: 'sap.m.Button', properties: { text: 'Yes' }, searchOpenDialogs: true })`
+		),
+		'the “Yes” button'
+	],
+	[
+		loc(
+			'ui5',
+			`locateUI5Control({ controlType: 'sap.m.TextArea', viewName: 'x.Checkout', labelFor: { text: 'Note' }, interaction: { idSuffix: 'inner' } })`
+		),
+		'the “Note” text area'
+	],
+	[
+		loc(
+			'ui5',
+			`locateUI5Control({ controlType: 'sap.m.Button', i18NText: { propertyName: 'text', key: 'addToCartShort' } })`
+		),
+		'the “add to cart short” button'
+	],
+	// The row is named, not the list it sits in.
+	[
+		loc(
+			'ui5',
+			`locateUI5Control({ controlType: 'sap.m.ObjectListItem', bindingPath: { path: '/Products(\\'HT-1106\\')', propertyPath: 'PictureUrl' }, ancestor: { id: 'container-cart---category--productList' } })`
+		),
+		`the object list item of “/Products('HT-1106')”`
+	],
+	[
+		loc(
+			'ui5',
+			`locateUI5Control({ id: 'container-cart---checkoutView--creditCardNumber', interaction: { idSuffix: 'inner' } })`
+		),
+		'the credit card number'
+	],
+	[
+		loc(
+			'ui5',
+			`frameLocator('iframe[name="application"]').locator(ui5ControlSelector({ controlType: 'sap.m.Link', properties: { text: 'Compare' } }))`
+		),
+		'the “Compare” link'
+	],
 	[loc('css', `locator('#__button3-inner')`), undefined],
 	[loc('sid-path', `locateSID('wnd[0]/tbar[1]/btn[8]')`), undefined],
 	[loc('ui5-xpath', `locateUI5('//ToolPage//SideNavigation')`), undefined]

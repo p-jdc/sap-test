@@ -14,6 +14,7 @@ export type HelperMap = Record<string, { locator?: LocatorKind; isAction: boolea
 
 const LOCATOR_METHODS: Record<string, LocatorKind> = {
 	getByRoleUI5: 'ui5',
+	locateUI5Control: 'ui5',
 	locateUI5: 'ui5-xpath',
 	getByRoleSID: 'sid',
 	locateSID: 'sid-path',
@@ -178,7 +179,17 @@ function flatten(expr: ts.Expression): { root: ts.Expression; segments: Segment[
 	return { root: cur, segments };
 }
 
+/** sap-plugin functions that build the selector string for `locator()`, as recorded inside iframes. */
+const SELECTOR_BUILDERS: Record<string, LocatorKind> = {
+	ui5ControlSelector: 'ui5',
+	locateSIDSelector: 'sid-path'
+};
+
 function classifyCss(ctx: Ctx, arg: ts.Expression | undefined): LocatorKind {
+	if (arg && ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) {
+		const built = SELECTOR_BUILDERS[arg.expression.text];
+		if (built) return built;
+	}
 	const text = arg ? argText(ctx, arg) : '';
 	return /^(xpath=|\/\/|\.\.\/|\(\/\/)/.test(text) ? 'xpath' : 'css';
 }

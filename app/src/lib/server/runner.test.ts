@@ -206,6 +206,15 @@ describe('startRun', () => {
 		expect(JSON.stringify(args)).not.toContain('outside');
 	});
 
+	test('shows the browser only when asked to', async () => {
+		const runner = await freshRunner('pass');
+		await finished(runner, await started(runner, { headed: true }));
+		expect(argv()).toContain('--headed');
+
+		await finished(runner, await started(runner, {}));
+		expect(argv()).not.toContain('--headed');
+	});
+
 	test('passwords never reach the run state, the log or the stored files', async () => {
 		const runner = await freshRunner('secret');
 		// The test project reads its passwords from .env; the runner masks them wherever they are set.

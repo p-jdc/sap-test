@@ -9,8 +9,11 @@ import { existsSync } from 'node:fs';
 import { test as base, expect, selectors } from '@playwright/test';
 import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
+import { sapLogin } from './login';
 import { fillSecret } from './secret';
 import { sessionFile, type SapSession } from './session';
+import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
+import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
@@ -24,6 +27,11 @@ export interface SapPageMethods {
 	getByRoleUI5(role: string, properties?: ByRoleUI5Properties, options?: ByRoleUI5Options): Locator;
 	/** A UI5 control by an XPath over the UI5 control tree. */
 	locateUI5(xpath: string): Locator;
+	/**
+	 * SPIKE. A UI5 control by a control selector in UI5's own format (OPA5, wdi5, RecordReplay):
+	 * control type, properties, binding path and the control it sits in.
+	 */
+	locateUI5Control(selector: UI5ControlSelector): Locator;
 	/** A WebGUI element by its full SID path, e.g. `wnd[0]/tbar[1]/btn[8]`. */
 	locateSID(sid: string): Locator;
 	/** A WebGUI element by role and name or position, e.g. `('textField', { name: 'VBAK-VBELN' })`. */
@@ -81,54 +89,6 @@ export function getByRoleSIDSelector(role: string, options: ByRoleSIDOptions): s
 	return `${ENGINES.sid}=${wnd}/${sub}/${prefix}${options.name ?? ''}${position}`;
 }
 
-const netweaverUserField = (page: Page) => page.getByRole('textbox', { name: 'User Required' });
-const fioriUserField = (page: Page) => page.getByRole('textbox', { name: 'User', exact: true });
-
-/** The user field of a Fiori launchpad or NetWeaver login page: visible while signed out. */
-export function sapLoginPage(page: Page): Locator {
-	return netweaverUserField(page).or(fioriUserField(page)).first();
-}
-
-async function sapLogin(
-	page: Page,
-	username: string,
-	password: string,
-	url?: string
-): Promise<Response | null> {
-	// A test's browser context starts without cookies unless it was given a saved session.
-	const fromSession = (await page.context().cookies()).length > 0;
-	const response = url ? await page.goto(url) : null;
-	const netweaverUser = netweaverUserField(page);
-	const fioriUser = fioriUserField(page);
-	const loginPage = sapLoginPage(page);
-	if (fromSession) {
-		// Typing the password here would put it into this test's trace.
-		if (await loginPage.isVisible()) {
-			throw new Error(
-				'SAPLogin: the saved SAP session is no longer valid (a login page opened). Run the tests again: the sign-in setup saves a new one.'
-			);
-		}
-		return response;
-	}
-	await expect(loginPage, 'SAPLogin: no Fiori launchpad or NetWeaver login page found').toBeVisible(
-		{
-			timeout: 30_000
-		}
-	);
-
-	if (await netweaverUser.isVisible()) {
-		await netweaverUser.fill(username);
-		await fillSecret(page.getByRole('textbox', { name: 'Password Required' }), password);
-		await page.getByRole('button', { name: 'Log On Emphasized' }).click();
-	} else {
-		await fioriUser.fill(username);
-		await fillSecret(page.getByRole('textbox', { name: 'Password', exact: true }), password);
-		await page.getByRole('button', { name: 'Log On' }).click();
-	}
-	await page.waitForLoadState();
-	return response;
-}
-
 /**
  * Adds the SAP methods to one page object. The fixture below does this for every page of the
  * worker's browser; call it yourself only for a page from another browser (a second launch, a
@@ -139,6 +99,7 @@ export function withSapMethods(page: Page): Page {
 		getByRoleUI5: (role, properties, options) =>
 			page.locator(getByRoleUI5Selector(role, properties, options)),
 		locateUI5: (xpath) => page.locator(locateUI5Selector(xpath)),
+		locateUI5Control: (selector) => page.locator(ui5ControlSelector(selector)),
 		locateSID: (sid) => page.locator(locateSIDSelector(sid)),
 		getByRoleSID: (role, options) => page.locator(getByRoleSIDSelector(role, options)),
 		SAPLogin: (username, password, url) => sapLogin(page, username, password, url),
@@ -176,6 +137,7 @@ export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
 		async ({}, use) => {
 			for (const name of ENGINE_NAMES)
 				await selectors.register(name, { content: engineSource(name) });
+			await selectors.register(UI5_CONTROL_ENGINE, ui5ControlEngine);
 			await use();
 		},
 		{ scope: 'worker', auto: true }
@@ -193,6 +155,9 @@ export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
 });
 
 export { expect, fillSecret };
+export { sapLoginPage } from './login';
 export { clearSession, saveSession, signingIn, type SapSession } from './session';
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';
+export type { UI5ControlSelector } from './ui5control';
+export { ui5ControlSelector } from './ui5control';

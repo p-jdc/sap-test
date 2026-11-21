@@ -4,7 +4,14 @@ import { dirname, relative, resolve } from 'node:path';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { sameOrigin } from './origin.js';
-import { childEnv, playwrightNode, RECORDER_PACKAGE, recorderCommand } from './node-cli.js';
+import {
+	childEnv,
+	playwrightNode,
+	RECORDER_PACKAGE,
+	recorderCommand,
+	UI5_RECORDER,
+	ui5RecorderCommand
+} from './node-cli.js';
 import { TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
 
 export type RecorderState = {
@@ -26,7 +33,15 @@ export type RecordInput = {
 	name: string;
 	url?: string;
 	saveStorage?: boolean;
+	/**
+	 * Fiori only: record a page that needs no SAP login, such as a demo app. Any start page is
+	 * allowed, because the recorder then gets no credentials it could type into it.
+	 */
+	noLogin?: boolean;
 };
+
+/** Where Fiori recordings without login are saved, relative to tests/. */
+const NO_LOGIN_FOLDER = 'fiori/demokit';
 
 const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
 
@@ -40,11 +55,76 @@ export function withPluginImport(source: string, specFile: string): string {
 	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
 }
 
+export type Invocation = {
+	cmd: string;
+	args: string[];
+	/** Extra environment for the recorder process. */
+	env: Record<string, string>;
+	/** What must exist for this recorder to start, and how to get it. */
+	needs: { path: string; hint: string };
+};
+
 /**
- * Guide §4.4: `codegen <url> --sap-login <user> <password>` for Fiori/WebGUI (credentials come from
- * the settings and are passed as arguments, never back to the UI); plain codegen for Ariba.
- * Recording uses the Playwright-SAP fork in sap-tests/recorder; the recorded spec then runs on
- * stock Playwright. The browser opens on the machine running this app.
+ * The recorder process for one recording. `file` is the spec relative to tests/, `url` the start
+ * page, `env` the settings.
+ *
+ * Fiori records with the UI5 recorder of sap-plugin (stock Playwright): UI5 itself describes each
+ * control, so the locators need no positions. It gets the credentials through its environment and
+ * writes a spec that starts with page.SAPLogin. WebGUI and Ariba still record with the
+ * Playwright-SAP fork in sap-tests/recorder (guide §4.4: `codegen <url> --sap-login <user>
+ * <password>`; plain codegen for Ariba), because the UI5 recorder's WebGUI support has not been
+ * tried on a real system.
+ */
+export function recorderInvocation(
+	input: Pick<RecordInput, 'surface' | 'name' | 'saveStorage' | 'noLogin'>,
+	file: string,
+	url: string,
+	env: Record<string, string>
+): Invocation {
+	const storage = input.saveStorage ? ['--save-storage', `.auth/${input.surface}.json`] : [];
+	if (input.surface === 'fiori') {
+		const login = input.noLogin ? [] : ['--login'];
+		const flags = ['--name', input.name.trim(), ...login, ...storage];
+		if (url === env.SAP_URL) flags.push('--url-from-env');
+		return {
+			...ui5RecorderCommand([url, 'tests/' + file, ...flags]),
+			// Without a login the credentials are blanked, so a password in this app's own environment
+			// does not reach a recorder that opens a page of the caller's choosing.
+			env: input.noLogin
+				? { SAP_USERNAME: '', SAP_PASSWORD: '' }
+				: { SAP_USERNAME: env.SAP_USERNAME ?? '', SAP_PASSWORD: env.SAP_PASSWORD ?? '' },
+			needs: {
+				path: UI5_RECORDER,
+				hint: `The UI5 recorder is missing in ${TESTS_ROOT}/sap-plugin.`
+			}
+		};
+	}
+	const login =
+		input.surface === 'webgui'
+			? ['--sap-login', env.SAP_USERNAME ?? '', env.SAP_PASSWORD ?? '']
+			: [];
+	return {
+		...recorderCommand([
+			'codegen',
+			url,
+			'--target',
+			'playwright-test',
+			'-o',
+			'tests/' + file,
+			...login,
+			...storage
+		]),
+		env: {},
+		needs: {
+			path: RECORDER_PACKAGE,
+			hint: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
+		}
+	};
+}
+
+/**
+ * Starts a recording. Credentials come from the settings and never go back to the UI. The browser
+ * opens on the machine running this app.
  */
 export async function startRecording(
 	input: RecordInput
@@ -58,7 +138,11 @@ export async function startRecording(
 		.replaceAll(/[^a-z0-9]+/g, '-')
 		.replaceAll(/^-|-$/g, '');
 	if (!slug) return { ok: false, error: 'Give the flow a name.' };
-	const file = `${input.surface}/${slug}.spec.ts`;
+	const noLogin = input.surface === 'fiori' && input.noLogin === true;
+	// The tests in tests/fiori start from a saved SAP session, which a run first signs in for
+	// (playwright.config.ts). A page recorded without login needs none, so its test goes to the
+	// folder that is exempt from that.
+	const file = `${noLogin ? NO_LOGIN_FOLDER : input.surface}/${slug}.spec.ts`;
 	const full = within(TESTS_DIR, file);
 	if (!full) return { ok: false, error: 'Invalid file name.' };
 	if (existsSync(full)) return { ok: false, error: `${file} already exists.` };
@@ -70,8 +154,7 @@ export async function startRecording(
 			error: `No URL given and ${input.surface === 'ariba' ? 'ARIBA_URL' : 'SAP_URL'} is not set (Settings page or sap-tests/.env).`
 		};
 
-	const args = ['codegen', url, '--target', 'playwright-test', '-o', 'tests/' + file];
-	if (input.surface !== 'ariba') {
+	if (input.surface !== 'ariba' && !noLogin) {
 		if (!env.SAP_USERNAME || !env.SAP_PASSWORD) {
 			return {
 				ok: false,
@@ -87,23 +170,16 @@ export async function startRecording(
 					'The recorder logs in with the stored SAP credentials, so the start URL must be on the same host as SAP_URL.'
 			};
 		}
-		args.push('--sap-login', env.SAP_USERNAME, env.SAP_PASSWORD);
 	}
+	const invocation = recorderInvocation({ ...input, noLogin }, file, url, env);
 	// Checked last, so a wrong name, URL or missing credentials are reported first.
-	if (!existsSync(RECORDER_PACKAGE)) {
-		return {
-			ok: false,
-			error: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
-		};
-	}
+	if (!existsSync(invocation.needs.path)) return { ok: false, error: invocation.needs.hint };
 	mkdirSync(dirname(full), { recursive: true });
-	if (input.saveStorage) {
-		mkdirSync(resolve(TESTS_ROOT, '.auth'), { recursive: true });
-		args.push('--save-storage', `.auth/${input.surface}.json`);
-	}
+	if (input.saveStorage) mkdirSync(resolve(TESTS_ROOT, '.auth'), { recursive: true });
 
-	// The recorder is the one part that still needs the tested Node; say so where a hang would show.
-	const nodeWarning = playwrightNode().warning;
+	// The fork's recorder is the one part that still needs the tested Node; say so where a hang
+	// would show.
+	const nodeWarning = input.surface === 'fiori' ? null : playwrightNode().warning;
 	state = {
 		status: 'recording',
 		file,
@@ -113,16 +189,16 @@ export async function startRecording(
 		],
 		startedAt: new Date().toISOString()
 	};
-	const command = recorderCommand(args);
-	proc = spawn(command.cmd, command.args, {
+	proc = spawn(invocation.cmd, invocation.args, {
 		cwd: TESTS_ROOT,
-		env: childEnv(),
+		env: childEnv(invocation.env),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
 	const password = env.SAP_PASSWORD;
 	const onLine = (line: string) => {
 		if (!line) return;
-		// Never echo the password back: it is an argument of the spawned process. Masked per whole
+		// Never echo the password back: the recorder process holds it (the fork as an argument, the
+		// UI5 recorder in its environment). Masked per whole
 		// line, so a password split between two output chunks is still caught.
 		state.log.push(password ? line.replaceAll(password, '***') : line);
 		state.log = state.log.slice(-200);
@@ -149,7 +225,7 @@ export async function startRecording(
 			status: saved ? 'saved' : 'error',
 			log: [
 				...state.log,
-				saved ? `Saved ${file}` : `codegen exited with code ${code} and wrote no file.`
+				saved ? `Saved ${file}` : `The recorder exited with code ${code} and wrote no file.`
 			]
 		};
 	});
