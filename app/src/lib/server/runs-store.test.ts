@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -158,62 +158,119 @@ function withArtifacts(id: string) {
 	return dir;
 }
 
-describe('trimArtifacts', () => {
-	test('removes report and results of all but the newest runs and keeps what happened', async () => {
+const DAY = 24 * 60 * 60 * 1000;
+// writeRun dates its runs 2026-01-01, a second apart.
+const DAYS_LATER = (days: number) => Date.parse('2026-01-01T00:00:00.000Z') + days * DAY;
+
+/** Gives the first test of a stored run a step, an error and an attachment. */
+function withDetails(id: string) {
+	const file = join(dataDir, 'runs', id, 'state.json');
+	// Written by writeRun above.
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+	const state = JSON.parse(readFileSync(file, 'utf8')) as RunState;
+	const first = must(state.tests[0]);
+	first.steps = [{ stepId: 's1', title: 'Click', category: 'pw:api', startTime: '' }];
+	first.error = { message: 'Order 4711 not found', file: 'a.spec.ts', line: 7 };
+	first.attachments = [
+		{ name: 'trace', contentType: 'application/zip', path: 'results/test-a/trace.zip' }
+	];
+	writeFileSync(file, JSON.stringify(state));
+}
+
+describe('applyRetention', () => {
+	test('an old run loses its files, steps, error messages and log, and keeps what happened', async () => {
 		const store = await freshStore();
-		const old = writeRun({ flow: 'failed' }, 'failed');
-		const recent = writeRun({ flow: 'passed' });
+		const old = writeRun({ flow: 'failed', other: 'passed' }, 'failed');
+		const fixed = writeRun({ flow: 'passed' });
+		const newest = writeRun({ flow: 'passed' });
 		const oldDir = withArtifacts(old);
-		const recentDir = withArtifacts(recent);
-		// Opened before the trim, as a user would have.
+		const newestDir = withArtifacts(newest);
+		withArtifacts(fixed);
+		withDetails(old);
+		// Opened before, as a user would have.
 		expect(store.readRunState(old)).toMatchObject({ hasReport: true });
 
-		expect(store.trimArtifacts(1)).toEqual([old]);
+		// 40 days on: the failure was fixed long ago.
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([old, fixed]);
 		expect(existsSync(join(oldDir, 'report'))).toBe(false);
 		expect(existsSync(join(oldDir, 'results'))).toBe(false);
-		expect(existsSync(join(recentDir, 'report/index.html'))).toBe(true);
-		expect(existsSync(join(recentDir, 'results/test-a/trace.zip'))).toBe(true);
+		expect(existsSync(join(oldDir, 'output.log'))).toBe(false);
+		expect(existsSync(join(newestDir, 'results/test-a/trace.zip'))).toBe(true);
 
-		expect(store.readRunState(old)).toMatchObject({
-			status: 'failed',
-			hasReport: false,
-			artifactsRemoved: true,
-			log: ['line one', '']
-		});
-		expect(store.readRunState(recent)?.artifactsRemoved).toBeUndefined();
-		expect(store.stability()[0]?.history.map((h) => h.status)).toEqual(['failed', 'passed']);
-		// A second pass has nothing left to do.
-		expect(store.trimArtifacts(1)).toEqual([]);
-	});
-
-	test('a trimmed run no longer offers attachments whose files are gone', async () => {
-		const store = await freshStore();
-		const old = writeRun({ flow: 'failed' }, 'failed');
-		writeRun({ flow: 'passed' });
-		const dir = withArtifacts(old);
 		const state = must(store.readRunState(old));
-		must(state.tests[0]).attachments = [
-			{ name: 'trace', contentType: 'application/zip', path: 'results/test-a/trace.zip' }
-		];
-		writeFileSync(join(dir, 'state.json'), JSON.stringify(state));
-		store.rememberFinished(old);
-		expect(store.readRunState(old)?.tests[0]?.attachments).toHaveLength(1);
-		store.trimArtifacts(1);
-		expect(store.readRunState(old)?.tests[0]?.attachments).toEqual([]);
+		expect(state).toMatchObject({ status: 'failed', hasReport: false, artifactsRemoved: true });
+		expect(state.log).toEqual([]);
+		expect(state.tests[0]).toMatchObject({
+			status: 'failed',
+			steps: [],
+			attachments: [],
+			detailsRemoved: true,
+			error: { message: 'The error message was removed to save space.', line: 7 }
+		});
+		expect(JSON.stringify(state)).not.toContain('4711');
+		expect(store.readRunState(newest)?.artifactsRemoved).toBeUndefined();
+		expect(
+			store
+				.stability()
+				.find((r) => r.key === 'flow')
+				?.history.map((h) => h.status)
+		).toEqual(['failed', 'passed', 'passed']);
+		// A second pass has nothing left to do.
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([]);
 	});
 
-	test('keeps the artifacts of the newest 50 runs unless told otherwise', async () => {
+	test('a failure that is still open stays in full; the passed tests beside it lose their steps', async () => {
+		const store = await freshStore();
+		const open = writeRun({ flow: 'failed', other: 'passed' }, 'failed');
+		writeRun({ unrelated: 'passed' });
+		const dir = withArtifacts(open);
+		withDetails(open);
+
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([open]);
+		expect(existsSync(join(dir, 'results/test-a/trace.zip'))).toBe(true);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+		const state = must(store.readRunState(open));
+		expect(state.tests.map((t) => [t.key, t.steps.length, t.detailsRemoved])).toEqual([
+			['flow', 1, undefined],
+			['other', 0, true]
+		]);
+		expect(must(state.tests[0]).error?.message).toBe('Order 4711 not found');
+
+		// After 90 days it goes, open or not.
+		expect(store.applyRetention(DAYS_LATER(91))).toEqual([open]);
+		expect(existsSync(join(dir, 'results'))).toBe(false);
+		expect(must(store.readRunState(open)).tests[0]).toMatchObject({
+			steps: [],
+			detailsRemoved: true
+		});
+	});
+
+	test('recent runs are left alone, and so is everything when the rules are off', async () => {
 		const store = await freshStore();
 		const old = writeRun({ flow: 'passed' });
-		const dir = withArtifacts(old);
 		writeRun({ flow: 'passed' });
-		expect(store.trimArtifacts()).toEqual([]);
+		const dir = withArtifacts(old);
+		expect(store.applyRetention(DAYS_LATER(10))).toEqual([]);
+		expect(store.applyRetention(DAYS_LATER(400), null)).toEqual([]);
+		vi.stubEnv('TEST_APP_RETENTION', 'off');
+		expect(store.applyRetention(DAYS_LATER(400))).toEqual([]);
+		expect(existsSync(join(dir, 'report/index.html'))).toBe(true);
 
-		vi.stubEnv('TEST_APP_KEEP_ARTIFACTS', 'all');
-		expect(store.trimArtifacts()).toEqual([]);
-		vi.stubEnv('TEST_APP_KEEP_ARTIFACTS', '1');
-		expect(store.trimArtifacts()).toEqual([old]);
+		vi.stubEnv('TEST_APP_RETENTION', '');
+		vi.stubEnv('TEST_APP_KEEP_REPORT_DAYS', '5');
+		expect(store.applyRetention(DAYS_LATER(10))).toEqual([old]);
 		expect(existsSync(join(dir, 'report'))).toBe(false);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+	});
+
+	test('never touches the run that is still running', async () => {
+		const store = await freshStore();
+		const live = writeRun({ flow: 'failed' }, 'running');
+		writeRun({ flow: 'passed' });
+		const dir = withArtifacts(live);
+		store.markLive(live);
+		expect(store.applyRetention(DAYS_LATER(400))).toEqual([]);
+		expect(existsSync(join(dir, 'report/index.html'))).toBe(true);
 	});
 });
 

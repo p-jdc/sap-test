@@ -15,11 +15,11 @@ import {
 	type ReporterEvent
 } from './run-events.js';
 import {
+	applyRetention,
 	markLive,
 	pruneRuns,
 	readRunState,
-	rememberFinished,
-	trimArtifacts
+	rememberFinished
 } from './runs-store.js';
 import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
@@ -197,7 +197,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	persist(live);
 	rememberFinished(state.id);
 	pruneRuns();
-	trimArtifacts();
+	applyRetention();
 	notify(live);
 }
 
