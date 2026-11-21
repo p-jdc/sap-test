@@ -225,6 +225,21 @@ describe('startRun', () => {
 		expect([JSON.stringify(state), ...stored].join('\n')).not.toContain('pw-from-env');
 	});
 
+	test('a page watching with a view gets small snapshots and the steps on request', async () => {
+		const runner = await freshRunner('hang');
+		const id = await started(runner);
+		await testRunning(runner, id);
+		// While the test runs, its steps are part of every snapshot.
+		const first = await runner.watchRun(id, {}).next();
+		expect(first.value).toMatchObject({ status: 'running', log: [] });
+
+		expect(runner.stopRun(id)).toBe(true);
+		const state = await finished(runner, id);
+		expect(runner.testSteps(id, 't1')).toEqual(must(state.tests[0]).steps);
+		expect(runner.testSteps(id, 'unknown')).toEqual([]);
+		expect(runner.testSteps('20260101-000000-none', 't1')).toEqual([]);
+	});
+
 	test('a failed sign-in marks the tests that needed it as skipped and is no flow', async () => {
 		const runner = await freshRunner('sign-in-failed');
 		const state = await finished(runner, await started(runner));

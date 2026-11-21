@@ -6,7 +6,14 @@ import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 import { redactor } from './redact.js';
-import { ANSI, applyEvent, PREFIX, recount, type ReporterEvent } from './run-events.js';
+import {
+	ANSI,
+	applyEvent,
+	liveSnapshot,
+	PREFIX,
+	recount,
+	type ReporterEvent
+} from './run-events.js';
 import {
 	markLive,
 	pruneRuns,
@@ -14,7 +21,7 @@ import {
 	rememberFinished,
 	trimArtifacts
 } from './runs-store.js';
-import type { RunState, RunStatus } from '#lib/shared/types.js';
+import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
 const LOG_TAIL = 400;
 
@@ -204,6 +211,12 @@ export function getLiveState(id: string): RunState | null {
 	return active && active.state.id === id ? active.state : null;
 }
 
+/** The steps of one test of a run, running or finished. */
+export function testSteps(id: string, testId: string): RunStep[] {
+	const state = getLiveState(id) ?? readRunState(id);
+	return state?.tests.find((t) => t.testId === testId)?.steps ?? [];
+}
+
 function notify(live: Live) {
 	live.updates.dispatchEvent(new Event('update'));
 }
@@ -213,8 +226,15 @@ const sleep = (ms: number) =>
 		setTimeout(done, ms);
 	});
 
-/** Snapshot stream for query.live: yields on change (throttled), ends when the run finishes. */
-export async function* watchRun(id: string): AsyncGenerator<RunState> {
+/** The shortest time between two snapshots of a running run. */
+const SNAPSHOT_INTERVAL = 500;
+
+/**
+ * Snapshot stream for query.live: yields on change (throttled), ends when the run finishes. With a
+ * `view`, each snapshot is reduced to what that view shows (liveSnapshot); without, it is the
+ * whole state. A run that is not running yields its stored state once, in full.
+ */
+export async function* watchRun(id: string, view?: LiveView): AsyncGenerator<RunState> {
 	const live = active && active.state.id === id ? active : null;
 	if (!live || live.state.status !== 'running') {
 		const done = readRunState(id);
@@ -240,10 +260,10 @@ export async function* watchRun(id: string): AsyncGenerator<RunState> {
 			// oxlint-disable-next-line no-await-in-loop
 			if (!dirty) await nextUpdate();
 			dirty = false;
-			yield structuredClone(live.state);
+			yield view ? liveSnapshot(live.state, view) : structuredClone(live.state);
 			if (!running()) return;
 			// oxlint-disable-next-line no-await-in-loop
-			await sleep(200);
+			await sleep(SNAPSHOT_INTERVAL);
 		}
 	} finally {
 		live.updates.removeEventListener('update', onUpdate);
