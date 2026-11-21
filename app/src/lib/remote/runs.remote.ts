@@ -1,6 +1,7 @@
 import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
+import { recordActivity } from '#lib/server/auth/access.js';
 import {
 	activeRunId,
 	getLiveState,
@@ -54,6 +55,10 @@ export const startTestRun = command(
 	async (input) => {
 		const result = await startRun(input);
 		if (!result.ok) error(409, result.error);
+		await recordActivity(
+			'Started a run',
+			input.files?.length ? input.files.join(', ').slice(0, 300) : 'all tests'
+		);
 		await getRuns().refresh();
 		return { id: result.id };
 	}
