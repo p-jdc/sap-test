@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { HELPERS_DIR, TESTS_DIR, within } from './paths.js';
+import { HELPERS_DIR, TESTS_DIR, toPosix, within } from './paths.js';
 import { parseHelpers, parseSpec, type HelperMap } from './spec-parser.js';
 import type { SpecFile } from '#lib/shared/types.js';
 
@@ -31,7 +31,7 @@ function loadHelpers(): { map: HelperMap; key: string } {
 export function listSpecs(): SpecFile[] {
 	const helpers = loadHelpers();
 	return walk(TESTS_DIR, (f) => /\.(spec|test)\.[cm]?[jt]s$/.test(f)).map((full) => {
-		const file = relative(TESTS_DIR, full);
+		const file = toPosix(relative(TESTS_DIR, full));
 		const mtime = statSync(full).mtimeMs;
 		const hit = cache.get(file);
 		if (hit && hit.mtime === mtime && hit.helpersKey === helpers.key) return hit.parsed;

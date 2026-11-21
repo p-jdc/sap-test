@@ -161,6 +161,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
+| `TEST_APP_KEEP_ARTIFACTS` | `50` | Runs that keep their report, screenshots, videos and traces. Older runs lose these files (most of a run's size) after each run but keep their results, steps and log, so the history and the reliability table stay complete. `all` never deletes them |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |

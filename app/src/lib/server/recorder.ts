@@ -5,7 +5,7 @@ import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { sameOrigin } from './origin.js';
 import { childEnv, playwrightNode, RECORDER_PACKAGE, recorderCommand } from './node-cli.js';
-import { TESTS_DIR, TESTS_ROOT, within } from './paths.js';
+import { TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
 
 export type RecorderState = {
 	status: 'idle' | 'recording' | 'saved' | 'error';
@@ -36,10 +36,7 @@ const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
  * pointed at the plugin, relative to the spec's own folder.
  */
 export function withPluginImport(source: string, specFile: string): string {
-	const plugin = relative(dirname(specFile), resolve(TESTS_ROOT, 'sap-plugin')).replaceAll(
-		'\\',
-		'/'
-	);
+	const plugin = toPosix(relative(dirname(specFile), resolve(TESTS_ROOT, 'sap-plugin')));
 	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
 }
 
@@ -101,7 +98,7 @@ export async function startRecording(
 	}
 	mkdirSync(dirname(full), { recursive: true });
 	if (input.saveStorage) {
-		mkdirSync(`${TESTS_ROOT}/.auth`, { recursive: true });
+		mkdirSync(resolve(TESTS_ROOT, '.auth'), { recursive: true });
 		args.push('--save-storage', `.auth/${input.surface}.json`);
 	}
 
