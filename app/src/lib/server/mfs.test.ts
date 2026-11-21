@@ -137,6 +137,19 @@ describe('Mock PLC', () => {
 		expect(mfsStatus().running).toBe(true);
 	});
 
+	test('two starts at the same moment start one emulator', async () => {
+		const input = { setup: 'sap-example', mode: 'demo', speed: 20 } as const;
+		const results = await Promise.allSettled([startEmulator(input), startEmulator(input)]);
+		expect(results.map((result) => result.status).toSorted()).toEqual(['fulfilled', 'rejected']);
+		expect(results.map((result) => String(Reflect.get(result, 'reason'))).join()).toContain(
+			'already starting'
+		);
+		expect(mfsStatus()).toMatchObject({ running: true, setup: 'sap-example' });
+		// The one that runs is the one the app knows, so stopping it leaves none behind.
+		expect(stopEmulator()).toBe(true);
+		await waitFor(stopped);
+	});
+
 	test('refuses a setup that does not exist', async () => {
 		await expect(startEmulator({ setup: 'nope', mode: 'demo', speed: 1 })).rejects.toThrow(
 			/no setup "nope"/

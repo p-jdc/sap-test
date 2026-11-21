@@ -23,9 +23,17 @@ bun run test:mfs            # the tests (no browser, no SAP system)
 bun run mfs:server          # the Mock PLC alone, waiting for an EWM to connect
 ```
 
-`mfs:server` settings (environment): `MFS_SETUP` (default `sap-example`), `MFS_HOST`, `MFS_BASE_PORT` (first PLC
-port, default 47101), `MFS_CONTROL_PORT` (default 47100), `MFS_SPEED` (time factor, default 1), `MFS_FAKE_EWM=1` (demo: also start
-the fake EWM; its actions are under `/ewm` in the control API). Once ready it prints `MFS_READY {…}` with the ports.
+`mfs:server` settings (environment): `MFS_SETUP` (default `sap-example`), `MFS_HOST` (address of the PLC ports),
+`MFS_BASE_PORT` (first PLC port, default 47101), `MFS_CONTROL_PORT` (default 47100), `MFS_SPEED` (time factor,
+default 1), `MFS_FAKE_EWM=1` (demo: also start the fake EWM; its actions are under `/ewm` in the control API).
+Once ready it prints `MFS_READY {…}` with the ports.
+
+The control API puts HUs in, switches devices off and breaks connections, so it has its own address:
+`MFS_CONTROL_HOST` (default `127.0.0.1`, this computer only). To reach it from elsewhere, as on the cluster, set
+`MFS_CONTROL_HOST` and `MFS_CONTROL_TOKEN`; the emulator does not start with the first and without the second.
+Every request then needs `Authorization: Bearer <token>`, except `GET /health`. Requests that change something
+must be JSON (`content-type: application/json`). The app makes up a token for each emulator it starts; for one
+that runs elsewhere (`MFS_EMULATOR_URL`), give the app its token as `MFS_EMULATOR_TOKEN`.
 
 ## What's real and what's made up
 

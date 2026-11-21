@@ -2,6 +2,7 @@
 // its own service on the cluster later, and reached only through its HTTP control API. The browser never talks to
 // the emulator or its PLC ports; the page goes through the remote functions in mfs.remote.ts.
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -35,6 +36,8 @@ const SETUP_HINT = 'Run "bun run setup" in the repo root, then start the Mock PL
 type Running = {
 	proc: ChildProcess;
 	url: string;
+	/** Made up for this start and handed to the emulator: only this app can use its control API. */
+	token: string;
 	setup: string;
 	mode: MfsMode;
 	speed: number;
@@ -43,6 +46,7 @@ type Running = {
 };
 
 let running: Running | null = null;
+let starting = false;
 let lastError: string | undefined;
 
 // The Mock PLC belongs to the app that started it: it must not keep the PLC ports open after the app is gone.
@@ -127,6 +131,18 @@ export type StartInput = { setup: string; mode: MfsMode; speed: number; scenario
  * the PLC ports are free ones; in `ewm` mode the PLCs listen on MFS_BASE_PORT (default 47101) for a real EWM.
  */
 export async function startEmulator(input: StartInput): Promise<void> {
+	// Starting takes a moment, and `running` is only set once the emulator answers. Without this,
+	// two requests in that moment would each start one, and the first could never be stopped.
+	if (starting) throw new Error('The emulator is already starting.');
+	starting = true;
+	try {
+		await launch(input);
+	} finally {
+		starting = false;
+	}
+}
+
+async function launch(input: StartInput): Promise<void> {
 	if (externalUrl()) throw new Error('The emulator is managed elsewhere (MFS_EMULATOR_URL).');
 	if (running) throw new Error('The emulator is already running.');
 	if (!listSetups().includes(input.setup)) throw new Error(`There is no setup "${input.setup}".`);
@@ -138,12 +154,15 @@ export async function startEmulator(input: StartInput): Promise<void> {
 		);
 	lastError = undefined;
 	const demo = input.mode === 'demo';
+	const token = randomBytes(24).toString('hex');
 	const proc = spawn(bunBinary(), [resolve(MFS_DIR, 'server.mts')], {
 		cwd: TESTS_ROOT,
 		env: childEnv({
 			MFS_SETUP: input.setup,
 			MFS_SPEED: String(input.speed),
 			MFS_CONTROL_PORT: '0',
+			MFS_CONTROL_HOST: '127.0.0.1',
+			MFS_CONTROL_TOKEN: token,
 			MFS_HOST: demo ? '127.0.0.1' : process.env.MFS_HOST || '127.0.0.1',
 			MFS_BASE_PORT: demo ? '0' : process.env.MFS_BASE_PORT || '47101',
 			MFS_FAKE_EWM: demo ? '1' : ''
@@ -191,6 +210,7 @@ export async function startEmulator(input: StartInput): Promise<void> {
 	const current: Running = {
 		proc,
 		url,
+		token,
 		...input,
 		startedAt: new Date().toISOString(),
 		stopping: false
@@ -227,7 +247,11 @@ function baseUrl(): string {
 }
 
 async function call<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
-	const response = await fetch(baseUrl() + path, init);
+	// The token of the emulator this app started, or the one set for an emulator run elsewhere.
+	const token = externalUrl() ? process.env.MFS_EMULATOR_TOKEN : running?.token;
+	const headers = new Headers(init?.headers);
+	if (token) headers.set('authorization', `Bearer ${token}`);
+	const response = await fetch(baseUrl() + path, { ...init, headers });
 	const body: unknown = await response.json();
 	if (!response.ok) {
 		const message = z.object({ error: z.string() }).safeParse(body);

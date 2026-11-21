@@ -103,6 +103,11 @@ export interface EmulatorOptions {
 	logSize?: number;
 }
 
+/** A channel that was silent for this many life intervals is taken for dead. */
+const SILENT_INTERVALS = 3;
+/** Telegrams kept per PLC while EWM is not connected. */
+const OUTBOX_SIZE = 1000;
+
 const defaultTiming: ChannelTiming = { ackTimeoutMs: 2000, maxResends: 3, lifeIntervalMs: 10_000 };
 
 export class Emulator {
@@ -149,9 +154,19 @@ export class Emulator {
 			};
 			state.server.on('connection', (socket) => {
 				if (state.channel?.open) {
-					this.#event(`${plc.id}: second connection refused, the channel is in use`);
-					socket.destroy();
-					return;
+					// EWM can vanish without closing its connection (a pod or the network goes away). The
+					// old channel then looks open for good, and EWM could never connect again. A channel
+					// that has been silent for several life intervals makes way for the new connection.
+					const silent = Date.now() - state.channel.lastHeardAt;
+					if (silent <= SILENT_INTERVALS * this.#timing.lifeIntervalMs) {
+						this.#event(`${plc.id}: second connection refused, the channel is in use`);
+						socket.destroy();
+						return;
+					}
+					this.#event(
+						`${plc.id}: nothing heard from EWM for ${Math.round(silent / 1000)} s, the old connection makes way for a new one`
+					);
+					state.channel.close();
 				}
 				state.channel = new Channel({
 					name: plc.id,
@@ -162,7 +177,16 @@ export class Emulator {
 					timing: this.#timing,
 					log: (entry) => this.#record(entry),
 					onTelegram: (telegram) => this.#onTelegram(plc.id, telegram),
-					onClose: () => this.#event(`${plc.id}: EWM disconnected`)
+					onClose: (unacknowledged) => {
+						this.#event(`${plc.id}: EWM disconnected`);
+						if (unacknowledged.length === 0) return;
+						// EWM never confirmed these: they go out again, first, when it is back.
+						state.outbox.unshift(...unacknowledged);
+						this.#trimOutbox(state);
+						this.#event(
+							`${plc.id}: ${unacknowledged.length} unacknowledged telegram(s) kept until EWM connects again`
+						);
+					}
 				});
 				state.channel.faults = state.faults;
 				this.#event(`${plc.id}: EWM connected`);
@@ -445,11 +469,22 @@ export class Emulator {
 		}
 	}
 
+	/** Keeps the newest telegrams when EWM stays away for long: status reports pile up without end. */
+	#trimOutbox(plc: PlcState) {
+		const tooMany = plc.outbox.length - OUTBOX_SIZE;
+		if (tooMany <= 0) return;
+		plc.outbox.splice(0, tooMany);
+		this.#event(
+			`${plc.id}: ${tooMany} of the oldest queued telegram(s) dropped, EWM is away too long`
+		);
+	}
+
 	#send(plcId: string, type: string, fields: Fields) {
 		const plc = this.#plcs.get(plcId);
 		if (!plc) return;
 		if (!plc.channel?.open) {
 			plc.outbox.push({ type, fields });
+			this.#trimOutbox(plc);
 			this.#event(`${plcId}: EWM not connected, ${type} queued until it connects`);
 			return;
 		}

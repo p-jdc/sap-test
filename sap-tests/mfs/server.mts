@@ -2,7 +2,10 @@
 //   node mfs/server.mts        (or bun; from sap-tests)
 // Settings by environment:
 //   MFS_SETUP         mock setup in setups/ (default sap-example)
-//   MFS_HOST          address the PLC ports and the control API listen on (default 127.0.0.1)
+//   MFS_HOST          address the PLC ports listen on (default 127.0.0.1)
+//   MFS_CONTROL_HOST  address the control API listens on (default 127.0.0.1)
+//   MFS_CONTROL_TOKEN token every control API request must carry; required when MFS_CONTROL_HOST
+//                     is not this computer
 //   MFS_BASE_PORT     first PLC port, the others follow (default 47101; 0 = free ports)
 //   MFS_CONTROL_PORT  HTTP control API (default 47100; 0 = a free port)
 //   MFS_SPEED         time factor (default 1)
@@ -12,12 +15,22 @@ import { createServer } from 'node:http';
 import { z } from 'zod';
 import { Emulator } from './emulator.mts';
 import { FakeEwm } from './fake-ewm.mts';
-import { fail, json, readBody, requestTarget, UserError } from './http.mts';
+import { authorize, fail, isLoopback, json, readBody, requestTarget, UserError } from './http.mts';
 import { ScenarioRunner } from './scenario.mts';
 import { loadSetup } from './setup.mts';
 
 const env = process.env;
 const host = env.MFS_HOST || '127.0.0.1';
+// The control API has its own address: the PLC ports must be reachable by EWM, the control API
+// only by whoever runs the tests. Beyond this computer it needs a token.
+const controlHost = env.MFS_CONTROL_HOST || '127.0.0.1';
+const controlToken = env.MFS_CONTROL_TOKEN || undefined;
+if (!isLoopback(controlHost) && !controlToken) {
+	console.error(
+		`MFS_CONTROL_HOST=${controlHost} opens the control API to the network. Set MFS_CONTROL_TOKEN as well; requests then need "Authorization: Bearer <token>".`
+	);
+	process.exit(1);
+}
 const port = (value: string | undefined, fallback: number) =>
 	value === undefined || value === '' ? fallback : Number(value);
 const setup = loadSetup(env.MFS_SETUP || 'sap-example');
@@ -87,6 +100,7 @@ async function route(
 	request: Parameters<typeof readBody>[0],
 	response: Parameters<typeof json>[0]
 ): Promise<void> {
+	authorize(request, controlToken);
 	const [first = ''] = requestTarget(request).parts;
 	if (first === 'scenario' || first === 'scenarios') return scenarioRoute(request, response);
 	if (first !== 'ewm') return emulator.handle(request, response);
@@ -98,7 +112,7 @@ const control = createServer((request, response) => {
 	route(request, response).catch((error: unknown) => fail(response, error));
 });
 await new Promise<void>((resolve) =>
-	control.listen(port(env.MFS_CONTROL_PORT, 47100), host, () => resolve())
+	control.listen(port(env.MFS_CONTROL_PORT, 47100), controlHost, () => resolve())
 );
 const address = control.address();
 const controlPort = typeof address === 'object' && address ? address.port : 0;
@@ -107,7 +121,7 @@ console.log(`PLC emulator, setup ${setup.name}${ewm ? ', with the fake EWM' : ''
 for (const [plc, plcPort] of Object.entries(plcs))
 	console.log(`  PLC ${plc.padEnd(4)} on port ${plcPort}`);
 console.log(
-	`  control API on http://${host}:${controlPort} (GET /health, /setup, /state, /log, /events, /scenarios, /scenario)`
+	`  control API on http://${controlHost}:${controlPort} (GET /health, /setup, /state, /log, /events, /scenarios, /scenario)`
 );
 console.log(`MFS_READY ${JSON.stringify({ control: controlPort, plcs, fakeEwm: Boolean(ewm) })}`);
 emulator.onEvent((event) =>
