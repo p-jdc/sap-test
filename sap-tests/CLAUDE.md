@@ -16,6 +16,7 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 
 - Hilfsfunktionen aus helpers/ verwenden, wenn es eine passende gibt.
 - Anmeldung mit page.SAPLogin und Umgebungsvariablen.
+- Passwörter mit `fillSecret(locator, wert)` aus sap-plugin eintippen, nie mit `fill`: `fill` schreibt den Wert in den Bericht und die Laufdaten der Test-App. page.SAPLogin tut das bereits.
 - Ein Geschäftsablauf je Test. Nach jedem datenverändernden Schritt prüfen.
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.
 - `await page.waitForUI5()` nur vor Abfragen, die nicht selbst warten (Modell lesen, count(), Screenshot). Vor Klicks und `expect` auf Locators ist es unnötig.

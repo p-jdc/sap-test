@@ -70,6 +70,15 @@ test.each<[FlowStep, string]>([
 		'Enter the Ariba password in “Password”'
 	],
 	[
+		step({
+			kind: 'action',
+			action: 'fillSecret',
+			locator: loc('label', `getByLabel('Password')`),
+			value: '$SAP_PASSWORD'
+		}),
+		'Enter the SAP password in “Password”'
+	],
+	[
 		step({ kind: 'action', action: 'click', locator: loc('css', `locator('#__button3-inner')`) }),
 		'Click an element on the screen'
 	],

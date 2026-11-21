@@ -124,6 +124,7 @@ function actionText(step: FlowStep): string {
 		case 'dblclick':
 			return `Double-click ${target}`;
 		case 'fill':
+		case 'fillSecret':
 		case 'type':
 		case 'pressSequentially':
 			return step.value === '' ? `Clear ${target}` : `Enter ${value} in ${target}`;

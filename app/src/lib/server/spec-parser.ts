@@ -78,6 +78,8 @@ function surfaceFromPath(file: string): Surface | undefined {
 type Facts = {
 	/** A password given as a literal (or a literal constant) instead of an env value. */
 	literalSecret: boolean;
+	/** A password typed with fill, which writes it into the step titles (report, run data). */
+	secretFill: boolean;
 	nth: boolean;
 	/** Steps inside a control-flow statement, which the flow shows as one opaque node. */
 	inner: FlowStep[];
@@ -228,13 +230,14 @@ function makeStep(
 	ctx: Ctx,
 	stmt: ts.Node,
 	partial: Omit<FlowStep, 'id' | 'line' | 'endLine' | 'code' | 'issues'>,
-	facts: { literalSecret?: boolean; inner?: FlowStep[] } = {}
+	facts: { literalSecret?: boolean; secretFill?: boolean; inner?: FlowStep[] } = {}
 ): FlowStep {
 	const id = `s${++ctx.seq}`;
 	// A group or control-flow statement contains other steps, which are scanned on their own.
 	const container = partial.kind === 'group' || facts.inner !== undefined;
 	ctx.facts.set(id, {
 		literalSecret: facts.literalSecret ?? false,
+		secretFill: facts.secretFill ?? false,
 		inner: facts.inner ?? [],
 		nth: !container && callsNth(stmt)
 	});
@@ -303,6 +306,27 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 
 	// test.step groups are handled by the caller (collectSteps).
 
+	// fillSecret(field, process.env.SAP_PASSWORD!) from sap-plugin: types a password unrecorded.
+	if (
+		segments.length === 0 &&
+		ts.isCallExpression(root) &&
+		ts.isIdentifier(root.expression) &&
+		root.expression.text === 'fillSecret'
+	) {
+		const [field, value] = root.arguments;
+		return makeStep(
+			ctx,
+			stmt,
+			{
+				kind: 'action',
+				action: 'fillSecret',
+				locator: field ? subjectOf(ctx, field) : undefined,
+				value: value ? argText(ctx, value) : undefined
+			},
+			{ literalSecret: isLiteral(ctx, value) }
+		);
+	}
+
 	// Bare helper call: runTransaction(page, 'VA03')
 	if (segments.length === 0 && ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
 		const name = root.expression.text;
@@ -344,10 +368,11 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	}
 	if (ACTIONS.has(last.name)) {
 		const locator = describeLocator(ctx, root, segments.slice(0, -1));
-		const literalSecret =
+		const password =
 			last.name === 'fill' &&
-			/pass|kennwort/i.test(locator?.display ?? '') &&
-			isLiteral(ctx, last.args[0]);
+			(/pass|kennwort/i.test(locator?.display ?? '') ||
+				/^\$\w*(PASS|KENNWORT)/i.test(lastArgs[0] ?? ''));
+		const literalSecret = password && isLiteral(ctx, last.args[0]);
 		return makeStep(
 			ctx,
 			stmt,
@@ -359,7 +384,7 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 					? lastArgs[0]
 					: undefined
 			},
-			{ literalSecret }
+			{ literalSecret, secretFill: password && !literalSecret }
 		);
 	}
 	if (MODEL_READS.has(last.name) && segments.length === 1) {
@@ -547,6 +572,13 @@ function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[
 			}
 			if (facts?.literalSecret) {
 				add('no-literal-secret', 'error', 'Password typed as a literal. Read it from .env.');
+			}
+			if (facts?.secretFill) {
+				add(
+					'no-secret-fill',
+					'warning',
+					'fill writes the password into the report and the step list. Use fillSecret from sap-plugin.'
+				);
 			}
 			if (
 				step.kind === 'action' &&

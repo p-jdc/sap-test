@@ -1,11 +1,11 @@
-import { test, expect } from '../../sap-plugin';
+import { test, expect, fillSecret } from '../../sap-plugin';
 import { requireEnv } from '../../helpers/env';
 
 test('open requisition (Ariba)', async ({ page }) => {
 	requireEnv('ARIBA_URL', 'ARIBA_USER', 'ARIBA_PASS');
 	await page.goto(process.env.ARIBA_URL!);
 	await page.getByLabel('User Name').fill(process.env.ARIBA_USER!);
-	await page.getByLabel('Password').fill(process.env.ARIBA_PASS!);
+	await fillSecret(page.getByLabel('Password'), process.env.ARIBA_PASS!);
 	await page.getByRole('button', { name: 'Login' }).click();
 	await page.getByRole('link', { name: 'Create' }).click();
 	await page.getByRole('link', { name: 'Requisition' }).click();

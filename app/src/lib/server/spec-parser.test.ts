@@ -194,16 +194,51 @@ test('b', async ({ page }) => { await expect(page.locateSID('wnd[0]')).toBeVisib
 	test.each([
 		[
 			'an env value held in a variable',
-			`const pw = process.env.SAP_PASSWORD!;\n\tawait page.getByLabel('Password').fill(pw);`
+			`const pw = process.env.SAP_PASSWORD!;\n\tawait fillSecret(page.getByLabel('Password'), pw);`
 		],
-		['a property of an env object', `await page.getByLabel('Password').fill(env.SAP_PASSWORD);`],
-		['process.env directly', `await page.getByLabel('Kennwort').fill(process.env.SAP_PASSWORD!);`],
+		[
+			'a property of an env object',
+			`await fillSecret(page.getByLabel('Password'), env.SAP_PASSWORD);`
+		],
+		[
+			'process.env directly',
+			`await fillSecret(page.getByLabel('Kennwort'), process.env.SAP_PASSWORD!);`
+		],
 		[
 			'SAPLogin with env values',
 			`await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!);`
 		]
-	])('no-literal-secret accepts %s', (_name, body) => {
+	])('the password rules accept %s', (_name, body) => {
 		expect(rulesOf('_demo/s.spec.ts', `${body}\n\tawait expect(page).toHaveURL('/');`)).toEqual([]);
+	});
+
+	test.each([
+		[
+			'an env value held in a variable',
+			`const pw = process.env.SAP_PASSWORD!;\n\tawait page.getByLabel('Password').fill(pw);`
+		],
+		['a property of an env object', `await page.getByLabel('Password').fill(env.SAP_PASSWORD);`],
+		['process.env directly', `await page.getByLabel('Kennwort').fill(process.env.SAP_PASSWORD!);`],
+		['a password env value in any field', `await page.locator('#p').fill(process.env.ARIBA_PASS!);`]
+	])('no-secret-fill flags %s', (_name, body) => {
+		expect(rulesOf('_demo/s.spec.ts', `${body}\n\tawait expect(page).toHaveURL('/');`)).toEqual([
+			'no-secret-fill'
+		]);
+	});
+
+	test('fillSecret is a step that enters the password, and a literal in it is flagged', () => {
+		const spec = parseSpec(
+			'_demo/s.spec.ts',
+			`test('t', async ({ page }) => {\n\tawait fillSecret(page.getByLabel('Password'), process.env.SAP_PASSWORD!);\n\tawait fillSecret(page.getByLabel('Password'), 'secret');\n\tawait expect(page).toHaveURL('/');\n});`
+		);
+		const parsed = must(spec.tests[0]);
+		expect(must(parsed.steps[0])).toMatchObject({
+			kind: 'action',
+			action: 'fillSecret',
+			locator: { kind: 'label' },
+			value: '$SAP_PASSWORD'
+		});
+		expect(parsed.issues.map((i) => [i.rule, i.line])).toEqual([['no-literal-secret', 3]]);
 	});
 
 	test.each([
