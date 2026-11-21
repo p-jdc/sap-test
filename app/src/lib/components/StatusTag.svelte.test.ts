@@ -8,23 +8,23 @@ import { render } from 'vitest-browser-svelte';
 import StatusTag from './StatusTag.svelte';
 
 test.each([
-	['passed', 'Positive'],
-	['failed', 'Negative'],
-	['timedOut', 'Negative'],
-	['interrupted', 'Critical'],
-	['running', 'Information'],
-	['skipped', 'Neutral']
-])('%s renders as a %s tag', async (status, design) => {
+	['passed', 'Positive', 'Passed'],
+	['failed', 'Negative', 'Failed'],
+	['timedOut', 'Negative', 'Took too long'],
+	['interrupted', 'Critical', 'Stopped'],
+	['running', 'Information', 'Running'],
+	['skipped', 'Neutral', 'Skipped']
+])('%s renders as a %s tag reading "%s"', async (status, design, label) => {
 	const { container } = await render(StatusTag, { status });
 	const tag = container.querySelector('ui5-tag');
 	expect(tag?.getAttribute('design')).toBe(design);
-	expect(tag?.textContent.trim()).toBe(status);
+	expect(tag?.textContent.trim()).toBe(label);
 });
 
-test('a missing status reads "not run" without a state icon', async () => {
+test('a missing status reads "Not run yet" without a state icon', async () => {
 	const { container } = await render(StatusTag, { status: undefined });
 	const tag = container.querySelector('ui5-tag');
-	expect(tag?.textContent.trim()).toBe('not run');
+	expect(tag?.textContent.trim()).toBe('Not run yet');
 	expect(tag?.hasAttribute('hide-state-icon')).toBe(true);
 });
 

@@ -1,33 +1,45 @@
 <script lang="ts">
 	import { errorMessage } from '#lib/client/run-actions.js';
+	import { view } from '#lib/client/view.svelte.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { removeSetting, saveSetting } from '#lib/remote/settings.remote.js';
 	import type { SettingName, SettingSource } from '#lib/shared/types.js';
 
 	type Field = { name: SettingName; label: string; hint?: string; secret?: boolean };
+	/** `technical` groups only show with "Technical details" switched on. */
+	type Group = { title: string; subtitle: string; technical?: boolean; fields: Field[] };
 
-	const GROUPS: { title: string; subtitle: string; fields: Field[] }[] = [
+	const GROUPS: Group[] = [
 		{
-			title: 'SAP system',
-			subtitle: 'Fiori / UI5 and WebGUI',
+			title: 'SAP test system',
+			subtitle: 'For Fiori and WebGUI tests',
 			fields: [
-				{ name: 'SAP_URL', label: 'URL', hint: 'https://your-test-system.example.com' },
-				{ name: 'SAP_USERNAME', label: 'User', hint: 'Test user without MFA' },
+				{
+					name: 'SAP_URL',
+					label: 'Web address',
+					hint: 'https://your-test-system.example.com'
+				},
+				{
+					name: 'SAP_USERNAME',
+					label: 'User name',
+					hint: 'A test user that logs in with just a password'
+				},
 				{ name: 'SAP_PASSWORD', label: 'Password', secret: true }
 			]
 		},
 		{
 			title: 'SAP Ariba',
-			subtitle: 'Optional',
+			subtitle: 'Optional: only for Ariba tests',
 			fields: [
-				{ name: 'ARIBA_URL', label: 'URL' },
-				{ name: 'ARIBA_USER', label: 'User' },
+				{ name: 'ARIBA_URL', label: 'Web address' },
+				{ name: 'ARIBA_USER', label: 'User name' },
 				{ name: 'ARIBA_PASS', label: 'Password', secret: true }
 			]
 		},
 		{
 			title: 'Browser',
 			subtitle: 'Optional',
+			technical: true,
 			fields: [
 				{
 					name: 'CHROMIUM_PATH',
@@ -43,6 +55,9 @@
 		file: 'From .env',
 		process: 'From environment'
 	};
+	/** Without technical details, where a value comes from matters only if it can be removed here. */
+	const sourceLabel = (source: SettingSource) =>
+		view.technical ? SOURCE_LABEL[source] : source === 'keychain' ? 'Saved' : 'Set by your admin';
 
 	const env = getEnvStatus();
 	const drafts = $state<Partial<Record<SettingName, string>>>({});
@@ -60,7 +75,9 @@
 			const { cleared } = await action();
 			drafts[name] = '';
 			if (cleared.length > 0) {
-				notice = `The URL now points at another host, so the saved ${cleared.join(' and ')} were removed. Enter the credentials for the new system.`;
+				notice = view.technical
+					? `The URL now points at another host, so the saved ${cleared.join(' and ')} were removed. Enter the credentials for the new system.`
+					: 'The address now points at a different system, so the saved user name and password were removed. Enter them again for the new system.';
 			}
 		} catch (e) {
 			error = errorMessage(e);
@@ -79,16 +96,28 @@
 </div>
 
 <ui5-message-strip design="Information" hide-close-button>
-	Values saved here go into this computer's credential store (Keychain on macOS, Credential Manager
-	on Windows, the keyring on Linux), not into a file in the project. They are used for runs and
-	recordings started from this app and are never shown again. A value saved here wins over
-	<span class="mono">sap-tests/.env</span>.
+	{#if view.technical}
+		Values saved here go into this computer's credential store (Keychain on macOS, Credential
+		Manager on Windows, the keyring on Linux), not into a file in the project. They are used for
+		runs and recordings started from this app and are never shown again. A value saved here wins
+		over
+		<span class="mono">sap-tests/.env</span>.
+	{:else}
+		Tell the app where your SAP test system is and which user it should log in with. Everything is
+		kept in this computer's password store and is never shown again, not even here. Use a test
+		system and a test user, never your personal login.
+	{/if}
 </ui5-message-strip>
 
 {#if env.current && !env.current.keychain}
 	<ui5-message-strip design="Critical" hide-close-button>
-		No credential store is available on this machine, so nothing can be saved here. Put the values
-		in <span class="mono">sap-tests/.env</span> instead.
+		{#if view.technical}
+			No credential store is available on this machine, so nothing can be saved here. Put the values
+			in <span class="mono">sap-tests/.env</span> instead.
+		{:else}
+			This computer has no password store, so nothing can be saved here. Ask the person who
+			installed this app to enter the connection for you.
+		{/if}
 	</ui5-message-strip>
 {/if}
 {#if error}
@@ -101,7 +130,7 @@
 {#if env.current}
 	{@const locked = !env.current.keychain}
 	<div class="groups">
-		{#each GROUPS as group (group.title)}
+		{#each GROUPS.filter((g) => view.technical || !g.technical) as group (group.title)}
 			<ui5-card>
 				<ui5-card-header slot="header" title-text={group.title} subtitle-text={group.subtitle}
 				></ui5-card-header>
@@ -112,13 +141,13 @@
 						<div class="field" data-setting={field.name}>
 							<div class="what">
 								<ui5-label for={field.name}>{field.label}</ui5-label>
-								<span class="muted mono">{field.name}</span>
+								{#if view.technical}<span class="muted mono">{field.name}</span>{/if}
 							</div>
 							<ui5-input
 								id={field.name}
 								type={field.secret ? 'Password' : 'Text'}
 								value={draft}
-								placeholder={source ? 'Enter a new value to replace it' : (field.hint ?? '')}
+								placeholder={source ? 'Already set. Type here to replace it' : (field.hint ?? '')}
 								disabled={locked || undefined}
 								oninput={(e: Event) => (drafts[field.name] = (e.target as HTMLInputElement).value)}
 								onkeydown={(e: KeyboardEvent) => {
@@ -126,7 +155,7 @@
 								}}
 							></ui5-input>
 							<ui5-tag design={source ? 'Positive' : 'Neutral'} hide-state-icon>
-								{source ? SOURCE_LABEL[source] : 'Not set'}
+								{source ? sourceLabel(source) : 'Not set'}
 							</ui5-tag>
 							<div class="row">
 								<ui5-button

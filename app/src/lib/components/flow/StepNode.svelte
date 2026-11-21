@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import { view } from '#lib/client/view.svelte.js';
 	import { duration, LOCATOR_LABEL, locatorColor } from '#lib/shared/format.js';
+	import { describeStep } from '#lib/shared/step-text.js';
 	import type { StepNodeData } from './types';
 
 	let { data, selected }: NodeProps & { data: StepNodeData } = $props();
@@ -30,8 +32,12 @@
 <div class="node {status} {step.kind}" class:selected class:hook={step.hook}>
 	<div class="top">
 		<ui5-icon name={ICON[step.kind] ?? 'document'} class="kind"></ui5-icon>
-		<span class="action">{step.kind === 'group' ? step.value : step.action}</span>
-		{#if step.locator}
+		{#if view.technical}
+			<span class="action">{step.kind === 'group' ? step.value : step.action}</span>
+		{:else}
+			<span class="action plain" title={describeStep(step)}>{describeStep(step)}</span>
+		{/if}
+		{#if step.locator && view.technical}
 			<ui5-tag color-scheme={locatorColor(step.locator.kind)} hide-state-icon>
 				{LOCATOR_LABEL[step.locator.kind]}
 			</ui5-tag>
@@ -44,16 +50,28 @@
 			></ui5-icon>
 		{/if}
 	</div>
-	{#if step.locator}
-		<div class="target mono" title={step.locator.display}>{step.locator.display}</div>
-	{/if}
-	{#if step.value !== undefined && step.kind !== 'group'}
-		<div class="value" title={step.value}>“{step.value}”</div>
+	{#if view.technical}
+		{#if step.locator}
+			<div class="target mono" title={step.locator.display}>{step.locator.display}</div>
+		{/if}
+		{#if step.value !== undefined && step.kind !== 'group'}
+			<div class="value" title={step.value}>“{step.value}”</div>
+		{/if}
 	{/if}
 	<div class="meta">
-		<span>{step.hook ? 'beforeEach · ' : ''}line {step.line}</span>
+		{#if view.technical}
+			<span>{step.hook ? 'beforeEach · ' : ''}line {step.line}</span>
+		{:else}
+			<span>{step.hook ? 'Before every test' : ''}</span>
+		{/if}
 		{#if data.overlay && data.overlay.status !== 'pending' && data.overlay.status !== 'skipped'}
-			<span>{status === 'running' ? 'running…' : duration(data.overlay.duration)}</span>
+			<span>
+				{status === 'running'
+					? 'running…'
+					: view.technical
+						? duration(data.overlay.duration)
+						: `${status === 'failed' ? 'Failed' : 'Done'} · ${duration(data.overlay.duration)}`}
+			</span>
 		{:else if data.overlay?.status === 'skipped'}
 			<span>not reached</span>
 		{/if}
@@ -118,7 +136,20 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* The sentence may take two lines; the technical node keeps one line per fact. */
+	.action.plain {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		line-height: 1.3;
+	}
+	.top:has(.plain) {
+		align-items: flex-start;
+	}
 	.kind {
+		flex: none;
 		width: 1rem;
 		height: 1rem;
 		color: var(--sapContent_IconColor);

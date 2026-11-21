@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { settingsHref, testsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
+	import { view } from '#lib/client/view.svelte.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { getRecorder, startRecorder, stopRecorder } from '#lib/remote/recorder.remote.js';
 
@@ -38,20 +39,33 @@
 </script>
 
 <div class="page-head">
-	<ui5-title level="H2">Record a flow</ui5-title>
+	<ui5-title level="H2">Record a test</ui5-title>
 </div>
 
 <ui5-message-strip design="Information" hide-close-button>
-	Starts <span class="mono">npx playwright codegen</span> from Playwright-SAP (guide §4.4). The
-	browser and the recorder window open on the machine that runs this app, so record from a local
-	install. Fiori and WebGUI log in automatically with the credentials from
-	<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
-	log in by hand.
+	{#if view.technical}
+		Starts <span class="mono">npx playwright codegen</span> from Playwright-SAP (guide §4.4). The
+		browser and the recorder window open on the machine that runs this app, so record from a local
+		install. Fiori and WebGUI log in automatically with the credentials from
+		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
+		log in by hand.
+	{:else}
+		Show the app once what to do, and it can repeat it as a test. How it works:
+		<ol class="how">
+			<li>Pick the SAP application and give the test a name.</li>
+			<li>
+				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
+				(in Ariba you log in yourself).
+			</li>
+			<li>Do the task as you normally would. Every click and entry is written down.</li>
+			<li>Close the browser window when you are done. The test is saved.</li>
+		</ol>
+	{/if}
 </ui5-message-strip>
 
 <ui5-card class="form-card">
 	<div class="form">
-		<ui5-label for="surface" show-colon>Surface</ui5-label>
+		<ui5-label for="surface" show-colon>SAP application</ui5-label>
 		<ui5-segmented-button
 			id="surface"
 			onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) => {
@@ -70,7 +84,7 @@
 			</ui5-segmented-button-item>
 		</ui5-segmented-button>
 
-		<ui5-label for="name" required show-colon>Flow name</ui5-label>
+		<ui5-label for="name" required show-colon>Name of the test</ui5-label>
 		<ui5-input
 			id="name"
 			value={name}
@@ -78,31 +92,35 @@
 			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
-		<ui5-label for="url" show-colon>Start URL</ui5-label>
+		<ui5-label for="url" show-colon>Start page</ui5-label>
 		<ui5-input
 			id="url"
 			value={url}
-			placeholder={surface === 'ariba'
-				? 'defaults to ARIBA_URL'
-				: 'defaults to SAP_URL (same host only)'}
+			placeholder={view.technical
+				? surface === 'ariba'
+					? 'defaults to ARIBA_URL'
+					: 'defaults to SAP_URL (same host only)'
+				: 'Optional: leave empty to start on the usual start page'}
 			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
-		<ui5-label for="storage" show-colon>Save session</ui5-label>
-		<div class="row">
-			<ui5-switch
-				id="storage"
-				checked={saveStorage || undefined}
-				onchange={(e: Event) => (saveStorage = (e.target as HTMLInputElement).checked)}
-			></ui5-switch>
-			<span class="muted">Writes .auth/{surface}.json for storageState reuse (guide §7.4)</span>
-		</div>
+		{#if view.technical}
+			<ui5-label for="storage" show-colon>Save session</ui5-label>
+			<div class="row">
+				<ui5-switch
+					id="storage"
+					checked={saveStorage || undefined}
+					onchange={(e: Event) => (saveStorage = (e.target as HTMLInputElement).checked)}
+				></ui5-switch>
+				<span class="muted">Writes .auth/{surface}.json for storageState reuse (guide §7.4)</span>
+			</div>
+		{/if}
 
 		<span></span>
 		<div class="row">
 			{#if recording}
 				<ui5-button icon="stop" design="Negative" onclick={() => stopRecorder()}>
-					Stop recorder
+					Stop recording
 				</ui5-button>
 			{:else}
 				<ui5-button
@@ -116,10 +134,11 @@
 			{/if}
 			{#if !ready && env.current}
 				<span class="muted">
-					URL or credentials for this surface are missing. <a href={settingsHref()}>
-						Open Settings
-					</a>
+					The connection to this SAP application is not set up yet.
+					<a href={settingsHref()}>Open Settings</a>
 				</span>
+			{:else if !name.trim() && !recording}
+				<span class="muted">Give the test a name first.</span>
 			{/if}
 		</div>
 	</div>
@@ -130,18 +149,34 @@
 {/if}
 
 {#if rec.current && rec.current.status !== 'idle'}
-	<ui5-panel
-		header-text="Recorder: {rec.current.status}{rec.current.file ? ` · ${rec.current.file}` : ''}"
-		fixed
-	>
-		{#if rec.current.status === 'saved' && rec.current.file}
-			<ui5-message-strip design="Positive" hide-close-button>
-				Saved. Next: clean it up with the AI assistant (guide §4.7), then
-				<a href={testsHref()}>open it in Tests & Flows</a> to check the rules and run it.
-			</ui5-message-strip>
-		{/if}
-		<pre class="log">{rec.current.log.join('\n')}</pre>
-	</ui5-panel>
+	{@const status = rec.current.status}
+	{#if status === 'recording'}
+		<ui5-message-strip design="Information" hide-close-button>
+			Recording. Do your task in the browser window that opened, then close that window to save the
+			test.
+		</ui5-message-strip>
+	{:else if status === 'saved'}
+		<ui5-message-strip design="Positive" hide-close-button>
+			Your test is saved. <a href={testsHref()}>Open it under Tests</a> to look at its steps and run
+			it.
+			{#if view.technical}Clean it up with the AI assistant first (guide §4.7).{/if}
+		</ui5-message-strip>
+	{:else}
+		<ui5-message-strip design="Negative" hide-close-button>
+			The recording was not saved. This happens when the browser is closed before anything was done;
+			otherwise the details below say what went wrong.
+		</ui5-message-strip>
+	{/if}
+	{#if view.technical || status === 'error'}
+		<ui5-panel
+			header-text="Technical log{view.technical && rec.current.file
+				? ` · ${rec.current.file}`
+				: ''}"
+			collapsed={!view.technical || undefined}
+		>
+			<pre class="log">{rec.current.log.join('\n')}</pre>
+		</ui5-panel>
+	{/if}
 {/if}
 
 <style>
@@ -158,6 +193,10 @@
 	}
 	.form ui5-input {
 		width: 100%;
+	}
+	.how {
+		margin: 0.25rem 0 0;
+		padding-left: 1.25rem;
 	}
 	.form ui5-segmented-button {
 		justify-self: start;

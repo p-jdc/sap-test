@@ -1,9 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import StatusTag from '#lib/components/StatusTag.svelte';
-	import { flowHref, runFileHref, traceHref } from '#lib/client/links.js';
+	import {
+		flowHref,
+		reportHref,
+		runFileHref,
+		runsHref,
+		settingsHref,
+		traceHref
+	} from '#lib/client/links.js';
 	import { errorMessage, runAndOpen } from '#lib/client/run-actions.js';
-	import { duration, when } from '#lib/shared/format.js';
+	import { view } from '#lib/client/view.svelte.js';
+	import { duration, scopeLabel, when } from '#lib/shared/format.js';
 	import {
 		getRun,
 		getRuns,
@@ -77,13 +85,18 @@
 </script>
 
 {#if query.error}
-	<ui5-illustrated-message name="NoSearchResults" title-text="Run not found"
-	></ui5-illustrated-message>
+	<ui5-illustrated-message name="NoSearchResults" title-text="This result no longer exists">
+		<span slot="subtitle"><a href={runsHref()}>See all results</a></span>
+	</ui5-illustrated-message>
 {:else if run}
 	<div class="page-head">
 		<div>
-			<ui5-title level="H3">Run {when(run.startedAt)}</ui5-title>
-			<div class="muted mono">{run.files.length ? run.files.join(', ') : 'all tests'}</div>
+			<ui5-title level="H3">Run from {when(run.startedAt)}</ui5-title>
+			{#if view.technical}
+				<div class="muted mono">{run.files.length ? run.files.join(', ') : 'all tests'}</div>
+			{:else}
+				<div class="muted">{scopeLabel(run.files)}</div>
+			{/if}
 		</div>
 		<StatusTag status={run.status} />
 		<span class="spacer"></span>
@@ -98,11 +111,8 @@
 				Run again
 			</ui5-button>
 			{#if run.hasReport}
-				<ui5-button
-					icon="document"
-					onclick={() => window.open(runFileHref(id, 'report/index.html'), '_blank')}
-				>
-					HTML report
+				<ui5-button icon="document" onclick={() => window.open(reportHref(id), '_blank')}>
+					Playwright report
 				</ui5-button>
 			{/if}
 		{/if}
@@ -118,7 +128,7 @@
 				<span class="muted">Progress</span>
 				<ui5-progress-indicator
 					value={run.stats.total ? (done / run.stats.total) * 100 : 0}
-					display-value="{done} / {run.stats.total}"
+					display-value="{done} of {run.stats.total} tests"
 					value-state={run.stats.failed
 						? 'Negative'
 						: run.status === 'passed'
@@ -140,7 +150,7 @@
 			<div class="card-body pad">
 				<span class="muted">Duration</span>
 				<span>
-					{duration(elapsed)}{run.exitCode !== undefined && run.exitCode !== null
+					{duration(elapsed)}{view.technical && run.exitCode !== undefined && run.exitCode !== null
 						? ` · exit ${run.exitCode}`
 						: ''}
 				</span>
@@ -156,34 +166,66 @@
 			class="test-panel"
 		>
 			<div slot="header" class="test-head">
-				<StatusTag
-					status={t.running ? 'running' : t.status}
-					label={t.running ? 'running' : undefined}
-				/>
+				<StatusTag status={t.running ? 'running' : t.status} />
 				<span class="title">{t.title}</span>
-				{#if t.expectedFailure}<span class="muted">failed as expected (test.fail)</span>{/if}
-				<span class="muted mono where">{t.file}:{t.line}</span>
+				{#if t.expectedFailure}
+					<span class="muted">
+						failed as expected{view.technical ? ' (test.fail)' : ''}
+					</span>
+				{/if}
+				{#if view.technical}<span class="muted mono where">{t.file}:{t.line}</span>{/if}
 				<span class="spacer"></span>
 				<span class="muted dur">{duration(t.duration)}</span>
 			</div>
 			<div class="test-body">
 				<div class="row">
-					<a href={flowHref(t.key, id)}>View flow</a>
-					{#if tr}<a href={tr} target="_blank" rel="noreferrer">Open trace</a>{/if}
+					<a href={flowHref(t.key, id)}>View the steps</a>
+					{#if run.hasReport && t.status}
+						<a
+							href={reportHref(id, t.testId)}
+							target="_blank"
+							rel="noreferrer"
+							title="This test case in Playwright's HTML report"
+						>
+							Playwright result
+						</a>
+					{/if}
+					{#if tr}
+						<a href={tr} target="_blank" rel="noreferrer" title="Opens the Playwright trace viewer">
+							Replay step by step
+						</a>
+					{/if}
 					{#if !t.running && t.status && t.status !== 'passed' && t.status !== 'skipped'}
 						<ui5-button
 							design="Transparent"
 							icon="play"
 							onclick={() => rerun([`${t.file}:${t.line}`])}
 						>
-							Re-run test
+							Run this test again
 						</ui5-button>
 					{/if}
 				</div>
-				{#if t.error}
-					<pre class="log">{t.error.message}</pre>
+				{#if t.status === 'skipped' && !view.technical}
+					<span class="muted">
+						This test was skipped. Most often the SAP connection is not set up yet; check
+						<a href={settingsHref()}>Settings</a>.
+					</span>
 				{/if}
-				{#if b.length}
+				{#if t.error && view.technical}
+					<pre class="log">{t.error.message}</pre>
+				{:else if t.error}
+					<ui5-message-strip design="Negative" hide-close-button>
+						This test did not finish successfully. “View the steps” shows where it stopped{t
+							.attachments.length
+							? ', and the picture below shows the screen at that moment'
+							: ''}.
+					</ui5-message-strip>
+					<details>
+						<summary>Show the error message</summary>
+						<pre class="log">{t.error.message}</pre>
+					</details>
+				{/if}
+				{#if b.length && view.technical}
 					<div class="timeline" aria-label="Step timeline">
 						{#each b as bar (bar.s.stepId)}
 							<div class="tl-row">
@@ -213,7 +255,7 @@
 							{:else if a.contentType.startsWith('video/')}
 								<!-- svelte-ignore a11y_media_has_caption -->
 								<video src={runFileHref(id, a.path)} controls preload="metadata"></video>
-							{:else}
+							{:else if view.technical}
 								<a href={runFileHref(id, a.path)} download>Download {a.name}</a>
 							{/if}
 						{/each}
@@ -223,7 +265,10 @@
 		</ui5-panel>
 	{/each}
 
-	<ui5-panel header-text="Output" collapsed={run.status !== 'running' || undefined}>
+	<ui5-panel
+		header-text="Technical log"
+		collapsed={!(view.technical && run.status === 'running') || undefined}
+	>
 		<pre class="log" bind:this={logEl}>{run.log.join('\n')}</pre>
 	</ui5-panel>
 {:else}
@@ -262,6 +307,14 @@
 	}
 	.spacer {
 		flex: 1;
+	}
+	.test-body ui5-message-strip {
+		margin-bottom: 0;
+	}
+	summary {
+		cursor: pointer;
+		color: var(--sapLinkColor);
+		margin-bottom: 0.5rem;
 	}
 	.test-body {
 		display: flex;

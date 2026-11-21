@@ -33,6 +33,7 @@ import '@ui5/webcomponents/dist/Title.js';
 import '@ui5/webcomponents/dist/Toast.js';
 import '@ui5/webcomponents-fiori/dist/IllustratedMessage.js';
 import '@ui5/webcomponents-fiori/dist/ShellBar.js';
+import '@ui5/webcomponents-fiori/dist/ShellBarSpacer.js';
 import '@ui5/webcomponents-fiori/dist/SideNavigation.js';
 import '@ui5/webcomponents-fiori/dist/SideNavigationItem.js';
 

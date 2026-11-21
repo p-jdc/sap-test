@@ -21,6 +21,41 @@ const DESIGNS = new Map<string, string>([
 	['running', 'Information']
 ]);
 
+const STATUS_LABELS = new Map<string, string>([
+	['passed', 'Passed'],
+	['failed', 'Failed'],
+	['timedOut', 'Took too long'],
+	['error', 'Could not run'],
+	['interrupted', 'Stopped'],
+	['running', 'Running'],
+	['skipped', 'Skipped'],
+	['pending', 'Waiting']
+]);
+
+/** A status in words for people; a missing status means the test has never been run. */
+export function statusLabel(status: string | undefined): string {
+	return status ? (STATUS_LABELS.get(status) ?? status) : 'Not run yet';
+}
+
+/** `fiori/create-order.spec.ts` → `Create order`: a spec file's name without path and code suffixes. */
+export function specName(file: string): string {
+	const base = (file.split('/').at(-1) ?? file).replace(/\.(spec|test)\.[cm]?[jt]s$/, '');
+	const text = base.replaceAll(/[._-]+/g, ' ').trim();
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** What a run covered, in words. Its files are spec paths, optionally `:line` for one test, or folders. */
+export function scopeLabel(files: string[]): string {
+	if (files.length === 0) return 'All tests';
+	return files
+		.map((f) => {
+			const [, path = f, line] = /^(.*?)(?::(\d+))?$/.exec(f) ?? [];
+			if (!/\.[cm]?[jt]s$/.test(path)) return `${specName(path)} tests`;
+			return line ? `One test in ${specName(path)}` : specName(path);
+		})
+		.join(', ');
+}
+
 /** UI5 Tag design for a status; anything else (pending, skipped, not run) is Neutral. */
 export function statusDesign(status: string | undefined): string {
 	return DESIGNS.get(status ?? '') ?? 'Neutral';

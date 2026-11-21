@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { view } from '#lib/client/view.svelte.js';
 	import { getChecklist, toggleChecklistItem } from '#lib/remote/checklist.remote.js';
 
 	const list = getChecklist();
@@ -8,8 +9,13 @@
 
 <div class="page-head">
 	<ui5-title level="H2">Rollout checklist</ui5-title>
-	<span class="muted">Guide §12 · {doneCount} of {total} done</span>
+	<span class="muted">{view.technical ? 'Guide §12 · ' : ''}{doneCount} of {total} done</span>
 </div>
+
+<p class="muted intro">
+	The steps for introducing automated SAP testing in your team, phase by phase. Tick a step when it
+	is done; the list is saved for everyone who uses this app.
+</p>
 
 {#if list.current}
 	<div class="grid">
@@ -41,3 +47,10 @@
 {:else}
 	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
 {/if}
+
+<style>
+	.intro {
+		margin: 0 0 1rem;
+		max-width: 50rem;
+	}
+</style>

@@ -4,15 +4,16 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { setTechnical, view } from '#lib/client/view.svelte.js';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 
 	const NAV = [
-		{ href: '/', link: resolve('/'), text: 'Dashboard', icon: 'home' },
-		{ href: '/tests', link: resolve('/tests'), text: 'Tests & Flows', icon: 'process' },
-		{ href: '/runs', link: resolve('/runs'), text: 'Runs', icon: 'history' },
-		{ href: '/recorder', link: resolve('/recorder'), text: 'Recorder', icon: 'record' },
+		{ href: '/', link: resolve('/'), text: 'Home', icon: 'home' },
+		{ href: '/tests', link: resolve('/tests'), text: 'Tests', icon: 'process' },
+		{ href: '/runs', link: resolve('/runs'), text: 'Results', icon: 'history' },
+		{ href: '/recorder', link: resolve('/recorder'), text: 'Record a test', icon: 'record' },
 		{ href: '/checklist', link: resolve('/checklist'), text: 'Checklist', icon: 'checklist' },
 		{ href: '/settings', link: resolve('/settings'), text: 'Settings', icon: 'action-settings' }
 	];
@@ -40,17 +41,27 @@
 </script>
 
 <svelte:head>
-	<title>{NAV.find((n) => n.href === current)?.text ?? 'Dashboard'} · SAP Test Lab</title>
+	<title>{NAV.find((n) => n.href === current)?.text ?? 'Home'} · SAP Test Lab</title>
 </svelte:head>
 
 <div class="shell">
-	<ui5-shellbar primary-title="SAP Test Lab" secondary-title="Playwright-SAP runner & flow viewer">
+	<ui5-shellbar primary-title="SAP Test Lab" secondary-title="Run and check SAP tests">
 		<ui5-button
 			icon="menu2"
 			slot="startButton"
 			onclick={() => (collapsed = !collapsed)}
-			tooltip="Toggle navigation"
+			tooltip="Show or hide the menu"
 		></ui5-button>
+		<ui5-shellbar-spacer slot="content"></ui5-shellbar-spacer>
+		<div slot="content" class="technical" title="Also show file names, code and logs">
+			<ui5-label for="technical">Technical details</ui5-label>
+			<ui5-switch
+				id="technical"
+				accessible-name="Technical details"
+				checked={view.technical || undefined}
+				onchange={(e: Event) => setTechnical((e.target as HTMLInputElement).checked)}
+			></ui5-switch>
+		</div>
 	</ui5-shellbar>
 	<div class="body">
 		<ui5-side-navigation {collapsed} onselection-change={onSelect}>
@@ -68,3 +79,15 @@
 		</main>
 	</div>
 </div>
+
+<style>
+	.technical {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		white-space: nowrap;
+	}
+	.technical ui5-label {
+		color: var(--sapShell_TextColor);
+	}
+</style>

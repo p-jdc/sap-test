@@ -2,9 +2,10 @@
  * StepNode renders inside a real SvelteFlow (Handles need its context), so this also pins the
  * @xyflow/svelte custom-node contract: a breaking change there empties every flow without an error.
  */
-import { expect, test } from 'vitest';
+import { afterEach, expect, test } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 
+import { setTechnical } from '#lib/client/view.svelte.js';
 import type { FlowStep } from '#lib/shared/types.js';
 import Harness from './StepNodeHarness.svelte';
 
@@ -20,7 +21,22 @@ const step: FlowStep = {
 	issues: []
 };
 
-test('shows action, locator kind, value and line', async () => {
+afterEach(() => {
+	setTechnical(false);
+});
+
+test('describes the step in plain words by default, without code', async () => {
+	const { container } = await render(Harness, { data: { step } });
+	const node = () => container.querySelector('.svelte-flow__node .node');
+	await expect.poll(node).not.toBeNull();
+	const text = node()!.textContent;
+	expect(text).toContain('Enter “1000” in the “Sold-To Party” field');
+	expect(text).not.toContain('input("Sold-To Party")');
+	expect(text).not.toContain('line 12');
+});
+
+test('with technical details: shows action, locator kind, value and line', async () => {
+	setTechnical(true);
 	const { container } = await render(Harness, { data: { step } });
 	const node = () => container.querySelector('.svelte-flow__node .node');
 	await expect.poll(node).not.toBeNull();

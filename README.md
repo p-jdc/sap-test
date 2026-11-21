@@ -16,15 +16,21 @@ in `sap-tests/` with real Node.
 
 ## What the app does
 
+The app speaks plain language by default, so people who do not write tests can run them and read
+the results: steps read as sentences ("Enter “1000” in “Sold-To Party”"), a failed test shows the
+screen it stopped on, and the home page walks through the first steps. The **Technical details**
+switch in the top bar (remembered per browser) adds what test authors need: file names and lines,
+locators, source code, timelines, logs and the references to the guide. The table lists both.
+
 | Page | What it shows |
 | --- | --- |
-| Dashboard | Playwright-SAP version, which `.env` values are set (never their values), suite size per surface, last run, **pilot stability**: consecutive passes per flow against the guide's 10-in-a-row criterion (§4.8) |
-| Tests & Flows | Every spec under `sap-tests/tests`, grouped by surface (Fiori / WebGUI / Ariba / Demo), with **rule findings** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, `getByRoleUI5` with two properties, missing assertion after a save, literal passwords, unreviewed `KI-generiert` tests |
-| Flow (per test) | The test parsed into a step graph (Svelte Flow): action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Source panel with the selected step highlighted |
-| Runs | Run history; per run: live progress, per-test step timeline, error, screenshot, video, link to the Playwright trace viewer and HTML report |
-| Recorder | Starts `playwright codegen --sap-login` (§4.4) with credentials from `sap-tests/.env`, writes `tests/<surface>/<name>.spec.ts`, optionally saves the session (§7.4) |
+| Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright-SAP and Node version, which `.env` values are set (never their values) |
+| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, `getByRoleUI5` with two properties, missing assertion after a save, literal passwords, unreviewed `KI-generiert` tests |
+| Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
+| Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
+| Record a test | Starts `playwright codegen --sap-login` (§4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts`. Technical details: optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
-| Settings | SAP and Ariba URL, user and password (and an optional Chromium path), saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows where each value comes from, never the value |
+| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. Technical details: where each value comes from and an optional Chromium path |
 
 Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
@@ -39,7 +45,7 @@ brew install node@22   # keg-only, leaves the default node alone
 echo 'export PLAYWRIGHT_NODE=/opt/homebrew/opt/node@22/bin/node' >> ~/.zshrc
 ```
 
-The dashboard shows which Node runs Playwright and warns, as does each run's log, when it is not 22.
+The home page (with technical details on) shows which Node runs Playwright and warns, as does each run's log, when it is not 22.
 Other versions are untested rather than known broken: on Node 26 the tests run and report correct
 lines (see the CommonJS note below), but the fork's `playwright install chromium` was seen hanging
 while it extracts the browser.
@@ -107,7 +113,7 @@ bun run test       # Vitest, two projects (like the reference app):
                    #   client – real Chromium via @vitest/browser-playwright + vitest-browser-svelte:
                    #            StatusTag, HistoryDots, StepNode inside a real SvelteFlow
 bun run test:unit  # same, in watch mode
-bun run test:e2e   # Playwright: builds + previews the app, drives dashboard, flows, rule check
+bun run test:e2e   # Playwright: builds + previews the app, drives home page, steps, rule check
                    # and a real live run of the _demo tests (uses .data-e2e, not your run history)
 bun run lint:light # oxlint (type-aware) + oxfmt + prettier (.svelte) + knip – fast, use while iterating
 bun run lint       # lint:light + eslint

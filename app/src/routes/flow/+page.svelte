@@ -6,11 +6,20 @@
 	import StatusTag from '#lib/components/StatusTag.svelte';
 	import StepNode from '#lib/components/flow/StepNode.svelte';
 	import TerminalNode from '#lib/components/flow/TerminalNode.svelte';
-	import { flowHref, runFileHref, runHref, testsHref, traceHref } from '#lib/client/links.js';
+	import {
+		flowHref,
+		reportHref,
+		runFileHref,
+		runHref,
+		testsHref,
+		traceHref
+	} from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
+	import { view } from '#lib/client/view.svelte.js';
 	import { matchFlow } from '#lib/shared/flow-match.js';
 	import { overlaySteps } from '#lib/shared/flow-overlay.js';
-	import { duration, LOCATOR_LABEL, SURFACE_LABEL, when } from '#lib/shared/format.js';
+	import { duration, LOCATOR_LABEL, statusLabel, SURFACE_LABEL, when } from '#lib/shared/format.js';
+	import { describeStep } from '#lib/shared/step-text.js';
 	import { getSpecSource, getSpecs } from '#lib/remote/specs.remote.js';
 	import { getRun, getRuns, startTestRun, watchRunLive } from '#lib/remote/runs.remote.js';
 
@@ -75,7 +84,7 @@
 				type: 'terminal',
 				position: { x: 0, y: (steps.length + 1) * ROW },
 				data: {
-					label: end ? `Test ${end}` : 'End',
+					label: end ? `Test ${statusLabel(end).toLowerCase()}` : 'End',
 					sub: runTest?.duration === undefined ? undefined : duration(runTest.duration),
 					status: end
 				},
@@ -137,25 +146,33 @@
 </script>
 
 {#if specs.current && !test && (!runId || run || runQuery?.error)}
-	<ui5-illustrated-message name="NoSearchResults" title-text="Test not found">
-		<span slot="subtitle"><a href={testsHref()}>Back to tests</a></span>
+	<ui5-illustrated-message name="NoSearchResults" title-text="This test no longer exists">
+		<span slot="subtitle"><a href={testsHref()}>Back to all tests</a></span>
 	</ui5-illustrated-message>
 {:else if test}
 	<div class="page-head">
 		<div>
 			<ui5-title level="H3">{test.dynamic && runTest ? runTest.title : test.title}</ui5-title>
-			<div class="muted mono">{test.file}:{test.line}</div>
+			{#if view.technical}
+				<div class="muted mono">{test.file}:{test.line}</div>
+			{:else}
+				<div class="muted">
+					What this test does, step by step, from top to bottom{runTest
+						? ', and how each step went'
+						: ''}
+				</div>
+			{/if}
 		</div>
 		<ui5-tag hide-state-icon>{SURFACE_LABEL[test.surface]}</ui5-tag>
-		{#if test.dynamic}
+		{#if test.dynamic && view.technical}
 			<ui5-tag hide-state-icon design="Information">generated title</ui5-tag>
 		{/if}
 		<span class="spacer"></span>
-		<ui5-label for="run-picker" show-colon>Run</ui5-label>
+		<ui5-label for="run-picker" show-colon>Show the run from</ui5-label>
 		<ui5-select id="run-picker" onchange={pickRun} style="min-width: 260px">
 			{#each runs.current?.runs ?? [] as r (r.id)}
 				<ui5-option data-id={r.id} selected={r.id === runId || undefined}>
-					{r.id === active ? '● live · ' : ''}{when(r.startedAt)} · {r.status}
+					{r.id === active ? '● live · ' : ''}{when(r.startedAt)} · {statusLabel(r.status)}
 				</ui5-option>
 			{/each}
 		</ui5-select>
@@ -169,11 +186,12 @@
 	{/if}
 	{#if run && !runTest}
 		<ui5-message-strip design="Information" hide-close-button>
-			This test was not part of the selected run.
+			This test was not part of the selected run, so the steps show no results. Pick another run or
+			press “Run this test”.
 		</ui5-message-strip>
 	{/if}
 
-	<div class="layout">
+	<div class="layout" class:plain={!view.technical}>
 		<div class="canvas">
 			<SvelteFlow
 				bind:nodes
@@ -201,16 +219,43 @@
 						<span class="muted">
 							{duration(runTest.duration)}{runTest.retry ? ` · retry ${runTest.retry}` : ''}
 						</span>
-						{#if run}<a href={runHref(run.id)}>Open run</a>{/if}
+						{#if run}<a href={runHref(run.id)}>Open the whole run</a>{/if}
 					</div>
-					{#if runTest.error}
+					{#if runTest.error && view.technical}
 						<pre class="log">{runTest.error.message}</pre>
+					{:else if runTest.error}
+						<span>
+							The test stopped at the step marked in red. The steps after it were not reached.
+						</span>
+						{#if screenshot && run}
+							<a target="_blank" rel="noreferrer" href={runFileHref(run.id, screenshot.path)}>
+								<img
+									class="shot"
+									src={runFileHref(run.id, screenshot.path)}
+									alt="The screen when the test stopped"
+								/>
+							</a>
+						{/if}
+						<details>
+							<summary>Show the error message</summary>
+							<pre class="log">{runTest.error.message}</pre>
+						</details>
 					{/if}
-					{#if screenshot || trace}
+					{#if screenshot || trace || run?.hasReport}
 						<div class="row">
+							{#if run?.hasReport && runTest.status}
+								<a
+									target="_blank"
+									rel="noreferrer"
+									href={reportHref(run.id, runTest.testId)}
+									title="This test case in Playwright's HTML report"
+								>
+									Playwright result
+								</a>
+							{/if}
 							{#if trace && run?.hasReport}
 								<a target="_blank" rel="noreferrer" href={traceHref(run.id, trace.path)}>
-									Open trace
+									Replay step by step
 								</a>
 							{/if}
 							{#if screenshot && run}
@@ -225,10 +270,32 @@
 
 			<section>
 				{#if selected}
-					<ui5-title level="H5">
-						{selected.kind === 'group' ? selected.value : selected.action}
+					<ui5-title level="H5" wrapping-type="Normal">
+						{view.technical
+							? selected.kind === 'group'
+								? selected.value
+								: selected.action
+							: describeStep(selected)}
 					</ui5-title>
-					<dl>
+					{#if !view.technical}
+						{#if selected.hook}
+							<span class="muted">This step runs before every test in this group.</span>
+						{/if}
+						{#if selectedOverlay}
+							<div class="row">
+								<StatusTag
+									status={selectedOverlay.status}
+									label={selectedOverlay.status === 'skipped' ? 'Not reached' : undefined}
+								/>
+								{#if selectedOverlay.duration !== undefined}
+									<span class="muted">took {duration(selectedOverlay.duration)}</span>
+								{/if}
+							</div>
+						{:else}
+							<span class="muted">Run the test to see how this step goes.</span>
+						{/if}
+					{/if}
+					<dl class:hidden={!view.technical}>
 						<dt>Kind</dt>
 						<dd>{selected.kind}{selected.hook ? ' (beforeEach)' : ''}</dd>
 						{#if selected.locator}
@@ -275,30 +342,38 @@
 									: 'Information'}
 							hide-close-button
 						>
-							<strong>{issue.rule}</strong>: {issue.message}
+							{#if view.technical}
+								<strong>{issue.rule}</strong>: {issue.message}
+							{:else}
+								Note for whoever maintains this test: {issue.message}
+							{/if}
 						</ui5-message-strip>
 					{/each}
 				{:else}
 					<span class="muted">
-						Click a step to see its locator, rule findings and Playwright calls.
+						{view.technical
+							? 'Click a step to see its locator, rule findings and Playwright calls.'
+							: 'Click a step to see what it does and how it went.'}
 					</span>
 					{#if test.issues.length}
 						<ui5-message-strip design="Critical" hide-close-button>
-							{test.issues.length} rule finding{test.issues.length > 1 ? 's' : ''} in this test, marked
+							{test.issues.length} quality warning{test.issues.length > 1 ? 's' : ''} in this test, marked
 							on the steps.
 						</ui5-message-strip>
 					{/if}
 				{/if}
 			</section>
 
-			<section class="code" bind:this={codeEl}>
-				{#each sourceLines as text, i (i)}
-					{@const n = i + 1}
-					<div class="line" class:hl={n >= highlight.from && n <= highlight.to} data-line={n}>
-						<span class="no">{n}</span><span class="txt">{text || ' '}</span>
-					</div>
-				{/each}
-			</section>
+			{#if view.technical}
+				<section class="code" bind:this={codeEl}>
+					{#each sourceLines as text, i (i)}
+						{@const n = i + 1}
+						<div class="line" class:hl={n >= highlight.from && n <= highlight.to} data-line={n}>
+							<span class="no">{n}</span><span class="txt">{text || ' '}</span>
+						</div>
+					{/each}
+				</section>
+			{/if}
 		</aside>
 	</div>
 {/if}
@@ -311,6 +386,25 @@
 		gap: 1rem;
 		height: calc(100vh - 11rem);
 		min-height: 480px;
+	}
+	/* Without the source there is little next to the steps, so they get the room. */
+	.layout.plain {
+		grid-template-columns: minmax(360px, 1fr) minmax(280px, 26rem);
+	}
+	.hidden {
+		display: none;
+	}
+	.shot {
+		display: block;
+		max-width: 100%;
+		max-height: 14rem;
+		border: 1px solid var(--sapGroup_ContentBorderColor);
+		border-radius: 0.5rem;
+	}
+	summary {
+		cursor: pointer;
+		color: var(--sapLinkColor);
+		margin-bottom: 0.5rem;
 	}
 	.canvas {
 		border: 1px solid var(--sapGroup_ContentBorderColor, #d9d9d9);
@@ -386,7 +480,8 @@
 		user-select: none;
 	}
 	@media (max-width: 1000px) {
-		.layout {
+		.layout,
+		.layout.plain {
 			grid-template-columns: minmax(0, 1fr);
 			height: auto;
 		}

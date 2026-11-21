@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { runHref } from '#lib/client/links.js';
+	import { statusLabel } from '#lib/shared/format.js';
 	import type { TestStatus } from '#lib/shared/types.js';
 
 	let { history, max = 15 }: { history: { runId: string; status: TestStatus }[]; max?: number } =
@@ -12,8 +13,8 @@
 		<a
 			href={runHref(h.runId)}
 			class="dot {h.status}"
-			title="{h.runId}: {h.status}"
-			aria-label="Run {h.runId}: {h.status}"
+			title="{statusLabel(h.status)} – open this run"
+			aria-label="Run {h.runId}: {statusLabel(h.status)}"
 		></a>
 	{/each}
 </span>
