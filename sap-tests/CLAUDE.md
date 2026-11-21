@@ -6,7 +6,7 @@ Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge
 
-1. Fiori/UI5: page.getByRoleUI5(controlType, { eineEigenschaft }). Es wird nur eine Eigenschaft je Aufruf unterstützt.
+1. Fiori/UI5: page.getByRoleUI5(controlType, { eigenschaft: wert }). Mehrere Eigenschaften in einem Aufruf müssen alle zutreffen; so wenige wie nötig angeben, damit das Control eindeutig ist.
 2. WebGUI: page.getByRoleSID(role, { name, pos, sub, wnd }). Für Tabellenzellen und eigene Controls: page.locateSID('<vollständiger SID-Pfad>').
 3. Ariba und Nicht-SAP-Seiten: getByRole, getByLabel, getByText.
 

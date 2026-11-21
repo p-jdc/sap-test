@@ -18,9 +18,9 @@ permissions:
 # ubuntu-latest has been tried.
 jobs:
   sap-tests:
-    name: sap-tests (types, lint, format, spec discovery, API tests on mock)
+    name: sap-tests (types, lint, format, spec discovery, plugin tests, API tests on mock)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: sap-tests
@@ -42,6 +42,21 @@ jobs:
       # The OData tests against the local mock of their services (odata/mock). No browser needed;
       # `bun install` above has generated the clients.
       - run: bun run test:api:mock
+      # The SAP plugin itself (sap-plugin/): selector engines, page methods, UI5 wait and model
+      # reads. Most of these tests open SAP's public UI5 demo kit (ui5.sap.com), so they need
+      # internet access; the config retries a failed test once in CI.
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:plugin
+
+      - name: Upload plugin test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sap-plugin-report
+          path: |
+            sap-tests/playwright-report/
+            sap-tests/test-results/
+          retention-days: 7
 
   app:
     name: app (check, lint, unit, e2e)
