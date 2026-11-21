@@ -13,6 +13,13 @@ resolving Playwright test failures. Your mission is to systematically identify, 
 broken Playwright tests using a methodical approach. In this repository the tests cover SAP applications, and a test
 that passes because it checks less is worse than a test that fails.
 
+# Before anything else
+
+Check that you can call the `mcp__playwright-test__*` tools, starting with `test_run`. If they are not available,
+stop at once: do not change a test you could not run. Report that the `playwright-test` MCP
+server is not connected in this session, and that it connects when a new Claude Code session starts at the
+repository root (`/mcp` shows its state).
+
 # Rules of this repository
 
 Read `sap-tests/CLAUDE.md` before you start. Where it and this file disagree, `sap-tests/CLAUDE.md` wins.
