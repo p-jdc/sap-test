@@ -432,6 +432,11 @@ bun install --cwd .claude/mcp
 `.mcp.json` points at `.claude/mcp/node_modules/@sveltejs/mcp`; use the `svelte-docs` subagent for
 lookups.
 
+`.claude/settings.json` keeps Claude Code away from `sap-tests/.env`: the file tools are denied
+there, and a hook (`.claude/hooks/guard-dotenv.ts`) refuses shell commands that name a `.env` file,
+except to ask whether it exists. The hook reads the command text, so it stops `cat sap-tests/.env`
+but not a path built from a glob or a search of the whole folder; it is a tripwire, not a wall.
+
 Skills for Claude Code are in `.claude/skills/` (Svelte 5 practice and testing, checking before
 claiming something works, and how to start and drive this app for a look in the browser); the
 README there lists them and where each came from.
