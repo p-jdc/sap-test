@@ -7,8 +7,8 @@
 // the way the Playwright-SAP fork's recorder does (sidSelectorGenerator, Apache-2.0).
 // The only runtime import is ./ui5control: record.mjs bundles this file for plain Node.
 import type { BrowserContext, Frame, Locator, Page } from '@playwright/test';
-import { ui5ControlSelector } from './ui5control';
-import type { UI5ControlSelector } from './ui5control';
+import { ui5ChartPointSelector, ui5ControlSelector } from './ui5control';
+import type { UI5ChartPoint, UI5ControlSelector } from './ui5control';
 
 export type RecordedStep = {
 	seq: number;
@@ -21,6 +21,11 @@ export type RecordedStep = {
 	frames?: string[];
 	/** A part of the control that is no control itself (a calendar day): its exact text. */
 	innerText?: string;
+	/**
+	 * A data point of a chart (a bar, a point of a line, a slice): the values it stands for. The
+	 * selector is then the chart.
+	 */
+	chartPoint?: UI5ChartPoint;
 	value?: string;
 	key?: string;
 	/**
@@ -49,7 +54,13 @@ declare global {
 // text, so its helpers must live inside it.
 /* oxlint-disable unicorn/consistent-function-scoping */
 function recorderScript(binding: string) {
-	type Described = { selector?: unknown; sid?: string; innerText?: string; problem?: string };
+	type Described = {
+		selector?: unknown;
+		sid?: string;
+		innerText?: string;
+		chartPoint?: Record<string, string>;
+		problem?: string;
+	};
 	type RecordReplay = {
 		findControlSelectorByDOMElement(options: { domElement: Element }): Promise<unknown>;
 	};
@@ -163,6 +174,26 @@ function recorderScript(binding: string) {
 		const hits = x >= used.left && x <= used.right && y >= used.top && y <= used.bottom;
 		return hits ? undefined : 'the selector finds another element than the one used';
 	};
+	// A chart (sap.viz) draws its bars, points and slices as SVG shapes. D3 keeps the record a shape
+	// stands for on its element: the dimensions, the measure's value, and with several measures
+	// which one (`measureNames`). The texts say which data point it is; the numbers are the
+	// measured values, which change with the data, and row numbers, which are positions.
+	const chartShapes = (chart: Element) => [...chart.querySelectorAll('.v-datapoint')];
+	const chartPointOf = (shape: Element): Record<string, string> | undefined => {
+		const record: unknown = Reflect.get(shape, '__data__');
+		if (typeof record !== 'object' || record === null) return undefined;
+		const texts = Object.entries(record).filter(
+			(entry): entry is [string, string] =>
+				typeof entry[1] === 'string' && !entry[0].startsWith('_')
+		);
+		return texts.length ? Object.fromEntries(texts) : undefined;
+	};
+	const sameChartPoint = (shape: Element, point: Record<string, string>) => {
+		const record: unknown = Reflect.get(shape, '__data__');
+		if (typeof record !== 'object' || record === null) return false;
+		return Object.entries(point).every(([name, value]) => Reflect.get(record, name) === value);
+	};
+
 	const describe = async (target: Element): Promise<Described> => {
 		if (!state.ready) {
 			const sid = sidFor(target);
@@ -192,6 +223,14 @@ function recorderScript(binding: string) {
 			const unknown = { problem: 'UI5 could not describe this element' };
 			if (!root || !around) return direct ?? unknown;
 
+			// A data point of a chart, by the values it stands for.
+			const shape = target.closest('.v-datapoint');
+			const chartPoint = shape && root.contains(shape) ? chartPointOf(shape) : undefined;
+			if (shape && chartPoint) {
+				const chart = { ...around, interaction: 'root' };
+				const same = chartShapes(root).filter((other) => sameChartPoint(other, chartPoint));
+				if (same.length === 1 && !check(chart, root)) return { selector: chart, chartPoint };
+			}
 			// 1. The part by its ID inside the control ("<control>-next"), UI5's own way.
 			const prefix = `${root.id}-`;
 			let part: Element | null = target;
@@ -398,6 +437,7 @@ export function stepLocator(page: Page, step: RecordedStep): Locator | undefined
 				.reduce((frame, next) => frame.frameLocator(next), page.frameLocator(frames[0]))
 				.locator(selector)
 		: page.locator(selector);
+	if (step.chartPoint) return found.locator(ui5ChartPointSelector(step.chartPoint));
 	return step.innerText ? found.getByText(step.innerText, { exact: true }) : found;
 }
 
@@ -432,6 +472,8 @@ function locatorCode(step: RecordedStep): string | undefined {
 			? `page${frames}.locator(locateSIDSelector(${quote(step.sid)}))`
 			: `page.locateSID(${quote(step.sid)})`;
 	if (!found) return undefined;
+	if (step.chartPoint)
+		return `${found}.locator(ui5ChartPointSelector(${literal(step.chartPoint)}))`;
 	return step.innerText ? `${found}.getByText(${quote(step.innerText)}, { exact: true })` : found;
 }
 
@@ -472,13 +514,13 @@ export function renderSpec(
 		: `await page.goto(${address}${options.urlFromEnv ? '!' : ''});`;
 	// fill() focuses the field itself: the click a person makes to get into it adds nothing.
 	const target = (step: RecordedStep) =>
-		JSON.stringify([step.selector, step.sid, step.frames, step.innerText]);
+		JSON.stringify([step.selector, step.sid, step.frames, step.innerText, step.chartPoint]);
 	const kept = steps.filter((step, index) => {
 		const next = steps[index + 1];
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
 	const body = [start, ...kept.flatMap(stepLines)].join('\n');
-	const names = ['test', 'ui5ControlSelector', 'locateSIDSelector'].filter(
+	const names = ['test', 'ui5ControlSelector', 'ui5ChartPointSelector', 'locateSIDSelector'].filter(
 		(name) => name === 'test' || body.includes(`${name}(`)
 	);
 	return [

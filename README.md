@@ -23,7 +23,9 @@ unchanged under Apache-2.0 and registered as custom selector engines. Specs impo
 Fiori / UI5 flows are recorded with the plugin's own recorder (`sap-tests/sap-plugin/record.mjs`),
 which also runs on stock Playwright. It asks UI5 itself (`sap.ui.test.RecordReplay`) to describe each
 control and writes `page.locateUI5Control({...})`, a locator that can name a row by the record it
-shows instead of by its position.
+shows instead of by its position. A bar, point or slice of a chart (`sap.viz`) is recorded by the
+values it stands for: `.locator(ui5ChartPointSelector({ 'Item Category': 'Pop', measureNames: 'Revenue' }))`
+on the chart's locator.
 
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the

@@ -308,6 +308,42 @@ test('inside an iframe: a UI5 app is recorded and replays', async ({ browser }, 
 	});
 });
 
+// A chart draws its bars as SVG shapes: no controls, no text. The recorder names a bar by the
+// values it stands for, read from the record the chart library keeps on the shape.
+const CHART = 'https://ui5.sap.com/test-resources/sap/viz/demokit/chartdemo/index.html';
+const selectedInChart = (page: Page) =>
+	page.evaluate(() =>
+		[...document.querySelectorAll('.v-datapoint-selected')].map((shape) => {
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- D3's record on the shape
+			const values = Reflect.get(shape, '__data__') as Record<string, unknown>;
+			return `${String(values['Item Category'])} / ${String(values.measureNames)}`;
+		})
+	);
+
+test('a bar in a chart is recorded by the values it stands for and replays', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, { url: CHART }, async (page) => {
+		await ui5Started(page);
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		// The first bar: profit for action movies.
+		await clickLikeAPerson(page, page.locator('.v-datapoint').first());
+		expect(await selectedInChart(page)).toEqual(['Action Movies / Profit']);
+	});
+
+	expect(needingALook(steps)).toEqual([]);
+	expect(steps.map((step) => step.chartPoint)).toEqual([
+		{ measureNames: 'Profit', 'Item Category': 'Action Movies' }
+	]);
+	expect(renderSpec(CHART, steps, '../../sap-plugin')).toContain(
+		`.locator(ui5ChartPointSelector({ measureNames: 'Profit', 'Item Category': 'Action Movies' })).click();`
+	);
+
+	await replay(browser, { url: CHART }, steps, async (page) => {
+		await expect.poll(() => selectedInChart(page)).toEqual(['Action Movies / Profit']);
+	});
+});
+
 const freePort = () =>
 	new Promise<number>((done) => {
 		const server = createServer().listen(0, '127.0.0.1', () => {

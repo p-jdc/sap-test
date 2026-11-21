@@ -182,6 +182,7 @@ function flatten(expr: ts.Expression): { root: ts.Expression; segments: Segment[
 /** sap-plugin functions that build the selector string for `locator()`, as recorded inside iframes. */
 const SELECTOR_BUILDERS: Record<string, LocatorKind> = {
 	ui5ControlSelector: 'ui5',
+	ui5ChartPointSelector: 'ui5',
 	locateSIDSelector: 'sid-path'
 };
 

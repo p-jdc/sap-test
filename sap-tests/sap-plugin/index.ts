@@ -12,7 +12,13 @@ import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
 import { sapLogin } from './login';
 import { fillSecret } from './secret';
 import { sessionFile } from './session';
-import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
+import {
+	UI5_CHART_POINT_ENGINE,
+	UI5_CONTROL_ENGINE,
+	ui5ChartPointEngine,
+	ui5ControlEngine,
+	ui5ControlSelector
+} from './ui5control';
 import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
@@ -138,6 +144,7 @@ export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
 			for (const name of ENGINE_NAMES)
 				await selectors.register(name, { content: engineSource(name) });
 			await selectors.register(UI5_CONTROL_ENGINE, ui5ControlEngine);
+			await selectors.register(UI5_CHART_POINT_ENGINE, ui5ChartPointEngine);
 			await use();
 		},
 		{ scope: 'worker', auto: true }
@@ -168,5 +175,5 @@ export {
 } from './systems';
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';
-export type { UI5ControlSelector } from './ui5control';
-export { ui5ControlSelector } from './ui5control';
+export type { UI5ChartPoint, UI5ControlSelector } from './ui5control';
+export { ui5ChartPointSelector, ui5ControlSelector } from './ui5control';
