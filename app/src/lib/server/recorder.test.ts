@@ -46,6 +46,17 @@ describe('startRecording refuses', () => {
 		expect(existsSync(join(dir, 'tests'))).toBe(false);
 	});
 
+	test('a start URL over http, which would send the password unencrypted', async () => {
+		const { recorder } = await recorderWith(
+			`SAP_URL=http://sap.example.com/fiori\nSAP_USERNAME=U\nSAP_PASSWORD=P\n`
+		);
+		const fiori = await recorder.startRecording({ surface: 'fiori', name: 'x' });
+		expect(JSON.stringify(fiori)).toContain('must start with https://');
+		const webgui = await recorder.startRecording({ surface: 'webgui', name: 'x' });
+		expect(JSON.stringify(webgui)).toContain('must start with https://');
+		expect(recorder.recorderState().status).toBe('idle');
+	});
+
 	test('a name without letters or digits', async () => {
 		const { recorder } = await recorderWith(SAP);
 		expect(await recorder.startRecording({ surface: 'fiori', name: ' ../ ' })).toEqual({
