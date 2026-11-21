@@ -12,7 +12,7 @@ Rules for SAP tests are in sap-tests/CLAUDE.md. This file covers how changes are
 ## Before a pull request
 
 - Run `/gate` on the committed branch before opening a pull request, and put its final line (`GATE: PASS`, `PASS-WITH-FIXES` or `FAIL`) with any findings left open into the description under `## Gate`. It runs `bun run pregate` and then a review of the branch against main.
-- A change to documentation only needs `bun run pregate` alone.
+- A change to documentation only needs `bun run pregate` alone. Files that instruct agents (`CLAUDE.md` files and everything under `.claude/`) are not documentation in this sense: they get the gate.
 - The verdict belongs to the commit it ran on. After further commits, run `bun run pregate` again; run `/gate` again when they change more than the listed findings.
 - If the user asks for a pull request without the gate, say that it has not run and write `Gate: not run` in the description. Never write a verdict that was not produced.
 

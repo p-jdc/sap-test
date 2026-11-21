@@ -28,12 +28,16 @@ git -C "$ROOT" diff --stat "$BASE" HEAD
 - **Uncommitted changes: stop** with "the gate needs a clean tree; commit first". The verdict is
   about a commit.
 - **Empty diff: stop** with "nothing to review".
-- **Only documentation changed** (every changed file is `*.md`, or under `.claude/skills/`): run
-  step 2, skip the review, and end with `GATE: PASS (checks only, documentation change)`.
-- If the branch changes the gate itself (`.claude/commands/gate.md`, `.claude/agents/gate-*.md`,
+- **The branch changes the gate itself** (`.claude/commands/gate.md`, `.claude/agents/gate-*.md`,
   `scripts/pregate.ts`, the `pregate` script in `package.json`, a lint or type configuration, or
-  `.github/workflows/`), go on, but put `GATE TOOLING CHANGED: <files>` above the verdict. A branch
-  cannot be vouched for by checks it rewrote; a person has to read those files.
+  `.github/workflows/`): go on with the full gate, and put `GATE TOOLING CHANGED: <files>` above
+  the verdict, whatever the verdict is. A branch cannot be vouched for by checks it rewrote; a
+  person has to read those files. This rule comes before the next one.
+- **Only documentation changed:** run step 2, skip the review, and end with
+  `GATE: PASS (checks only, documentation change)`. Documentation means `*.md` files that people
+  read. Files that instruct agents are reviewed like code and never count: `CLAUDE.md`,
+  `sap-tests/CLAUDE.md`, and everything under `.claude/agents/`, `.claude/commands/` and
+  `.claude/skills/`.
 
 ## 2. Mechanical checks
 
