@@ -49,11 +49,10 @@ function parseRegistration(context: string | null | undefined): Registration | n
 		return null;
 	}
 	if (typeof value !== 'object' || value === null) return null;
-	const field = (key: string): unknown => Reflect.get(value, key);
-	const invite = field('invite');
-	const setup = field('setup');
-	const recover = field('recover');
-	const name = field('name');
+	const invite: unknown = 'invite' in value ? value.invite : null;
+	const setup: unknown = 'setup' in value ? value.setup : null;
+	const recover: unknown = 'recover' in value ? value.recover : null;
+	const name: unknown = 'name' in value ? value.name : null;
 	if (typeof invite === 'string' && invite) return { invite };
 	if (typeof name !== 'string') return null;
 	if (typeof setup === 'string' && setup) return { setup, name };
@@ -144,9 +143,9 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 			before: createAuthMiddleware((ctx) => {
 				if (ctx.path !== '/admin/set-role') return Promise.resolve();
 				const body: unknown = ctx.body;
-				const userId: unknown =
-					typeof body === 'object' && body ? Reflect.get(body, 'userId') : null;
-				const role: unknown = typeof body === 'object' && body ? Reflect.get(body, 'role') : null;
+				const fields = typeof body === 'object' && body ? body : {};
+				const userId: unknown = 'userId' in fields ? fields.userId : null;
+				const role: unknown = 'role' in fields ? fields.role : null;
 				const target = store.people().find((p) => p.id === userId);
 				if (target?.role === 'admin' && role !== 'admin' && store.adminCount() <= 1)
 					return Promise.reject(
@@ -264,6 +263,7 @@ function openRecovery(store: Store, base: string) {
 		return;
 	}
 	console.log(
+		// oxlint-disable-next-line secure-coding/no-sensitive-data-exposure -- the one-time recovery link is meant for whoever starts the app; it ends with its first use or after an hour
 		`Recovery is on. Open ${base}/signin?recover=${token} on this app before ${expiresAt.toISOString()} to register a new admin. It works once; unset TEST_APP_RECOVERY afterwards.`
 	);
 	store.record(null, 'Recovery link opened', `valid until ${expiresAt.toISOString()}`);
@@ -284,6 +284,7 @@ export function signIn() {
 		if (store.userCount() === 0) {
 			setup.token = fixedToken('TEST_APP_SETUP_TOKEN') ?? randomBytes(24).toString('base64url');
 			console.log(
+				// oxlint-disable-next-line secure-coding/no-sensitive-data-exposure -- the one-time setup link is meant for whoever starts the app; it ends with the first registration
 				`Sign-in is on and nobody is registered yet. Open ${base}/signin?setup=${setup.token} on this app to register the first admin.`
 			);
 		}

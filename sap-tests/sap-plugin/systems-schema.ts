@@ -42,6 +42,7 @@ const FOLDER = /^[\w-]+(\/[\w-]+)*$/;
 type Fail = (message: string) => never;
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value !== '';
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- this is where the file is parsed: every value read from it is checked by its user below
 const record = (value: unknown): Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 		? Object.fromEntries(Object.entries(value))

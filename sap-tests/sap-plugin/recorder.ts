@@ -83,9 +83,14 @@ function recorderScript(binding: string) {
 		findControlSelectorByDOMElement(options: { domElement: Element }): Promise<unknown>;
 	};
 	type Finder = { _findElements(selector: unknown): Element[] };
-	type Report = (step: Record<string, unknown>) => Promise<void>;
+	// A step as the page reports it: the selector is whatever UI5 answered, checked on arrival.
+	type PageStep = Omit<Partial<RecordedStep>, 'selector' | 'action'> & {
+		action: string;
+		selector?: unknown;
+	};
+	type Report = (step: PageStep) => Promise<void>;
 	type Editable = HTMLInputElement | HTMLTextAreaElement;
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the binding and UI5's loader are globals this file cannot declare: the name of the first is a parameter, and ui5.ts declares the second without the callback form
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-chained-type-assertions -- the binding and UI5's loader are globals this file cannot declare: the name of the first is a parameter, and ui5.ts declares the second without the callback form
 	const win = window as unknown as {
 		sap?: { ui?: { require?: (modules: string[], loaded: (...m: never[]) => void) => void } };
 	} & Record<string, Report>;
@@ -138,7 +143,7 @@ function recorderScript(binding: string) {
 	};
 	load();
 
-	const report = (step: Record<string, unknown>) => {
+	const report = (step: PageStep) => {
 		state.steps++;
 		showBadge();
 		return win[binding](step);
@@ -200,8 +205,11 @@ function recorderScript(binding: string) {
 	// which one (`measureNames`). The texts say which data point it is; the numbers are the
 	// measured values, which change with the data, and row numbers, which are positions.
 	const chartShapes = (chart: Element) => [...chart.querySelectorAll('.v-datapoint')];
+	// D3 keeps the record on a property of its own on the element.
+	// oxlint-disable-next-line no-underscore-dangle -- D3's name
+	const dataOf = (shape: Element): unknown => ('__data__' in shape ? shape.__data__ : undefined);
 	const chartPointOf = (shape: Element): Record<string, string> | undefined => {
-		const record: unknown = Reflect.get(shape, '__data__');
+		const record = dataOf(shape);
 		if (typeof record !== 'object' || record === null) return undefined;
 		const texts = Object.entries(record).filter(
 			(entry): entry is [string, string] =>
@@ -210,9 +218,10 @@ function recorderScript(binding: string) {
 		return texts.length ? Object.fromEntries(texts) : undefined;
 	};
 	const sameChartPoint = (shape: Element, point: Record<string, string>) => {
-		const record: unknown = Reflect.get(shape, '__data__');
+		const record = dataOf(shape);
 		if (typeof record !== 'object' || record === null) return false;
-		return Object.entries(point).every(([name, value]) => Reflect.get(record, name) === value);
+		const values = new Map<string, unknown>(Object.entries(record));
+		return Object.entries(point).every(([name, value]) => values.get(name) === value);
 	};
 
 	const describe = async (target: Element): Promise<Described> => {
@@ -232,7 +241,7 @@ function recorderScript(binding: string) {
 			const innerText = (target.textContent ?? '').trim() || undefined;
 			let root = target.closest('[data-sap-ui]');
 			if (root === target) root = target.parentElement?.closest('[data-sap-ui]') ?? null;
-			let around: Record<string, unknown> | null = null;
+			let around: UI5ControlSelector | null = null;
 			for (let level = 0; root && level < 3; level++) {
 				const selectorAround = await selectorFor(root);
 				if (selectorAround && typeof selectorAround === 'object') {

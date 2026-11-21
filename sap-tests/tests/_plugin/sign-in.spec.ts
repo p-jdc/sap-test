@@ -77,6 +77,7 @@ async function standIns(page: Page, login: 'ias' | 'ias-user-first' | 'form') {
 		const request = route.request();
 		if (request.method() !== 'POST') return route.fulfill(iasPage(login === 'ias-user-first'));
 		const ok = new URLSearchParams(request.postData() ?? '').get('j_password') === PASSWORD;
+		// oxlint-disable-next-line browser-security/no-credentials-in-query-params -- a stand-in for the redirect of a login page; "ok" is no credential
 		return route.fulfill(ok ? redirect(`${APP}/acs?token=ok`) : iasPage(false));
 	});
 }
