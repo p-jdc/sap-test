@@ -1,7 +1,8 @@
 // KI-generiert, geprüft von: <Name>
 // Covers SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo); needs internet access.
-import { test, expect, type Page } from '../../../sap-plugin';
+import { test, expect } from '../../../sap-plugin';
 import { button, iconButton, title } from '../../../helpers/fiori';
+import { openCart } from '../../../helpers/cart-demo';
 
 const URL =
 	'https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html?sap-ui-theme=sap_horizon_dark';
@@ -13,20 +14,8 @@ const TOTAL_TWO = 'Total: 2.498,00 EUR';
 const SEARCH_TERM = 'Notebook';
 const SEARCH_HIT = 'Notebook Lock';
 const SEARCH_HIT_TOTAL = 'Total: 6,90 EUR';
-const CART_ICON = 'sap-icon://cart';
 const EDIT_CART_ICON = 'sap-icon://edit';
 const DELETE_ITEM_ICON = 'sap-icon://decline';
-
-// Every view has its own cart toggle; during a page transition the old one is still visible,
-// so wait until exactly one is left before clicking it.
-async function openCart(page: Page) {
-	const cartToggle = page
-		.getByRoleUI5('ToggleButton', { icon: CART_ICON })
-		.filter({ visible: true });
-	await expect(cartToggle).toHaveCount(1);
-	await cartToggle.click();
-	await expect(title(page, 'Shopping Cart')).toBeVisible();
-}
 
 test('demo kit: browse a category, add a product twice and check quantity and total in the cart', async ({
 	page
