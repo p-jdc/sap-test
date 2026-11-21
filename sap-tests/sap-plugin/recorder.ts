@@ -50,7 +50,13 @@ export type RecordedStep = {
 const BINDING = 'sapRecorderReport';
 
 // What the page script keeps on `window`, for the script itself and for recorderReady/Idle.
-type RecorderState = { ready: boolean; busy: number; steps: number };
+type RecorderState = {
+	ready: boolean;
+	busy: number;
+	steps: number;
+	/** Reports what was typed into the field that has the focus, as leaving the field would. */
+	flush?: () => void;
+};
 declare global {
 	interface Window {
 		sapRecorderState?: RecorderState;
@@ -316,6 +322,12 @@ function recorderScript(binding: string) {
 		known.value = field.value;
 		void known.described.then((described) => report({ ...step, ...described }));
 	};
+	// Typing is reported when the field is left. A recording that ends with the cursor still in a
+	// field (Stop pressed, window closed) would lose that field, so it is reported then as well.
+	state.flush = () => {
+		if (isEditable(document.activeElement)) recordTyping(document.activeElement);
+	};
+	window.addEventListener('pagehide', state.flush);
 	window.addEventListener(
 		'focusin',
 		(event) => {
@@ -401,6 +413,20 @@ export async function installRecorder(
 	});
 	await context.addInitScript(recorderScript, BINDING);
 	return async () => {
+		// What was typed into the field the cursor is still in, and then whatever is on its way.
+		const frames = context.pages().flatMap((page) => page.frames());
+		await Promise.all(
+			frames.map(async (frame) => {
+				try {
+					await frame.evaluate(() => window.sapRecorderState?.flush?.());
+					await frame.waitForFunction(() => !window.sapRecorderState?.busy, null, {
+						timeout: 2_000
+					});
+				} catch {
+					// The page is closing or gone: its pagehide has reported what it could.
+				}
+			})
+		);
 		await Promise.all(arriving);
 		// oxlint-disable-next-line unicorn/no-array-sort -- toSorted is not in the ES2022 library this project compiles against; the copy keeps `steps` untouched
 		return [...steps].sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.seq - b.seq);

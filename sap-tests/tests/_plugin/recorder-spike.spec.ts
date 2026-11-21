@@ -296,6 +296,20 @@ test('steps on a second page come after the steps on the first', async ({ browse
 	]);
 });
 
+test('what was typed into the last field is recorded when the recording ends there', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, webgui, async (page) => {
+		await page.getByLabel('Order').click();
+		// The cursor stays in the field: nobody clicks elsewhere before pressing Stop.
+		await page.getByLabel('Order').pressSequentially('4711');
+	});
+	expect(steps.map((step) => [step.action, step.sid, step.value])).toEqual([
+		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711']
+	]);
+});
+
 const withPassword: Flow = {
 	url: 'https://webgui.test/password',
 	prepare: (context) =>

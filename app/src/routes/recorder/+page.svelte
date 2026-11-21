@@ -11,7 +11,6 @@
 	let surface = $state<'fiori' | 'webgui' | 'ariba'>('fiori');
 	let name = $state('');
 	let url = $state('');
-	let saveStorage = $state(false);
 	let noLogin = $state(false);
 	let error = $state<string | null>(null);
 
@@ -36,7 +35,7 @@
 	async function start() {
 		error = null;
 		try {
-			await startRecorder({ surface, name, url: url.trim(), saveStorage, noLogin: withoutLogin });
+			await startRecorder({ surface, name, url: url.trim(), noLogin: withoutLogin });
 		} catch (e) {
 			error = errorMessage(e);
 		}
@@ -129,18 +128,6 @@
 					: 'Optional: leave empty to start on the usual start page'}
 			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 		></ui5-input>
-
-		{#if view.technical}
-			<ui5-label for="storage" show-colon>Save session</ui5-label>
-			<div class="row">
-				<ui5-switch
-					id="storage"
-					checked={saveStorage || undefined}
-					onchange={(e: Event) => (saveStorage = (e.target as HTMLInputElement).checked)}
-				></ui5-switch>
-				<span class="muted">Writes .auth/{surface}.json for storageState reuse (guide §7.4)</span>
-			</div>
-		{/if}
 
 		<span></span>
 		<div class="row">

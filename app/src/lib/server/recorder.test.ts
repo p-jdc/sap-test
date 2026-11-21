@@ -96,6 +96,10 @@ process.stderr.write('a warning without newline');
 const mode = process.env.FAKE_RECORDER;
 if (mode === 'save')
 	writeFileSync(args[args.indexOf('-o') + 1], "import { test } from '@playwright/test';\n");
+if (mode === 'stuck') {
+	process.on('SIGTERM', () => {});
+	setInterval(() => {}, 1000);
+}
 if (mode === 'hang') {
 	process.on('SIGTERM', () => process.exit(0));
 	setInterval(() => {}, 1000);
@@ -114,7 +118,7 @@ writeFileSync(args[1], "import { test } from '../../sap-plugin';\n");
 
 type Recorder = Awaited<ReturnType<typeof recorderWith>>['recorder'];
 
-async function installedRecorder(mode: 'save' | 'empty' | 'hang') {
+async function installedRecorder(mode: 'save' | 'empty' | 'hang' | 'stuck') {
 	const made = await recorderWith(SAP);
 	const pkg = join(made.dir, 'recorder/node_modules/@playwright/test');
 	mkdirSync(pkg, { recursive: true });
@@ -150,8 +154,7 @@ describe('startRecording', () => {
 		const { dir, recorder } = await installedRecorder('save');
 		const result = await recorder.startRecording({
 			surface: 'webgui',
-			name: ' Create Order! ',
-			saveStorage: true
+			name: ' Create Order! '
 		});
 		expect(result).toEqual({ ok: true, file: 'webgui/create-order.spec.ts' });
 		expect(recorder.recorderState().status).toBe('recording');
@@ -169,14 +172,21 @@ describe('startRecording', () => {
 			'playwright-test',
 			'-o',
 			'tests/webgui/create-order.spec.ts',
-			'--save-storage',
-			'.auth/webgui.json',
 			// Added by recorder/codegen.cjs inside the recorder process, not on its command line.
 			'--sap-login',
 			'U',
 			'P'
 		]);
-		expect(existsSync(join(dir, '.auth'))).toBe(true);
+	});
+
+	test('a recorder that does not stop when asked is ended', async () => {
+		const { recorder } = await installedRecorder('stuck');
+		await recorder.startRecording({ surface: 'webgui', name: 'x' });
+		await stateWhen(recorder, (state) => state.log.includes('logging in with ***'));
+		recorder.stopRecording(100);
+		const state = await stateWhen(recorder, ended);
+		expect(state.status).toBe('error');
+		expect(state.log).toContain('The recorder did not stop when asked and was ended.');
 	});
 
 	test('keeps the password out of the log, also in output without a final newline', async () => {
@@ -260,7 +270,7 @@ describe('recorderInvocation', () => {
 	test('Fiori records with the UI5 recorder and keeps the password out of the arguments', async () => {
 		const { dir, recorder } = await recorderWith(SAP);
 		const invocation = recorder.recorderInvocation(
-			{ surface: 'fiori', name: ' Create order ', saveStorage: true },
+			{ surface: 'fiori', name: ' Create order ' },
 			'fiori/create-order.spec.ts',
 			env.SAP_URL,
 			env
@@ -272,8 +282,6 @@ describe('recorderInvocation', () => {
 			'--name',
 			'Create order',
 			'--login',
-			'--save-storage',
-			'.auth/fiori.json',
 			'--url-from-env'
 		]);
 		expect(invocation.env).toEqual({ SAP_USERNAME: 'U', SAP_PASSWORD: 'P' });

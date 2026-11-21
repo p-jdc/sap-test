@@ -75,6 +75,13 @@
 	</ui5-message-strip>
 {/if}
 
+{#if env.current?.systemsError}
+	<ui5-message-strip design="Negative" hide-close-button>
+		The list of systems the tests sign in to cannot be read, so no test can run until it is fixed.
+		<span class="mono">{env.current.systemsError}</span>
+	</ui5-message-strip>
+{/if}
+
 {#if gettingStarted}
 	<ui5-card class="start">
 		<ui5-card-header
