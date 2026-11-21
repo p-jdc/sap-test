@@ -12,6 +12,7 @@
 	let name = $state('');
 	let url = $state('');
 	let saveStorage = $state(false);
+	let noLogin = $state(false);
 	let error = $state<string | null>(null);
 
 	const recording = $derived(rec.current?.status === 'recording');
@@ -22,16 +23,20 @@
 	});
 
 	const has = (n: string) => env.current?.vars.find((v) => v.name === n)?.set ?? false;
+	// Only the Fiori recorder can skip the login; it then needs nothing but a page to open.
+	const withoutLogin = $derived(surface === 'fiori' && noLogin);
 	const ready = $derived(
 		surface === 'ariba'
 			? has('ARIBA_URL') || !!url
-			: has('SAP_URL') && has('SAP_USERNAME') && has('SAP_PASSWORD')
+			: withoutLogin
+				? has('SAP_URL') || !!url.trim()
+				: has('SAP_URL') && has('SAP_USERNAME') && has('SAP_PASSWORD')
 	);
 
 	async function start() {
 		error = null;
 		try {
-			await startRecorder({ surface, name, url, saveStorage });
+			await startRecorder({ surface, name, url: url.trim(), saveStorage, noLogin: withoutLogin });
 		} catch (e) {
 			error = errorMessage(e);
 		}
@@ -44,10 +49,13 @@
 
 <ui5-message-strip design="Information" hide-close-button>
 	{#if view.technical}
-		Starts <span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide
-		§4.4); the recorded test runs on stock Playwright. The browser and the recorder window open on
-		the machine that runs this app, so record from a local install. Fiori and WebGUI log in
-		automatically with the credentials from
+		Fiori / UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
+		Playwright: UI5 itself describes each control, so the test names a row by its data and not by
+		its position. WebGUI and Ariba start
+		<span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide §4.4).
+		Either way the recorded test runs on stock Playwright. The browser opens on the machine that
+		runs this app, so record from a local install. Fiori and WebGUI log in automatically with the
+		credentials from
 		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
 		log in by hand.
 	{:else}
@@ -58,7 +66,10 @@
 				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
 				(in Ariba you log in yourself).
 			</li>
-			<li>Do the task as you normally would. Every click and entry is written down.</li>
+			<li>
+				Do the task as you normally would. Every click and entry is written down; for Fiori a red
+				“Recording” mark at the top of the page counts them.
+			</li>
 			<li>Close the browser window when you are done. The test is saved.</li>
 		</ol>
 	{/if}
@@ -93,15 +104,29 @@
 			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
+		{#if surface === 'fiori'}
+			<ui5-label for="nologin" show-colon>Without login</ui5-label>
+			<div class="row">
+				<ui5-switch
+					id="nologin"
+					checked={noLogin || undefined}
+					onchange={(e: Event) => (noLogin = (e.target as HTMLInputElement).checked)}
+				></ui5-switch>
+				<span class="muted">For a page that needs no SAP login, such as a demo app</span>
+			</div>
+		{/if}
+
 		<ui5-label for="url" show-colon>Start page</ui5-label>
 		<ui5-input
 			id="url"
 			value={url}
-			placeholder={view.technical
-				? surface === 'ariba'
-					? 'defaults to ARIBA_URL'
-					: 'defaults to SAP_URL (same host only)'
-				: 'Optional: leave empty to start on the usual start page'}
+			placeholder={withoutLogin
+				? 'https://… the page to record'
+				: view.technical
+					? surface === 'ariba'
+						? 'defaults to ARIBA_URL'
+						: 'defaults to SAP_URL (same host only)'
+					: 'Optional: leave empty to start on the usual start page'}
 			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
@@ -135,8 +160,12 @@
 			{/if}
 			{#if !ready && env.current}
 				<span class="muted">
-					The connection to this SAP application is not set up yet.
-					<a href={settingsHref()}>Open Settings</a>
+					{#if withoutLogin}
+						Enter the start page to record.
+					{:else}
+						The connection to this SAP application is not set up yet.
+						<a href={settingsHref()}>Open Settings</a>
+					{/if}
 				</span>
 			{:else if !name.trim() && !recording}
 				<span class="muted">Give the test a name first.</span>

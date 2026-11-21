@@ -142,7 +142,12 @@
 	{#if error}
 		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 	{/if}
-	{#if run.artifactsRemoved}
+	{#if run.tests.some((t) => t.detailsRemoved)}
+		<ui5-message-strip design="Information" hide-close-button>
+			This run is older, so the steps and error messages of its tests were removed to save space.
+			Which tests passed and failed is kept.
+		</ui5-message-strip>
+	{:else if run.artifactsRemoved}
 		<ui5-message-strip design="Information" hide-close-button>
 			The report, screenshots, videos and traces of this run were removed to save space. Its results
 			are kept.

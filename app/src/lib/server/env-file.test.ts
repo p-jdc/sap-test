@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { SecretStore } from './secret-store.js';
+import { copySystems } from '../../test/systems.js';
 
 /** An in-memory stand-in for the system credential store. */
 function fakeStore(initial: Record<string, string> = {}, available = true) {
@@ -24,9 +25,11 @@ function fakeStore(initial: Record<string, string> = {}, available = true) {
 
 const NONE = fakeStore({}, false).store;
 
-function withEnvFile(text: string | null) {
+function withEnvFile(text: string | null, systems: string | null = null) {
 	const dir = mkdtempSync(join(tmpdir(), 'env-file-'));
 	if (text !== null) writeFileSync(join(dir, '.env'), text);
+	if (systems === null) copySystems(dir);
+	else writeFileSync(join(dir, 'systems.json'), systems);
 	vi.stubEnv('SAP_TESTS_DIR', dir);
 	vi.resetModules();
 	return import('./env-file.js');
@@ -243,5 +246,71 @@ describe('settings in the credential store', () => {
 		expect(status.vars.find((v) => v.name === 'SAP_USERNAME')?.withheld).toBe('process');
 		// Without a stored URL, the environment's credentials are used as before.
 		expect((await env.readTestEnv(fakeStore().store)).SAP_PASSWORD).toBe('env-pw');
+	});
+});
+
+describe('systems from sap-tests/systems.json', () => {
+	const successFactors = JSON.stringify({
+		systems: [
+			{
+				id: 'successfactors',
+				title: 'SuccessFactors',
+				signIn: { method: 'ias' },
+				env: { url: 'SF_URL', user: 'SF_USERNAME', password: 'SF_PASSWORD' },
+				tests: ['successfactors']
+			}
+		]
+	});
+
+	test('a new system gets settings, a masked password and the credential guard', async () => {
+		const env = await withEnvFile(
+			'SF_URL=https://sf.example.com\nSF_USERNAME=tester\nSF_PASSWORD=sf-pw\nSAP_PASSWORD=not-a-setting',
+			successFactors
+		);
+		const status = await env.envStatus(NONE);
+		expect(status.systems).toEqual([
+			{
+				id: 'successfactors',
+				title: 'SuccessFactors',
+				method: 'ias',
+				env: { url: 'SF_URL', user: 'SF_USERNAME', password: 'SF_PASSWORD' }
+			}
+		]);
+		expect(status.vars.map((v) => v.name)).toEqual([
+			'SF_URL',
+			'SF_USERNAME',
+			'SF_PASSWORD',
+			'SAP_API_URL',
+			'SAP_API_USERNAME',
+			'SAP_API_PASSWORD',
+			'SAP_CLIENT',
+			'CHROMIUM_PATH'
+		]);
+		expect((await env.runSettings(NONE)).secrets).toEqual(['sf-pw']);
+
+		// The address saved in the app points elsewhere: the .env user and password are not sent there.
+		const { store } = fakeStore({ SF_URL: 'https://other.example.net' });
+		expect(await env.runSettings(store)).toEqual({
+			env: { SF_URL: 'https://other.example.net', SF_USERNAME: '', SF_PASSWORD: '' },
+			secrets: []
+		});
+	});
+
+	test('a table that gives one setting to two systems is refused', async () => {
+		const twice = JSON.stringify({
+			systems: ['a', 'b'].map((id) => ({
+				id,
+				title: id,
+				signIn: { method: 'ias' },
+				env: { url: 'X_URL', user: 'X_USER', password: 'X_PASS' }
+			}))
+		});
+		const env = await withEnvFile(null, twice);
+		await expect(env.envStatus(NONE)).rejects.toThrow('the setting X_URL is used twice');
+	});
+
+	test('an unknown sign-in method is refused with the file name', async () => {
+		const env = await withEnvFile(null, successFactors.replace('"ias"', '"sso"'));
+		await expect(env.envStatus(NONE)).rejects.toThrow(/systems\.json: .*signIn\.method/s);
 	});
 });

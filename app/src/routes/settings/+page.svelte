@@ -3,39 +3,28 @@
 	import { view } from '#lib/client/view.svelte.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { removeSetting, saveSetting } from '#lib/remote/settings.remote.js';
-	import type { SettingName, SettingSource } from '#lib/shared/types.js';
+	import type { SettingName, SettingSource, SignInSystemInfo } from '#lib/shared/types.js';
 
 	type Field = { name: SettingName; label: string; hint?: string; secret?: boolean };
 	/** `technical` groups only show with "Technical details" switched on. */
 	type Group = { title: string; subtitle: string; technical?: boolean; fields: Field[] };
 
-	const GROUPS: Group[] = [
-		{
-			title: 'SAP test system',
-			subtitle: 'For Fiori and WebGUI tests',
-			fields: [
-				{
-					name: 'SAP_URL',
-					label: 'Web address',
-					hint: 'https://your-test-system.example.com'
-				},
-				{
-					name: 'SAP_USERNAME',
-					label: 'User name',
-					hint: 'A test user that logs in with just a password'
-				},
-				{ name: 'SAP_PASSWORD', label: 'Password', secret: true }
-			]
-		},
-		{
-			title: 'SAP Ariba',
-			subtitle: 'Optional: only for Ariba tests',
-			fields: [
-				{ name: 'ARIBA_URL', label: 'Web address' },
-				{ name: 'ARIBA_USER', label: 'User name' },
-				{ name: 'ARIBA_PASS', label: 'Password', secret: true }
-			]
-		},
+	/** One group per system of sap-tests/systems.json, then the settings of no system. */
+	const systemGroup = (system: SignInSystemInfo): Group => ({
+		title: system.title,
+		subtitle: system.description ?? '',
+		fields: [
+			{ name: system.env.url, label: 'Web address', hint: 'https://your-test-system.example.com' },
+			{
+				name: system.env.user,
+				label: 'User name',
+				hint: 'A test user that logs in with just a password'
+			},
+			{ name: system.env.password, label: 'Password', secret: true }
+		]
+	});
+
+	const OTHER_GROUPS: Group[] = [
 		{
 			title: 'SAP services (API)',
 			subtitle:
@@ -75,6 +64,10 @@
 		view.technical ? SOURCE_LABEL[source] : source === 'keychain' ? 'Saved' : 'Set by your admin';
 
 	const env = getEnvStatus();
+	const groups = $derived([
+		...(env.current?.systems ?? []).map((s) => systemGroup(s)),
+		...OTHER_GROUPS
+	]);
 	const drafts = $state<Partial<Record<SettingName, string>>>({});
 	let busy = $state<SettingName | null>(null);
 	let error = $state<string | null>(null);
@@ -147,7 +140,7 @@
 {#if env.current}
 	{@const locked = !env.current.keychain}
 	<div class="groups">
-		{#each GROUPS.filter((g) => view.technical || !g.technical) as group (group.title)}
+		{#each groups.filter((g) => view.technical || !g.technical) as group (group.title)}
 			<ui5-card>
 				<ui5-card-header slot="header" title-text={group.title} subtitle-text={group.subtitle}
 				></ui5-card-header>

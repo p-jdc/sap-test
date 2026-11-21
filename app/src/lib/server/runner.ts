@@ -15,11 +15,11 @@ import {
 	type ReporterEvent
 } from './run-events.js';
 import {
+	applyRetention,
 	markLive,
 	pruneRuns,
 	readRunState,
-	rememberFinished,
-	trimArtifacts
+	rememberFinished
 } from './runs-store.js';
 import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
@@ -53,7 +53,25 @@ function persist(live: Live) {
 	writeFileSync(join(live.dir, 'meta.json'), JSON.stringify(meta));
 }
 
-export type StartRunInput = { files?: string[]; grep?: string };
+export type StartRunInput = {
+	files?: string[];
+	grep?: string;
+	/** Run in a visible browser window on the machine that runs this app. */
+	headed?: boolean;
+};
+
+/** The arguments of `playwright test` for one run. `files` are relative to tests/. */
+function runArgs(input: StartRunInput, files: string[], results: string): string[] {
+	return [
+		'test',
+		...files.map((f) => 'tests/' + f),
+		...(input.grep ? ['--grep', input.grep] : []),
+		...(input.headed ? ['--headed'] : []),
+		`--reporter=${LIVE_REPORTER},list,html`,
+		'--output',
+		results
+	];
+}
 
 /** Starts `playwright test` in sap-tests with the live, list and html reporters. One run at a time. */
 export async function startRun(
@@ -81,14 +99,7 @@ export async function startRun(
 	const dir = join(RUNS_DIR, id);
 	mkdirSync(dir, { recursive: true });
 
-	const args = [
-		'test',
-		...files.map((f) => 'tests/' + f),
-		...(input.grep ? ['--grep', input.grep] : []),
-		`--reporter=${LIVE_REPORTER},list,html`,
-		'--output',
-		join(dir, 'results')
-	];
+	const args = runArgs(input, files, join(dir, 'results'));
 	const command = playwrightCommand(args);
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
@@ -197,7 +208,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	persist(live);
 	rememberFinished(state.id);
 	pruneRuns();
-	trimArtifacts();
+	applyRetention();
 	notify(live);
 }
 

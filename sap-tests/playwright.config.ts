@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
 import type { SapOptions } from './sap-plugin';
+import { signInSystems, signInTag, testFiles } from './sap-plugin/systems';
 
 // Optional escape hatch for machines where `npx playwright install` cannot download
 // the browser build (CI sandboxes, locked-down laptops).
@@ -21,16 +22,13 @@ if (odataMock)
 		SAP_CLIENT: ''
 	});
 
-// Tests that start with a saved session (sap-plugin/session.ts). Their setup project signs in once
-// per run without a trace and runs only when a selected test needs it. tests/fiori/demokit opens
-// SAP's public demo apps and needs no sign-in. The test agents' SAP seed starts signed in too.
-const SAP_TESTS = [
-	/[\\/]tests[\\/](fiori(?![\\/]demokit[\\/])|webgui|_reference)[\\/]/,
-	/[\\/]tests[\\/]_agents[\\/]seed-sap\.spec\.ts$/
-];
-const ARIBA_TESTS = /[\\/]tests[\\/]ariba[\\/]/;
+// Each system of systems.json gets a sign-in project, which signs in once per run without a trace
+// and runs only when a selected test needs it, and a project for its tests, which start with the
+// saved session (sap-plugin/session.ts). The test agents' seed-signed-in.spec.ts belongs to each.
+const systems = signInSystems();
+const SIGNED_IN_SEED = /[\\/]tests[\\/]_agents[\\/]seed-signed-in\.spec\.ts$/;
 const browser = { ...devices['Desktop Chrome'] };
-// The password is typed only in the setup projects: no trace (it would record the filled field
+// The password is typed only in the sign-in projects: no trace (it would record the filled field
 // and the login request) and no video.
 const signIn = { ...browser, trace: 'off', video: 'off' } as const;
 
@@ -57,22 +55,25 @@ export default defineConfig<SapOptions>({
 		launchOptions: executablePath ? { executablePath } : {}
 	},
 	projects: [
-		{ name: 'sap-sign-in', testDir: './setup', testMatch: 'sap.setup.ts', use: signIn },
-		{ name: 'ariba-sign-in', testDir: './setup', testMatch: 'ariba.setup.ts', use: signIn },
+		...systems.map((system) => ({
+			name: `${system.id}-sign-in`,
+			testDir: './setup',
+			testMatch: 'sign-in.setup.ts',
+			grep: new RegExp(`${signInTag(system)}(?:\\s|$)`),
+			use: signIn
+		})),
 		// First of the projects no other one depends on: the test agents' MCP server uses it when a
 		// tool call names no project.
-		{ name: 'chromium', testIgnore: [...SAP_TESTS, ARIBA_TESTS], use: browser },
 		{
-			name: 'sap',
-			testMatch: SAP_TESTS,
-			dependencies: ['sap-sign-in'],
-			use: { ...browser, sapSession: 'sap' }
+			name: 'chromium',
+			testIgnore: [...systems.map((s) => testFiles(s)), SIGNED_IN_SEED],
+			use: browser
 		},
-		{
-			name: 'ariba',
-			testMatch: ARIBA_TESTS,
-			dependencies: ['ariba-sign-in'],
-			use: { ...browser, sapSession: 'ariba' }
-		}
+		...systems.map((system) => ({
+			name: system.id,
+			testMatch: [testFiles(system), SIGNED_IN_SEED],
+			dependencies: [`${system.id}-sign-in`],
+			use: { ...browser, system: system.id }
+		}))
 	]
 });

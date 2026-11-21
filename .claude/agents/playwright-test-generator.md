@@ -48,9 +48,10 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
 
 - Obtain the test plan with all the steps and verification specification
 - Run the `generator_setup_page` tool to set up page for the scenario, with the seed file the plan names and its
-  project: `sap-tests/tests/_agents/seed.spec.ts` with project `chromium`, or `sap-tests/tests/_agents/seed-sap.spec.ts`
-  with project `sap` for a flow behind the SAP login. If the SAP seed is skipped, the values in `sap-tests/.env` are
-  missing; if the sign-in fails, the seed does not run. In both cases stop and report it.
+  project: `sap-tests/tests/_agents/seed.spec.ts` with project `chromium`, or
+  `sap-tests/tests/_agents/seed-signed-in.spec.ts` with the `id` of the system in `sap-tests/systems.json` as the
+  project (`sap`, `ariba`, ...) for a flow behind its login. If that seed is skipped, the system's values in
+  `sap-tests/.env` are missing; if the sign-in fails, the seed does not run. In both cases stop and report it.
 - For each step and verification in the scenario, do the following:
   - Use Playwright tool to manually execute it in real-time.
   - Use the step description as the intent for each Playwright tool call.

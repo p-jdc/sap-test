@@ -136,7 +136,10 @@
 	async function runThis() {
 		if (!test) return;
 		try {
-			const { id } = await startTestRun({ files: [`${test.file}:${test.line}`] });
+			const { id } = await startTestRun({
+				files: [`${test.file}:${test.line}`],
+				headed: view.showBrowser
+			});
 			await goto(flowHref(key, id), { replace: true });
 		} catch (e) {
 			error = errorMessage(e);
@@ -189,6 +192,12 @@
 
 	{#if error}
 		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
+	{/if}
+	{#if runTest?.detailsRemoved}
+		<ui5-message-strip design="Information" hide-close-button>
+			The selected run is older, so how each step went was removed to save space. The result of the
+			test is kept. Pick a newer run or press “Run this test”.
+		</ui5-message-strip>
 	{/if}
 	{#if run && !runTest}
 		<ui5-message-strip design="Information" hide-close-button>

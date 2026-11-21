@@ -1,12 +1,13 @@
 # Regeln für SAP-Tests
 
 Dieses Projekt nutzt Standard-Playwright mit dem SAP-Plugin in sap-plugin/ (Locators aus Playwright-SAP). Tests importieren `test` und `expect` aus sap-plugin (z. B. '../../sap-plugin'), nicht aus '@playwright/test'.
-Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen.
+Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und Ariba.
 Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge
 
 1. Fiori/UI5: page.getByRoleUI5(controlType, { eigenschaft: wert }). Mehrere Eigenschaften in einem Aufruf müssen alle zutreffen; so wenige wie nötig angeben, damit das Control eindeutig ist.
+   Bestimmen auch mehrere Eigenschaften das Control nicht eindeutig (Zeile einer Liste, gleichlautende Links): page.locateUI5Control({ ... }) mit `bindingPath` oder `ancestor`, so wie der Recorder es schreibt. Aufgezeichnete locateUI5Control-Schritte bleiben, wie sie sind.
 2. WebGUI: page.getByRoleSID(role, { name, pos, sub, wnd }). Für Tabellenzellen und eigene Controls: page.locateSID('<vollständiger SID-Pfad>').
 3. Ariba und Nicht-SAP-Seiten: getByRole, getByLabel, getByText.
 
@@ -15,7 +16,7 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 ## Aufbau
 
 - Hilfsfunktionen aus helpers/ verwenden, wenn es eine passende gibt.
-- Anmeldung mit page.SAPLogin und Umgebungsvariablen. Tests unter tests/fiori (außer demokit), tests/webgui und tests/_reference starten mit der Sitzung, die setup/sap.setup.ts einmal je Lauf ohne Trace speichert; page.SAPLogin öffnet dann nur die Adresse. Ariba-Tests (tests/ariba) starten angemeldet und melden sich nicht selbst an.
+- Anmeldung mit page.SAPLogin und Umgebungsvariablen. Die Systeme, an denen Tests angemeldet starten, und ihre Ordner stehen in systems.json; setup/sign-in.setup.ts meldet sich je Lauf einmal ohne Trace an und speichert die Sitzung. Tests unter tests/fiori (außer demokit), tests/webgui und tests/_reference starten so an SAP angemeldet; page.SAPLogin öffnet dann nur die Adresse. Tests anderer Systeme (z. B. tests/ariba) öffnen nur die Adresse und melden sich nicht selbst an. Ein neues System ist eine Zeile in systems.json und ein Ordner unter tests/.
 - Passwörter mit `fillSecret(locator, wert)` aus sap-plugin eintippen, nie mit `fill`: `fill` schreibt den Wert in den Bericht und die Laufdaten der Test-App. page.SAPLogin tut das bereits.
 - Ein Geschäftsablauf je Test. Nach jedem datenverändernden Schritt prüfen.
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.
@@ -63,7 +64,7 @@ Die meisten SAP-Belege lassen sich nicht löschen, nur stornieren. `undo` in `cl
 
 - Die drei Rollen liegen in .claude/agents/playwright-test-*.md (aus `playwright init-agents` erzeugt und um diese Regeln ergänzt). Sie arbeiten über den MCP-Server playwright-test aus .mcp.json.
 - Pläne der Rolle Planner liegen in specs/. Eine Person prüft den Plan, bevor daraus Code entsteht.
-- Startpunkt der Rollen ist tests/_agents/seed.spec.ts (leere Seite) oder tests/_agents/seed-sap.spec.ts (Projekt sap: startet mit der Sitzung aus setup/sap.setup.ts). Beide importieren aus sap-plugin, damit die SAP-Locators im Browser der Rollen funktionieren.
+- Startpunkt der Rollen ist tests/_agents/seed.spec.ts (leere Seite) oder tests/_agents/seed-signed-in.spec.ts (als Projekt die id des Systems aus systems.json, z. B. sap: startet mit dessen Sitzung aus setup/sign-in.setup.ts). Beide importieren aus sap-plugin, damit die SAP-Locators im Browser der Rollen funktionieren.
 - Die Rolle Healer führt eigene Korrekturen nicht zusammen. Jeder von der KI geschriebene oder reparierte Test wird von einer Person geprüft; dabei kontrollieren, dass keine Prüfung entfernt oder gelockert wurde.
 
 ## Kennzeichnung

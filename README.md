@@ -20,6 +20,11 @@ The tests run on stock Playwright. `sap-tests/sap-plugin` adds the SAP locators 
 unchanged under Apache-2.0 and registered as custom selector engines. Specs import `test` and
 `expect` from `sap-plugin` instead of `@playwright/test`.
 
+Fiori / UI5 flows are recorded with the plugin's own recorder (`sap-tests/sap-plugin/record.mjs`),
+which also runs on stock Playwright. It asks UI5 itself (`sap.ui.test.RecordReplay`) to describe each
+control and writes `page.locateUI5Control({...})`, a locator that can name a row by the record it
+shows instead of by its position.
+
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
 HTML report of every run. `fillSecret` hands the value to the password field through a one-time
@@ -29,30 +34,79 @@ keeps.
 ### Signing in once per run
 
 A Playwright trace records the password of any browser login: the page snapshots show the filled
-field and the network log the login request. So the tests do not sign in themselves. Two setup
-projects in `sap-tests/playwright.config.ts` sign in once per run, with trace and video off, and
-save the session in `sap-tests/.auth/` (gitignored):
+field and the network log the login request. So the tests do not sign in themselves. The systems
+they sign in to are listed in `sap-tests/systems.json`, and `sap-tests/playwright.config.ts` makes
+two projects for each: `<id>-sign-in` signs in once per run with `setup/sign-in.setup.ts`, with
+trace and video off (also with `--trace on`), and saves the session in
+`sap-tests/.auth/<id>-session.json` (gitignored); `<id>` holds the system's tests, which start with
+that session.
 
-| Project | Tests | Signs in with | Session |
-| --- | --- | --- | --- |
-| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference`, `tests/_agents/seed-sap.spec.ts` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
-| `ariba` | `tests/ariba` | `setup/ariba.setup.ts`: `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` | `.auth/ariba-session.json` |
-| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – | – |
+| Project | Tests | Signs in with |
+| --- | --- | --- |
+| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `sapLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` |
+| `ariba` | `tests/ariba` | `form` with `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` |
+| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – |
 
-The tests of the `sap` and `ariba` projects start signed in. `page.SAPLogin(…)` stays in the
-specs and in recordings, but with a saved session it only opens the URL. A login page there means
-the session has expired, which fails the test instead of typing the password into its trace. A
-setup project runs only when a selected test needs it (also with a file or `--grep` filter). If it
-fails, the tests that need it do not run, and the Results page says so. With `--no-deps`, or for a
-second test user signing in within a test, the password is typed in a traced test again.
+`tests/_agents/seed-signed-in.spec.ts` belongs to every system's project (see the test agents
+below).
+
+The sign-in methods:
+
+| Method | For | How |
+| --- | --- | --- |
+| `sapLogin` | Fiori launchpad and WebGUI | `page.SAPLogin`: the NetWeaver or launchpad login page |
+| `ias` | SuccessFactors, IBP and other applications behind SAP Cloud Identity Services | The IAS login page, found by its field names (`j_username`, `j_password`), so its language and texts do not matter |
+| `form` | An application's own login page (Ariba, Concur) | Fields by their labels and the button by its name, given in the row |
+
+`ias` and `form` also handle a login page that asks for the user first and for the password on a
+second page, and wait until an identity service has sent the browser back to the system. Sign-in
+through a company identity provider with MFA (Entra and others) is not covered: use a test user
+without MFA.
+
+`page.SAPLogin(…)` stays in the specs and in recordings, but with a saved session it only opens the
+URL. A login page there means the session has expired, which fails the test instead of typing the
+password into its trace. A sign-in project runs only when a selected test needs it (also with a
+file or `--grep` filter). If it fails, the tests that need it do not run, and the Results page says
+so. With `--no-deps`, or for a second test user signing in within a test, the password is typed in
+a traced test again.
+
+#### Adding a system
+
+Add a row to `sap-tests/systems.json` and put its tests in the folder the row names. For example
+SuccessFactors behind IAS:
+
+```json
+{
+	"id": "successfactors",
+	"title": "SuccessFactors",
+	"description": "Optional: only for SuccessFactors tests",
+	"optional": true,
+	"signIn": { "method": "ias" },
+	"env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
+	"tests": ["successfactors"]
+}
+```
+
+For an application's own login page: `"signIn": { "method": "form", "user": "<label of the user
+field>", "password": "<label of the password field>", "submit": "<name of the button>" }`. The tests
+start with `await page.goto(process.env.SF_URL!)`, already signed in. The Settings page shows the
+new system's fields, and the app masks its password in everything a run records and does not send
+the user and password from `.env` to another address saved in the app, as for SAP. `optional`
+leaves the system out of the Home page's getting started. A row's `exclude` lists folders inside
+its `tests` folders that belong to no system (like `fiori/demokit`). The test project refuses a
+table with an unknown method, a variable used twice, or a folder claimed by two systems.
+
+The recorder and the grouping of tests by application on the Tests page still know only Fiori,
+WebGUI and Ariba; tests of another system show there as "other".
 
 A trace still holds the session cookies, which are valid until the SAP session ends. Treat
 `app/.data/runs` and `sap-tests/.auth` as secret.
 
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
-only, because its codegen is what writes SAP locators. The app starts it for "Record a test" and
-then points the recorded spec's import at `sap-plugin`. The app never imports Playwright itself;
-it starts both CLIs with real Node.
+WebGUI and Ariba only, because its codegen is what writes SID locators and the plugin's recorder has
+not been tried on a real WebGUI system. The app starts the matching recorder for "Record a test";
+for the fork it then points the recorded spec's import at `sap-plugin`. The app never imports
+Playwright itself; it starts the CLIs with real Node.
 
 ## What the app does
 
@@ -68,7 +122,7 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Starts the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts` and makes it import from `sap-plugin`. Technical details: optionally saves the session (§7.4) |
+| Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4). Technical details: optionally saves the session (§7.4) |
 | Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere. Technical details: ports, life telegrams, acknowledgements |
 | Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
@@ -115,6 +169,7 @@ to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference a
 | `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
 | `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
 | `codegen`, `report` | Playwright-SAP recorder (from `sap-tests/recorder`) and HTML report |
+| `record` | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save |
 | `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
 | `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
 | `ci` | Everything CI runs, in order |
@@ -182,13 +237,27 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
-| `TEST_APP_KEEP_ARTIFACTS` | `50` | Runs that keep their report, screenshots, videos and traces. Older runs lose these files (most of a run's size) after each run but keep their results, steps and log, so the history and the reliability table stay complete. `all` never deletes them |
+| `TEST_APP_KEEP_REPORT_DAYS` | `14` | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again |
+| `TEST_APP_KEEP_STEPS_DAYS` | `30` | Days a run keeps the steps of its tests and its log |
+| `TEST_APP_KEEP_FAILURE_DAYS` | `90` | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows |
+| `TEST_APP_RETENTION` | on | `off` never deletes anything from a run |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 | `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
 | `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
+
+**What is kept of a run.** Which test passed or failed, when, and how long it took is kept for good;
+it is the evidence for the pilot criterion. Everything else goes by age and by what came after:
+
+- The newest run is always kept in full.
+- A failure stays in full (trace, video, screenshot, steps, error message, log) while the test has
+  not passed again, then for `TEST_APP_KEEP_REPORT_DAYS` more, and never longer than
+  `TEST_APP_KEEP_FAILURE_DAYS`.
+- Of a series of failures at the same place in the test, only the first and the latest stay in full.
+
+The rules are applied after each run, when the app starts and once a day.
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
@@ -208,9 +277,9 @@ and then moved to the repo root, where Claude Code sessions start:
 They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
 started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
 from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page, project `chromium`) or
-`seed-sap.spec.ts` (project `sap`: its setup signs in first with the values from `sap-tests/.env`,
-in a browser of its own, so the agents' browser never sends the password; values saved on the
-Settings page are not read). The seeds
+`seed-signed-in.spec.ts` with a system's id as the project (`sap`, `ariba`, ...: its sign-in
+project signs in first with the values from `sap-tests/.env`, in a browser of its own, so the
+agents' browser never sends the password; values saved on the Settings page are not read). The seeds
 import from `sap-plugin`, which is what makes `page.getByRoleUI5` and the other SAP locators work in
 the agents' browser.
 

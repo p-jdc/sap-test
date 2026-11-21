@@ -95,3 +95,14 @@ export const RECORDER_PACKAGE = resolve(TESTS_ROOT, 'recorder/node_modules/@play
 export function recorderCommand(args: string[]): { cmd: string; args: string[] } {
 	return { cmd: realNode(), args: [resolve(RECORDER_PACKAGE, 'cli.js'), ...args] };
 }
+
+/**
+ * The recorder for Fiori/UI5 in sap-tests/sap-plugin: runs on stock Playwright and asks UI5 itself
+ * to describe each control, so its locators need no positions.
+ */
+export const UI5_RECORDER = resolve(TESTS_ROOT, 'sap-plugin/record.mjs');
+
+/** `node <sap-tests>/sap-plugin/record.mjs <args>` */
+export function ui5RecorderCommand(args: string[]): { cmd: string; args: string[] } {
+	return { cmd: realNode(), args: [UI5_RECORDER, ...args] };
+}
