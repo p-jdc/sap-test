@@ -41,6 +41,17 @@ describe('startRecording refuses', () => {
 		});
 	});
 
+	test('another host for WebGUI even when asked to skip the login', async () => {
+		const { recorder } = await recorderWith(SAP);
+		const result = await recorder.startRecording({
+			surface: 'webgui',
+			name: 'x',
+			url: 'https://evil.example.net/login',
+			noLogin: true
+		});
+		expect(JSON.stringify(result)).toContain('same host as SAP_URL');
+	});
+
 	test('missing credentials and a missing URL', async () => {
 		const { recorder } = await recorderWith(`SAP_URL=https://sap.example.com\n`);
 		const webgui = await recorder.startRecording({ surface: 'webgui', name: 'x' });
@@ -85,6 +96,19 @@ describe('recorderInvocation', () => {
 			env
 		);
 		expect(args).not.toContain('--url-from-env');
+	});
+
+	test('without login the recorder gets no login flag and no credentials', async () => {
+		const { recorder } = await recorderWith(SAP);
+		const invocation = recorder.recorderInvocation(
+			{ surface: 'fiori', name: 'cart', noLogin: true },
+			'fiori/cart.spec.ts',
+			'https://ui5.example.com/cart/index.html',
+			env
+		);
+		expect(invocation.args).not.toContain('--login');
+		expect(invocation.args).not.toContain('P');
+		expect(invocation.env).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: '' });
 	});
 
 	test('WebGUI and Ariba still record with the Playwright-SAP recorder', async () => {

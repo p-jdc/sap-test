@@ -12,6 +12,7 @@
 	let name = $state('');
 	let url = $state('');
 	let saveStorage = $state(false);
+	let noLogin = $state(false);
 	let error = $state<string | null>(null);
 
 	const recording = $derived(rec.current?.status === 'recording');
@@ -22,16 +23,20 @@
 	});
 
 	const has = (n: string) => env.current?.vars.find((v) => v.name === n)?.set ?? false;
+	// Only the Fiori recorder can skip the login; it then needs nothing but a page to open.
+	const withoutLogin = $derived(surface === 'fiori' && noLogin);
 	const ready = $derived(
 		surface === 'ariba'
 			? has('ARIBA_URL') || !!url
-			: has('SAP_URL') && has('SAP_USERNAME') && has('SAP_PASSWORD')
+			: withoutLogin
+				? has('SAP_URL') || !!url.trim()
+				: has('SAP_URL') && has('SAP_USERNAME') && has('SAP_PASSWORD')
 	);
 
 	async function start() {
 		error = null;
 		try {
-			await startRecorder({ surface, name, url, saveStorage });
+			await startRecorder({ surface, name, url: url.trim(), saveStorage, noLogin: withoutLogin });
 		} catch (e) {
 			error = errorMessage(e);
 		}
@@ -99,15 +104,29 @@
 			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
+		{#if surface === 'fiori'}
+			<ui5-label for="nologin" show-colon>Without login</ui5-label>
+			<div class="row">
+				<ui5-switch
+					id="nologin"
+					checked={noLogin || undefined}
+					onchange={(e: Event) => (noLogin = (e.target as HTMLInputElement).checked)}
+				></ui5-switch>
+				<span class="muted">For a page that needs no SAP login, such as a demo app</span>
+			</div>
+		{/if}
+
 		<ui5-label for="url" show-colon>Start page</ui5-label>
 		<ui5-input
 			id="url"
 			value={url}
-			placeholder={view.technical
-				? surface === 'ariba'
-					? 'defaults to ARIBA_URL'
-					: 'defaults to SAP_URL (same host only)'
-				: 'Optional: leave empty to start on the usual start page'}
+			placeholder={withoutLogin
+				? 'https://… the page to record'
+				: view.technical
+					? surface === 'ariba'
+						? 'defaults to ARIBA_URL'
+						: 'defaults to SAP_URL (same host only)'
+					: 'Optional: leave empty to start on the usual start page'}
 			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
@@ -141,8 +160,12 @@
 			{/if}
 			{#if !ready && env.current}
 				<span class="muted">
-					The connection to this SAP application is not set up yet.
-					<a href={settingsHref()}>Open Settings</a>
+					{#if withoutLogin}
+						Enter the start page to record.
+					{:else}
+						The connection to this SAP application is not set up yet.
+						<a href={settingsHref()}>Open Settings</a>
+					{/if}
 				</span>
 			{:else if !name.trim() && !recording}
 				<span class="muted">Give the test a name first.</span>

@@ -33,6 +33,11 @@ export type RecordInput = {
 	name: string;
 	url?: string;
 	saveStorage?: boolean;
+	/**
+	 * Fiori only: record a page that needs no SAP login, such as a demo app. Any start page is
+	 * allowed, because the recorder then gets no credentials it could type into it.
+	 */
+	noLogin?: boolean;
 };
 
 const RECORDED_IMPORT = /from\s+['"]@playwright\/test['"]/;
@@ -71,18 +76,23 @@ export type Invocation = {
  * tried on a real system.
  */
 export function recorderInvocation(
-	input: Pick<RecordInput, 'surface' | 'name' | 'saveStorage'>,
+	input: Pick<RecordInput, 'surface' | 'name' | 'saveStorage' | 'noLogin'>,
 	file: string,
 	url: string,
 	env: Record<string, string>
 ): Invocation {
 	const storage = input.saveStorage ? ['--save-storage', `.auth/${input.surface}.json`] : [];
 	if (input.surface === 'fiori') {
-		const flags = ['--name', input.name.trim(), '--login', ...storage];
+		const login = input.noLogin ? [] : ['--login'];
+		const flags = ['--name', input.name.trim(), ...login, ...storage];
 		if (url === env.SAP_URL) flags.push('--url-from-env');
 		return {
 			...ui5RecorderCommand([url, 'tests/' + file, ...flags]),
-			env: { SAP_USERNAME: env.SAP_USERNAME ?? '', SAP_PASSWORD: env.SAP_PASSWORD ?? '' },
+			// Without a login the credentials are blanked, so a password in this app's own environment
+			// does not reach a recorder that opens a page of the caller's choosing.
+			env: input.noLogin
+				? { SAP_USERNAME: '', SAP_PASSWORD: '' }
+				: { SAP_USERNAME: env.SAP_USERNAME ?? '', SAP_PASSWORD: env.SAP_PASSWORD ?? '' },
 			needs: {
 				path: UI5_RECORDER,
 				hint: `The UI5 recorder is missing in ${TESTS_ROOT}/sap-plugin.`
@@ -140,7 +150,8 @@ export async function startRecording(
 			error: `No URL given and ${input.surface === 'ariba' ? 'ARIBA_URL' : 'SAP_URL'} is not set (Settings page or sap-tests/.env).`
 		};
 
-	if (input.surface !== 'ariba') {
+	const noLogin = input.surface === 'fiori' && input.noLogin === true;
+	if (input.surface !== 'ariba' && !noLogin) {
 		if (!env.SAP_USERNAME || !env.SAP_PASSWORD) {
 			return {
 				ok: false,
@@ -157,7 +168,7 @@ export async function startRecording(
 			};
 		}
 	}
-	const invocation = recorderInvocation(input, file, url, env);
+	const invocation = recorderInvocation({ ...input, noLogin }, file, url, env);
 	// Checked last, so a wrong name, URL or missing credentials are reported first.
 	if (!existsSync(invocation.needs.path)) return { ok: false, error: invocation.needs.hint };
 	mkdirSync(dirname(full), { recursive: true });
