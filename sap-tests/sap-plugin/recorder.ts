@@ -23,6 +23,12 @@ export type RecordedStep = {
 	innerText?: string;
 	value?: string;
 	key?: string;
+	/**
+	 * The element is marked disabled (aria-disabled) and the app acted on the click all the same, as
+	 * UI5's calendar does for the greyed-out days of the next month. Playwright waits for such an
+	 * element to become enabled, so the replay must click without that check.
+	 */
+	force?: boolean;
 	/** Why the step needs a look, e.g. the selector matches several controls. */
 	problem?: string;
 	/** What was clicked, for the comment on steps that need a look. */
@@ -251,7 +257,8 @@ function recorderScript(binding: string) {
 			if (!event.isTrusted || event.button !== 0) return;
 			if (!(target instanceof Element) || !watched(target)) return;
 			const entry = prepared.get(target) ?? prepare(target);
-			const step = { seq: ++seq, action: 'click', hint: hintFor(target) };
+			const force = target.closest('[aria-disabled="true"]') ? { force: true } : {};
+			const step = { seq: ++seq, action: 'click', hint: hintFor(target), ...force };
 			prepared.delete(target);
 			void entry.result.then((described) => report({ ...step, ...described }));
 		},
@@ -436,7 +443,8 @@ function stepLines(step: RecordedStep): string[] {
 		lines.push(`// ${step.action} was not recorded`);
 		return lines;
 	}
-	if (step.action === 'click') lines.push(`await ${locator}.click();`);
+	if (step.action === 'click')
+		lines.push(`await ${locator}.click(${step.force ? '{ force: true }' : ''});`);
 	if (step.action === 'fill') lines.push(`await ${locator}.fill(${quote(step.value ?? '')});`);
 	if (step.action === 'press') lines.push(`await ${locator}.press(${quote(step.key ?? '')});`);
 	return lines;

@@ -65,7 +65,7 @@ async function replay(
 	await page.goto(flow.url);
 	for (const step of steps) {
 		const control = stepLocator(page, step)!;
-		if (step.action === 'click') await control.click();
+		if (step.action === 'click') await control.click({ force: step.force });
 		if (step.action === 'fill') await control.fill(step.value!);
 		if (step.action === 'press') await control.press(step.key!);
 	}
@@ -153,7 +153,11 @@ test('masked fields and a calendar day are recorded and replay', async ({ browse
 		// The calendar's arrows and days are parts of controls, no controls of their own.
 		await clickLikeAPerson(page, byId(page, 'checkoutView--creditCardExpirationDate-icon'));
 		await clickLikeAPerson(page, page.getByRole('button', { name: 'Next Month' }));
-		await clickLikeAPerson(page, page.getByRole('gridcell').getByText('15', { exact: true }));
+		// A greyed-out day of the month after: UI5 marks it disabled and takes the click all the same.
+		const otherMonth = page.locator('.sapUiCalItemOtherMonth[aria-disabled="true"]').last();
+		await otherMonth.hover({ force: true });
+		await recorderIdle(page);
+		await otherMonth.click({ force: true });
 		await expect(byId(page, 'checkoutView--creditCardExpirationDate-inner')).not.toHaveValue('');
 
 		await clickLikeAPerson(page, byId(page, 'checkoutView--creditCardStep-nextButton'));
@@ -163,6 +167,7 @@ test('masked fields and a calendar day are recorded and replay', async ({ browse
 	const typed = steps.filter((step) => step.action === 'fill').map((step) => step.value);
 	expect(typed).toEqual(['Screen clean', 'Jane Doe', '1234-5678-9012-3456', '123']);
 	expect(needingALook(steps)).toEqual([]);
+	expect(steps.filter((step) => step.force)).toHaveLength(1);
 
 	await replay(browser, cartDemo, steps, async (page) => {
 		await expect(byId(page, 'checkoutView--invoiceStep')).toBeVisible();
@@ -174,7 +179,13 @@ test('the written spec: title, login from the environment, no click before a fil
 	const steps: RecordedStep[] = [
 		{ seq: 1, action: 'click', selector: field },
 		{ seq: 2, action: 'fill', selector: field, value: "O'Brien" },
-		{ seq: 3, action: 'click', sid: 'wnd[0]/tbar[1]/btn[8]', frames: ['iframe[name="app"]'] }
+		{ seq: 3, action: 'click', sid: 'wnd[0]/tbar[1]/btn[8]', frames: ['iframe[name="app"]'] },
+		{
+			seq: 4,
+			action: 'click',
+			selector: { id: 'app--cal', interaction: { idSuffix: '20261208' } },
+			force: true
+		}
 	];
 	expect(
 		renderSpec('https://sap.example.com/fiori', steps, '../../sap-plugin', {
@@ -190,6 +201,7 @@ test('the written spec: title, login from the environment, no click before a fil
 			`\tawait page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);`,
 			`\tawait page.locateUI5Control({ id: 'app--name', interaction: { idSuffix: 'inner' } }).fill('O\\'Brien');`,
 			`\tawait page.frameLocator('iframe[name="app"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();`,
+			`\tawait page.locateUI5Control({ id: 'app--cal', interaction: { idSuffix: '20261208' } }).click({ force: true });`,
 			`});`,
 			``
 		].join('\n')
