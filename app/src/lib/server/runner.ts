@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { keychainEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
-import { childEnv, playwrightCommand } from './node-cli.js';
+import { childEnv, playwrightCommand, playwrightNode } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 import { ANSI, applyEvent, PREFIX, recount, type ReporterEvent } from './run-events.js';
 import { markLive, pruneRuns, readRunState, rememberFinished } from './runs-store.js';
@@ -73,6 +73,8 @@ export async function startRun(
 		join(dir, 'results')
 	];
 	const command = playwrightCommand(args);
+	// On the wrong Node a single-test run fails with a bare "No tests found"; say why up front.
+	const nodeWarning = playwrightNode().warning;
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
 		env: childEnv({
@@ -96,7 +98,7 @@ export async function startRun(
 			grep: input.grep,
 			stats: { total: 0, passed: 0, failed: 0, skipped: 0 },
 			tests: [],
-			log: [`$ playwright ${args.join(' ')}`],
+			log: [`$ playwright ${args.join(' ')}`, ...(nodeWarning ? [`Warning: ${nodeWarning}`] : [])],
 			hasReport: false
 		}
 	};
@@ -105,6 +107,7 @@ export async function startRun(
 	persist(live);
 
 	const logFile = join(dir, 'output.log');
+	if (nodeWarning) appendFileSync(logFile, `Warning: ${nodeWarning}\n`);
 	const onLine = (raw: string) => {
 		if (raw.startsWith(PREFIX)) {
 			try {

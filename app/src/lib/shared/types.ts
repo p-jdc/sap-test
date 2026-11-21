@@ -164,4 +164,6 @@ export interface EnvStatus {
 	vars: { name: SettingName; set: boolean; source?: SettingSource }[];
 	playwrightVersion?: string;
 	playwrightSap: boolean;
+	/** The Node that runs Playwright; `warning` is set when it is not the supported major. */
+	node: { path: string; version: string | null; warning: string | null };
 }

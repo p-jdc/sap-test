@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { playwrightNode } from './node-cli.js';
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
@@ -131,6 +132,7 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 			return { name, set: source !== undefined, source };
 		}),
 		playwrightVersion,
-		playwrightSap
+		playwrightSap,
+		node: playwrightNode()
 	};
 }
