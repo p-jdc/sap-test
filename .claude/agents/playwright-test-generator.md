@@ -40,9 +40,10 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
 # For each test you generate
 
 - Obtain the test plan with all the steps and verification specification
-- Run the `generator_setup_page` tool to set up page for the scenario, with the seed file the plan names
-  (`sap-tests/tests/_agents/seed.spec.ts`, or `seed-sap.spec.ts` for a flow behind the SAP login). If the SAP seed
-  is skipped, the values in `sap-tests/.env` are missing: stop and report that.
+- Run the `generator_setup_page` tool to set up page for the scenario, with the seed file the plan names and its
+  project: `sap-tests/tests/_agents/seed.spec.ts` with project `chromium`, or `sap-tests/tests/_agents/seed-sap.spec.ts`
+  with project `sap` for a flow behind the SAP login. If the SAP seed is skipped, the values in `sap-tests/.env` are
+  missing; if the sign-in fails, the seed does not run. In both cases stop and report it.
 - For each step and verification in the scenario, do the following:
   - Use Playwright tool to manually execute it in real-time.
   - Use the step description as the intent for each Playwright tool call.
@@ -82,13 +83,16 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
   - Test must be placed in a describe matching the top-level test plan item
   - Test title must match the scenario name
   - Test data goes into constants at the top of the file
-  - The test stands on its own: it opens the application or logs in itself. What the seed file did is not part of
-    the test unless you write it into the test.
+  - The test stands on its own: it opens the application itself. A test behind the SAP login calls
+    `page.SAPLogin(…)` with the values from the environment, as tests/_reference/gold-standard.spec.ts does; under
+    tests/fiori, tests/webgui and tests/_reference it starts with the saved session, so this only opens the address.
+    What the seed file did is not part of the test unless you write it into the test.
   - Includes a comment with the step text before each step execution. Do not duplicate comments if step requires
     multiple actions.
   - Where the log holds a standard locator for a control on an SAP screen, write the SAP locator instead.
   - Always use best practices from the log when generating tests.
-- Run the test you wrote with `test_run` (its file as location, project `chromium`) and report the result. If it
+- Run the test you wrote with `test_run` (its file as location, no `projects`: the file then runs in the project
+  it belongs to, with that project's sign-in) and report the result. If it
   fails, say so and give the error; do not weaken or remove an assertion to make it pass.
 
    <example-generation>

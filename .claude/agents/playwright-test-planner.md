@@ -30,11 +30,14 @@ Read `sap-tests/CLAUDE.md` before you start. Where it and this file disagree, `s
 You will:
 
 1. **Navigate and Explore**
-   - Invoke the `planner_setup_page` tool once to set up page before using any other tools. Pass a `seedFile`:
-     - `sap-tests/tests/_agents/seed.spec.ts` for an application that needs no SAP login (public pages, Ariba). The
-       page starts empty; open the address you were given with `browser_navigate`.
-     - `sap-tests/tests/_agents/seed-sap.spec.ts` for a flow behind the SAP login (Fiori launchpad, WebGUI). It logs
-       in with the values from `sap-tests/.env`. If it is skipped, those values are missing: stop and report that.
+   - Invoke the `planner_setup_page` tool once to set up page before using any other tools. Pass a `seedFile` and
+     its `project`:
+     - `sap-tests/tests/_agents/seed.spec.ts`, project `chromium`, for an application that needs no SAP login (public
+       pages, Ariba). The page starts empty; open the address you were given with `browser_navigate`.
+     - `sap-tests/tests/_agents/seed-sap.spec.ts`, project `sap`, for a flow behind the SAP login (Fiori launchpad,
+       WebGUI). The project's setup signs in with the values from `sap-tests/.env` first, and the page starts signed
+       in. If the seed is skipped, those values are missing; if the sign-in fails, the seed does not run. In both
+       cases stop and report it.
    - Explore the browser snapshot
    - Do not take screenshots unless absolutely necessary
    - Use `browser_*` tools to navigate and discover interface

@@ -23,8 +23,11 @@ if (odataMock)
 
 // Tests that start with a saved session (sap-plugin/session.ts). Their setup project signs in once
 // per run without a trace and runs only when a selected test needs it. tests/fiori/demokit opens
-// SAP's public demo apps and needs no sign-in.
-const SAP_TESTS = /[\\/]tests[\\/](fiori(?![\\/]demokit[\\/])|webgui|_reference)[\\/]/;
+// SAP's public demo apps and needs no sign-in. The test agents' SAP seed starts signed in too.
+const SAP_TESTS = [
+	/[\\/]tests[\\/](fiori(?![\\/]demokit[\\/])|webgui|_reference)[\\/]/,
+	/[\\/]tests[\\/]_agents[\\/]seed-sap\.spec\.ts$/
+];
 const ARIBA_TESTS = /[\\/]tests[\\/]ariba[\\/]/;
 const browser = { ...devices['Desktop Chrome'] };
 // The password is typed only in the setup projects: no trace (it would record the filled field
@@ -56,6 +59,9 @@ export default defineConfig<SapOptions>({
 	projects: [
 		{ name: 'sap-sign-in', testDir: './setup', testMatch: 'sap.setup.ts', use: signIn },
 		{ name: 'ariba-sign-in', testDir: './setup', testMatch: 'ariba.setup.ts', use: signIn },
+		// First of the projects no other one depends on: the test agents' MCP server uses it when a
+		// tool call names no project.
+		{ name: 'chromium', testIgnore: [...SAP_TESTS, ARIBA_TESTS], use: browser },
 		{
 			name: 'sap',
 			testMatch: SAP_TESTS,
@@ -67,7 +73,6 @@ export default defineConfig<SapOptions>({
 			testMatch: ARIBA_TESTS,
 			dependencies: ['ariba-sign-in'],
 			use: { ...browser, sapSession: 'ariba' }
-		},
-		{ name: 'chromium', testIgnore: [SAP_TESTS, ARIBA_TESTS], use: browser }
+		}
 	]
 });
