@@ -36,6 +36,22 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Die Clients unter odata/clients nie von Hand ändern und nicht einchecken. Sie werden bei jedem `bun install` (oder mit `bun run odata:generate`) aus odata/metadata erzeugt.
 - Neue API-Tests müssen auch gegen den lokalen Mock laufen (`bun run test:api:mock`). Fehlende Testdaten unter odata/mock/data ergänzen.
 
+## Was abgedeckt sein muss
+
+Jeder kritische Geschäftsablauf braucht Tests für diese Fälle. Beim Schreiben eines Tests prüfen, welche Fälle für den Ablauf noch fehlen, und sie melden.
+
+1. Smoke: Anmeldung je Testbenutzer, Launchpad lädt, jede kritische App und Transaktion öffnet ihr erstes Bild.
+2. Prozesskette statt Einzelbild: z. B. Auftrag → Lieferung → Warenausgang → Faktura oder Bestellanforderung → Bestellung → Wareneingang → Rechnung. Belegnummer aus der Erfolgsmeldung lesen, den Beleg in der Anzeige öffnen (VA03, ME23N) und Belegfluss und gespeicherte Werte prüfen.
+3. Berechtigungen: Ein Benutzer mit der Rolle kann den Schritt ausführen, ein Benutzer ohne sie erhält eine Berechtigungsmeldung. Je Rolle mindestens zwei Testbenutzer.
+4. Negativfälle: Pflichtfeld leer, ungültiger Wert, gesperrter Kunde oder Lieferant, Kreditlimit überschritten, Material nicht im Werk angelegt, kein Bestand. Den Meldungstyp prüfen (E/W/S in der WebGUI-Statusleiste, MessageStrip oder MessageBox in Fiori), wenn möglich die Meldungsnummer statt des Texts.
+5. Benutzereinstellungen: Datums- und Zahlenformat aus SU01, Währungen mit 0 oder 3 Nachkommastellen (JPY, KWD), Mengeneinheiten, Anmeldesprache.
+6. Sperren und Entwürfe: Eine zweite Sitzung auf demselben Objekt erhält "gesperrt durch Benutzer …". In Fiori Elements: Entwurf anlegen, verwerfen, fortsetzen und von einem anderen Benutzer gesperrt; der Hinweis auf ungesicherte Änderungen (`page.ui5HasPendingChanges`).
+7. OData: Ein Changeset im `$batch` ist atomar (schlägt eine Operation fehl, wird keine ausgeführt), ein veraltetes ETag liefert 412, Fehlerantworten haben das erwartete Format, `$filter` und `$expand` mit leerem Ergebnis, Paging mit `$top` und `$skip`.
+8. Zeitabhängiges: geschlossene Buchungsperiode, Geschäftsjahreswechsel, Fabrikkalender, Gültigkeit von Preisen und Konditionen. Datumswerte im Test ausdrücklich setzen, nicht vom Lauftag abhängen.
+9. Asynchrone Schritte: IDoc (tRFC mit SNC), Ausgabe (Druck, E-Mail), Workflow-Freigaben, Hintergrundjobs. Auf den Status warten (z. B. IDoc-Status 53, Workitem erledigt).
+
+Die meisten SAP-Belege lassen sich nicht löschen, nur stornieren. `undo` in `cleanup` storniert dann den Beleg (z. B. VF11, MBST, FB08). Solche Tests laufen nur im Testmandanten mit eigenen Nummernkreisen.
+
 ## Beim Reparieren eines fehlgeschlagenen Tests
 
 - Zuerst den Trace öffnen und die Ursache nennen, dann Code ändern.
