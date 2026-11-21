@@ -130,6 +130,8 @@ export interface RunState extends RunMeta {
 	tests: RunTest[];
 	log: string[];
 	hasReport: boolean;
+	/** The report, screenshots, videos and traces of this run were deleted to save space. */
+	artifactsRemoved?: boolean;
 }
 
 export interface StabilityRow {

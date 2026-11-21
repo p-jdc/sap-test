@@ -121,6 +121,12 @@
 	{#if error}
 		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 	{/if}
+	{#if run.artifactsRemoved}
+		<ui5-message-strip design="Information" hide-close-button>
+			The report, screenshots, videos and traces of this run were removed to save space. Its results
+			are kept.
+		</ui5-message-strip>
+	{/if}
 
 	<div class="grid summary">
 		<ui5-card>
