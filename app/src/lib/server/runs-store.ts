@@ -1,5 +1,8 @@
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { and, asc, count, desc, eq, gte, isNotNull, lt, notInArray, or, sql } from 'drizzle-orm';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { database, type AppDatabase } from './db/database.js';
+import { run, runTest } from './db/schema.js';
 import { RUNS_DIR, within } from './paths.js';
 import { decide, retentionFromEnv, type Retention } from './retention.js';
 import {
@@ -8,48 +11,13 @@ import {
 	type RunMeta,
 	type RunState,
 	type RunTest,
-	type StabilityRow,
-	type TestStatus
+	type StabilityRow
 } from '#lib/shared/types.js';
 
-// A finished run never changes, so what was read from its files is kept. The history can grow to
-// thousands of runs: the small parts (meta, test results) are kept for all of them, the full state
-// with every step only for the runs opened last.
-const metas = new Map<string, RunMeta>();
-const results = new Map<string, TestResult[]>();
-const finished = new Map<string, RunState>();
-const FULL_STATES = 20;
+// The run history is kept in the app's database (db/runs-schema.ts): one row per run and one per
+// test of a finished run. The log, the Playwright report, screenshots, videos and traces stay files
+// in the run's directory, <data dir>/runs/<id>.
 
-/** What the stability table and the retention rules need from one test of one run. */
-type TestResult = {
-	key: string;
-	file: string;
-	title: string;
-	status?: TestStatus;
-	/** A sign-in, which is no flow. */
-	setup?: boolean;
-	/** Where the test failed (`file:line`). */
-	failedAt?: string;
-};
-
-function forget(id: string) {
-	metas.delete(id);
-	results.delete(id);
-	finished.delete(id);
-}
-
-function remember(state: RunState) {
-	finished.delete(state.id);
-	finished.set(state.id, state);
-	// A Map keeps insertion order, so its first key is the state used longest ago.
-	const [oldest] = finished.keys();
-	if (finished.size > FULL_STATES && oldest !== undefined) finished.delete(oldest);
-}
-
-/** Marks a run whose report, screenshots, videos and traces were deleted (applyRetention). */
-const ARTIFACTS_REMOVED = 'artifacts-removed';
-/** Marks a run that has lost the steps and error messages of all its tests, and its log. */
-const DETAILS_REMOVED = 'details-removed';
 /** Stands in for an error message that was removed; where the test failed is kept. */
 const ERROR_REMOVED = 'The error message was removed to save space.';
 
@@ -62,49 +30,196 @@ export function markLive(id: string) {
 
 export function rememberFinished(id: string) {
 	if (liveId === id) liveId = null;
-	forget(id);
 }
 
 /**
  * A run stored as "running" that this process is not executing was cut off (the app stopped or
  * crashed mid-run) and will never finish, so it is shown as interrupted.
  */
-function settle<T extends RunMeta>(run: T): T {
-	return run.status === 'running' && run.id !== liveId ? { ...run, status: 'interrupted' } : run;
+function settle<T extends RunMeta>(meta: T): T {
+	return meta.status === 'running' && meta.id !== liveId
+		? { ...meta, status: 'interrupted' }
+		: meta;
 }
 
-/** meta.json / state.json are written by runner.ts in this app, so their shape is trusted. */
-function readRunFile(path: string): unknown {
+type RunRow = typeof run.$inferSelect;
+
+function toMeta(row: RunRow): RunMeta {
+	return settle({
+		id: row.id,
+		startedAt: row.startedAt.toISOString(),
+		...(row.finishedAt ? { finishedAt: row.finishedAt.toISOString(), exitCode: row.exitCode } : {}),
+		status: row.status,
+		files: row.files,
+		...(row.grep === null ? {} : { grep: row.grep }),
+		stats: { total: row.total, passed: row.passed, failed: row.failed, skipped: row.skipped }
+	});
+}
+
+/** Where a test failed (`file:line`), to tell a repeated failure from a new one. */
+const failedAt = (t: RunTest) => t.error && `${t.error.file ?? ''}:${t.error.line ?? ''}`;
+
+/** Rows per insert: SQLite limits the values of one statement. */
+const CHUNK = 500;
+
+function writeRun(db: AppDatabase, state: RunState, removed: { artifacts?: Date; details?: Date }) {
+	const values = {
+		startedAt: new Date(state.startedAt),
+		finishedAt: state.finishedAt ? new Date(state.finishedAt) : null,
+		status: state.status,
+		files: state.files,
+		grep: state.grep ?? null,
+		...state.stats,
+		exitCode: state.exitCode ?? null
+	};
+	db.transaction((tx) => {
+		tx.insert(run)
+			.values({
+				id: state.id,
+				...values,
+				artifactsRemovedAt: removed.artifacts ?? null,
+				detailsRemovedAt: removed.details ?? null
+			})
+			.onConflictDoUpdate({ target: run.id, set: values })
+			.run();
+		tx.delete(runTest).where(eq(runTest.runId, state.id)).run();
+		const rows = state.tests.map((t, position) => ({
+			runId: state.id,
+			position,
+			key: t.key,
+			file: t.file,
+			title: t.title,
+			status: t.status ?? null,
+			setup: t.setup === true,
+			failedAt: failedAt(t) ?? null,
+			detailsRemoved: t.detailsRemoved === true,
+			result: t
+		}));
+		for (let i = 0; i < rows.length; i += CHUNK)
+			tx.insert(runTest)
+				.values(rows.slice(i, i + CHUNK))
+				.run();
+	});
+}
+
+/** The files a run was kept in before the database. Their shape was written by this app. */
+const OLD_FILES = [
+	'state.json',
+	'meta.json',
+	'results.json',
+	'artifacts-removed',
+	'details-removed'
+];
+
+/** A file of an old run, or null when it is missing or cut off (the app stopped while writing). */
+function readOldFile(dir: string, name: string): unknown {
 	try {
-		return JSON.parse(readFileSync(path, 'utf8'));
+		return JSON.parse(readFileSync(join(dir, name), 'utf8'));
 	} catch {
 		return null;
 	}
 }
 
-function readMeta(path: string): RunMeta | null {
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
-	return readRunFile(path) as RunMeta | null;
+/** What results.json kept of each test: enough for the list and the reliability table. */
+type OldResult = Pick<RunTest, 'key' | 'file' | 'title' | 'status' | 'setup'> & {
+	failedAt?: string;
+};
+
+/**
+ * An old run from its state.json; when that is missing or cut off, from meta.json with the tests
+ * from results.json (without steps).
+ */
+function readOldRun(dir: string): RunState | null {
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const state = readOldFile(dir, 'state.json') as RunState | null;
+	if (state) return state;
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const meta = readOldFile(dir, 'meta.json') as Omit<RunState, 'tests'> | null;
+	if (!meta) return null;
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
+	const results = (readOldFile(dir, 'results.json') as OldResult[] | null) ?? [];
+	const tests = results.map((r): RunTest => {
+		const [file, line] = r.failedAt?.split(':') ?? [];
+		const test: RunTest = {
+			testId: r.key,
+			key: r.key,
+			file: r.file,
+			title: r.title,
+			line: 0,
+			steps: [],
+			attachments: []
+		};
+		if (r.status) test.status = r.status;
+		if (r.setup) test.setup = true;
+		if (r.failedAt) test.error = { message: '', file, line: Number(line) || undefined };
+		return test;
+	});
+	return { ...meta, tests };
 }
 
-function readState(path: string): RunState | null {
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
-	return readRunFile(path) as RunState | null;
+/**
+ * Moves the runs kept in files (state.json and meta.json, before the database) into it, once at
+ * the first use. The files are deleted afterwards: the retention rules delete steps and error
+ * messages in the database only, so a copy left in a file would outlive them.
+ */
+function importOldRuns(db: AppDatabase) {
+	if (!existsSync(RUNS_DIR)) return;
+	const known = new Set(
+		db
+			.select({ id: run.id })
+			.from(run)
+			.all()
+			.map((r) => r.id)
+	);
+	let imported = 0;
+	for (const id of readdirSync(RUNS_DIR)) {
+		const dir = within(RUNS_DIR, id);
+		if (!dir || dir === RUNS_DIR || known.has(id)) continue;
+		try {
+			const state = readOldRun(dir);
+			if (!state) continue;
+			const when = (marker: string) =>
+				existsSync(join(dir, marker))
+					? new Date(readFileSync(join(dir, marker), 'utf8').trim() || Date.now())
+					: undefined;
+			writeRun(db, state, {
+				artifacts: when('artifacts-removed'),
+				details: when('details-removed')
+			});
+			for (const name of OLD_FILES) rmSync(join(dir, name), { force: true });
+			imported += 1;
+		} catch (e) {
+			console.error(`Could not move run ${id} into the database:`, e);
+		}
+	}
+	if (imported > 0) console.log(`Moved ${imported} runs from files into the database.`);
 }
+
+let ready = false;
+
+function history(): AppDatabase {
+	const opened = database();
+	if (!ready) {
+		ready = true;
+		importOldRuns(opened);
+	}
+	return opened;
+}
+
+/** Stores a run: at its start, and with its tests when it has finished. Called by runner.ts. */
+export function saveRun(state: RunState) {
+	writeRun(history(), state, {});
+}
+
+const newestFirst = [desc(run.startedAt), desc(run.id)];
 
 export function listRuns(): RunMeta[] {
-	if (!existsSync(RUNS_DIR)) return [];
-	return readdirSync(RUNS_DIR)
-		.map((id) => {
-			const hit = metas.get(id);
-			if (hit) return hit;
-			const stored = readMeta(join(RUNS_DIR, id, 'meta.json'));
-			const meta = stored && settle(stored);
-			if (meta && meta.status !== 'running') metas.set(id, meta);
-			return meta;
-		})
-		.filter((m): m is RunMeta => m !== null)
-		.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
+	return history()
+		.select()
+		.from(run)
+		.orderBy(...newestFirst)
+		.all()
+		.map((r) => toMeta(r));
 }
 
 /**
@@ -115,96 +230,95 @@ export function runsPage(
 	before?: string,
 	size = RUNS_PER_PAGE
 ): { runs: RunMeta[]; total: number } {
-	const all = listRuns();
-	const start = before === undefined ? 0 : all.findIndex((run) => run.id === before) + 1;
-	// An unknown `before` (the run was deleted meanwhile) has no page after it.
-	const runs = before !== undefined && start === 0 ? [] : all.slice(start, start + size);
-	return { runs, total: all.length };
+	const d = history();
+	const total = d.select({ n: count() }).from(run).get()?.n ?? 0;
+	let after;
+	if (before !== undefined) {
+		const anchor = d.select({ startedAt: run.startedAt }).from(run).where(eq(run.id, before)).get();
+		// An unknown `before` (the run was deleted meanwhile) has no page after it.
+		if (!anchor) return { runs: [], total };
+		after = or(
+			lt(run.startedAt, anchor.startedAt),
+			and(eq(run.startedAt, anchor.startedAt), lt(run.id, before))
+		);
+	}
+	const runs = d
+		.select()
+		.from(run)
+		.where(after)
+		.orderBy(...newestFirst)
+		.limit(size)
+		.all()
+		.map((r) => toMeta(r));
+	return { runs, total };
 }
 
 export function readRunState(id: string): RunState | null {
 	const dir = within(RUNS_DIR, id);
-	if (!dir) return null;
-	const hit = finished.get(id);
-	if (hit) {
-		remember(hit);
-		return hit;
-	}
-	const state = readState(join(dir, 'state.json'));
-	if (!state) return null;
-	if (existsSync(join(dir, ARTIFACTS_REMOVED))) {
+	if (!dir || dir === RUNS_DIR) return null;
+	const d = history();
+	const row = d.select().from(run).where(eq(run.id, id)).get();
+	if (!row) return null;
+	const tests = d
+		.select({ result: runTest.result })
+		.from(runTest)
+		.where(eq(runTest.runId, id))
+		.orderBy(asc(runTest.position))
+		.all()
+		.map((t) => t.result);
+	if (row.artifactsRemovedAt) {
 		// The files the attachments point at are gone.
-		state.artifactsRemoved = true;
-		for (const t of state.tests) t.attachments = [];
+		for (const t of tests) t.attachments = [];
 	}
 	const log = existsSync(join(dir, 'output.log'))
 		? readFileSync(join(dir, 'output.log'), 'utf8').split('\n').slice(-400)
 		: [];
-	const full = settle({ ...state, log, hasReport: existsSync(join(dir, 'report/index.html')) });
-	if (full.status !== 'running') remember(full);
-	return full;
-}
-
-/** A run's test results without steps and log: small enough to read for every run at a start. */
-const RESULTS_FILE = 'results.json';
-
-function summarize(tests: RunTest[]): TestResult[] {
-	return tests.map(({ key, file, title, status, setup, error }): TestResult => ({
-		key,
-		file,
-		title,
-		status,
-		setup,
-		failedAt: error && `${error.file ?? ''}:${error.line ?? ''}`
-	}));
-}
-
-/** Stores the results of a run that has finished next to its state. Called by runner.ts. */
-export function writeResults(dir: string, tests: RunTest[]) {
-	writeFileSync(join(dir, RESULTS_FILE), JSON.stringify(summarize(tests)));
-}
-
-/**
- * The results of a finished run's tests, read once per run. A run from before the results file
- * existed is read from its full state once, and gets the file then.
- */
-function testResults(id: string): TestResult[] {
-	const hit = results.get(id);
-	if (hit) return hit;
-	const dir = join(RUNS_DIR, id);
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
-	let found = readRunFile(join(dir, RESULTS_FILE)) as TestResult[] | null;
-	if (!found) {
-		const state = readState(join(dir, 'state.json'));
-		found = summarize(state?.tests ?? []);
-		if (state) writeFileSync(join(dir, RESULTS_FILE), JSON.stringify(found));
-	}
-	results.set(id, found);
-	return found;
+	return {
+		...toMeta(row),
+		tests,
+		log,
+		hasReport: existsSync(join(dir, 'report/index.html')),
+		...(row.artifactsRemovedAt ? { artifactsRemoved: true } : {})
+	};
 }
 
 /** Pilot exit criterion (guide §4.8): ten consecutive passes per flow. */
 export const PILOT_STREAK = 10;
 
 export function stability(): StabilityRow[] {
+	const results = history()
+		.select({
+			runId: runTest.runId,
+			key: runTest.key,
+			file: runTest.file,
+			title: runTest.title,
+			status: runTest.status
+		})
+		.from(runTest)
+		.innerJoin(run, eq(run.id, runTest.runId))
+		.where(
+			and(
+				// A sign-in is no flow.
+				eq(runTest.setup, false),
+				// A test that was skipped or cut off by stopping the run says nothing about the flow.
+				isNotNull(runTest.status),
+				notInArray(runTest.status, ['skipped', 'interrupted'])
+			)
+		)
+		.orderBy(asc(run.startedAt), asc(run.id))
+		.all();
 	const rows = new Map<string, StabilityRow>();
-	for (const meta of listRuns().toReversed()) {
-		if (meta.status === 'running') continue;
-		for (const t of testResults(meta.id)) {
-			// A sign-in is no flow.
-			if (t.setup) continue;
-			// A test that was skipped or cut off by stopping the run says nothing about the flow.
-			if (!t.status || t.status === 'skipped' || t.status === 'interrupted') continue;
-			const row = rows.get(t.key) ?? {
-				key: t.key,
-				file: t.file,
-				title: t.title,
-				history: [],
-				streak: 0
-			};
-			row.history.push({ runId: meta.id, status: t.status });
-			rows.set(t.key, row);
-		}
+	for (const t of results) {
+		if (!t.status) continue;
+		const row = rows.get(t.key) ?? {
+			key: t.key,
+			file: t.file,
+			title: t.title,
+			history: [],
+			streak: 0
+		};
+		row.history.push({ runId: t.runId, status: t.status });
+		rows.set(t.key, row);
 	}
 	for (const row of rows.values()) {
 		row.lastStatus = row.history.at(-1)?.status;
@@ -217,37 +331,61 @@ export function stability(): StabilityRow[] {
 }
 
 /**
+ * Clears the write-ahead log once rows were deleted or details removed: it still holds the earlier
+ * versions of the changed pages. The pages in the database file itself are overwritten as they are
+ * freed (secure_delete, db/database.ts).
+ */
+function dropDeleted() {
+	history().run(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
+}
+
+/** Deletes a run's directory and its rows. */
+function deleteRun(id: string): boolean {
+	const dir = within(RUNS_DIR, id);
+	if (!dir || dir === RUNS_DIR || id === liveId) return false;
+	rmSync(dir, { recursive: true, force: true });
+	history().delete(run).where(eq(run.id, id)).run();
+	return true;
+}
+
+/**
  * Deletes the oldest finished runs beyond TEST_APP_KEEP_RUNS. Off unless that is set to a positive
  * number: run history is the evidence for the pilot criterion, so nothing is deleted by default.
  */
 export function pruneRuns(keep = Number(process.env.TEST_APP_KEEP_RUNS)): string[] {
 	if (!Number.isInteger(keep) || keep < 1) return [];
-	const removed: string[] = [];
-	for (const run of listRuns().slice(keep)) {
-		const dir = within(RUNS_DIR, run.id);
-		if (!dir || dir === RUNS_DIR || run.id === liveId) continue;
-		rmSync(dir, { recursive: true, force: true });
-		forget(run.id);
-		removed.push(run.id);
-	}
+	const removed = listRuns()
+		.slice(keep)
+		.map((r) => r.id)
+		.filter((id) => deleteRun(id));
+	if (removed.length > 0) dropDeleted();
 	return removed;
 }
 
-/** Removes the steps and error messages of the tests not in `keep`. True when the file changed. */
-function removeDetails(dir: string, keep: Set<string>): boolean {
-	const file = join(dir, 'state.json');
-	const state = readState(file);
-	if (!state) return false;
-	let changed = false;
-	for (const t of state.tests) {
-		if (keep.has(t.key) || t.detailsRemoved) continue;
-		t.steps = [];
-		if (t.error) t.error = { ...t.error, message: ERROR_REMOVED };
-		t.detailsRemoved = true;
-		changed = true;
-	}
-	if (changed) writeFileSync(file, JSON.stringify(state));
-	return changed;
+/** Removes the steps and error messages of the run's tests not in `keep`. True when one changed. */
+function removeDetails(id: string, keep: Set<string>): boolean {
+	const d = history();
+	const tests = d
+		.select({ position: runTest.position, key: runTest.key, result: runTest.result })
+		.from(runTest)
+		.where(and(eq(runTest.runId, id), eq(runTest.detailsRemoved, false)))
+		.all()
+		.filter((t) => !keep.has(t.key));
+	d.transaction((tx) => {
+		for (const t of tests) {
+			const result: RunTest = {
+				...t.result,
+				steps: [],
+				...(t.result.error ? { error: { ...t.result.error, message: ERROR_REMOVED } } : {}),
+				detailsRemoved: true
+			};
+			tx.update(runTest)
+				.set({ result, detailsRemoved: true })
+				.where(and(eq(runTest.runId, id), eq(runTest.position, t.position)))
+				.run();
+		}
+	});
+	return tests.length > 0;
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -262,46 +400,73 @@ export function applyRetention(
 	policy: Retention | null = retentionFromEnv()
 ): string[] {
 	if (!policy) return [];
-	const runs = listRuns()
-		.filter((run) => run.status !== 'running')
-		.toReversed();
+	const d = history();
+	const runs = d
+		.select()
+		.from(run)
+		.orderBy(asc(run.startedAt), asc(run.id))
+		.all()
+		.filter((r) => toMeta(r).status !== 'running');
 	// A run older than every limit keeps nothing and cannot matter to a younger one, so its tests
 	// are not read.
-	const oldest = now - Math.max(policy.reportDays, policy.stepsDays, policy.failureDays) * DAY;
+	const oldest = new Date(
+		now - Math.max(policy.reportDays, policy.stepsDays, policy.failureDays) * DAY
+	);
+	const tests = new Map<string, { key: string; status?: RunTest['status']; failedAt?: string }[]>();
+	for (const t of d
+		.select({
+			runId: runTest.runId,
+			key: runTest.key,
+			status: runTest.status,
+			failedAt: runTest.failedAt
+		})
+		.from(runTest)
+		.innerJoin(run, eq(run.id, runTest.runId))
+		.where(gte(run.startedAt, oldest))
+		.orderBy(asc(runTest.position))
+		.all()) {
+		const list = tests.get(t.runId) ?? [];
+		list.push({
+			key: t.key,
+			...(t.status ? { status: t.status } : {}),
+			...(t.failedAt ? { failedAt: t.failedAt } : {})
+		});
+		tests.set(t.runId, list);
+	}
 	const decisions = decide(
-		runs.map((run) => ({
-			id: run.id,
-			startedAt: run.startedAt,
-			tests: Date.parse(run.startedAt) < oldest ? [] : testResults(run.id)
+		runs.map((r) => ({
+			id: r.id,
+			startedAt: r.startedAt.toISOString(),
+			tests: tests.get(r.id) ?? []
 		})),
 		now,
 		policy
 	);
 	const changed: string[] = [];
-	for (const run of runs) {
-		const dir = within(RUNS_DIR, run.id);
-		const decision = decisions.get(run.id);
+	for (const r of runs) {
+		const dir = within(RUNS_DIR, r.id);
+		const decision = decisions.get(r.id);
 		if (!dir || dir === RUNS_DIR || !decision) continue;
 		let touched = false;
-		if (!decision.artifacts && !existsSync(join(dir, ARTIFACTS_REMOVED))) {
+		const set: Partial<RunRow> = {};
+		if (!decision.artifacts && !r.artifactsRemovedAt) {
 			rmSync(join(dir, 'report'), { recursive: true, force: true });
 			rmSync(join(dir, 'results'), { recursive: true, force: true });
-			writeFileSync(join(dir, ARTIFACTS_REMOVED), new Date(now).toISOString());
+			set.artifactsRemovedAt = new Date(now);
 			touched = true;
 		}
-		if (decision.details !== 'all' && !existsSync(join(dir, DETAILS_REMOVED))) {
-			if (removeDetails(dir, decision.details)) touched = true;
+		if (decision.details !== 'all' && !r.detailsRemovedAt) {
+			if (removeDetails(r.id, decision.details)) touched = true;
 			if (!decision.log) rmSync(join(dir, 'output.log'), { force: true });
 			// Nothing left to remove later: the run is not read again.
 			if (decision.details.size === 0 && !decision.log) {
-				writeFileSync(join(dir, DETAILS_REMOVED), new Date(now).toISOString());
+				set.detailsRemovedAt = new Date(now);
 				touched = true;
 			}
 		}
-		if (touched) {
-			finished.delete(run.id);
-			changed.push(run.id);
-		}
+		if (Object.keys(set).length > 0) d.update(run).set(set).where(eq(run.id, r.id)).run();
+		if (touched) changed.push(r.id);
 	}
+	if (changed.length > 0) dropDeleted();
 	return changed;
 }

@@ -15,14 +15,14 @@ export type SecretStore = {
 const SERVICE = 'sap-test-lab';
 
 type Entry = { service: string; name: string };
-type BunSecrets = {
-	get(options: Entry): Promise<string | null>;
+export type BunSecrets = {
+	get(options: Entry): Promise<string | null | undefined>;
 	set(options: Entry & { value: string }): Promise<void>;
 	delete(options: Entry): Promise<boolean>;
 };
 
 function bunSecrets(): BunSecrets | null {
-	// The app's server runs on Bun, the unit tests on Node; `Bun` is not in the app's type roots.
+	// `Bun` is not in the app's type roots.
 	const bun: unknown = 'Bun' in globalThis ? globalThis.Bun : undefined;
 	if (typeof bun !== 'object' || bun === null || !('secrets' in bun)) return null;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Bun's API, typed above
@@ -31,8 +31,8 @@ function bunSecrets(): BunSecrets | null {
 
 const missing = () => new Error('The system credential store is not available here.');
 
-export function keychain(): SecretStore {
-	const secrets = bunSecrets();
+/** The system credential store; `secrets` is Bun's API, or a stand-in in tests. */
+export function keychain(secrets: BunSecrets | null = bunSecrets()): SecretStore {
 	return {
 		async get(name) {
 			try {

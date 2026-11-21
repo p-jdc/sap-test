@@ -1,16 +1,13 @@
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import { keychain } from './secret-store.js';
+import { describe, expect, test, vi } from 'vitest';
 
-afterEach(() => {
-	vi.unstubAllGlobals();
-});
+// The server tests replace this module with an empty store (src/test/server-setup.ts).
+const { keychain } = await vi.importActual<typeof import('./secret-store.js')>('./secret-store.js');
 
 const fail = () => Promise.reject(new Error('no keyring service'));
 
 describe('keychain', () => {
-	test('without Bun there is no store: reads are empty, writes say why', async () => {
-		vi.stubGlobal('Bun', null);
-		const store = keychain();
+	test('without a credential store there is none: reads are empty, writes say why', async () => {
+		const store = keychain(null);
 		expect(await store.available()).toBe(false);
 		expect(await store.get('SAP_URL')).toBeNull();
 		await expect(store.set('SAP_URL', 'x')).rejects.toThrow('not available');
@@ -19,19 +16,14 @@ describe('keychain', () => {
 
 	test("keeps every entry under the app's service name", async () => {
 		const entries = new Map<string, string>();
-		vi.stubGlobal('Bun', {
-			secrets: {
-				get: ({ service, name }: { service: string; name: string }) =>
-					Promise.resolve(entries.get(`${service}/${name}`)),
-				set: ({ service, name, value }: { service: string; name: string; value: string }) => {
-					entries.set(`${service}/${name}`, value);
-					return Promise.resolve();
-				},
-				delete: ({ service, name }: { service: string; name: string }) =>
-					Promise.resolve(entries.delete(`${service}/${name}`))
-			}
+		const store = keychain({
+			get: ({ service, name }) => Promise.resolve(entries.get(`${service}/${name}`)),
+			set: ({ service, name, value }) => {
+				entries.set(`${service}/${name}`, value);
+				return Promise.resolve();
+			},
+			delete: ({ service, name }) => Promise.resolve(entries.delete(`${service}/${name}`))
 		});
-		const store = keychain();
 		expect(await store.available()).toBe(true);
 		await store.set('SAP_PASSWORD', 'pw');
 		expect([...entries]).toEqual([['sap-test-lab/SAP_PASSWORD', 'pw']]);
@@ -41,8 +33,7 @@ describe('keychain', () => {
 	});
 
 	test('a store that cannot be reached reads as empty and unavailable', async () => {
-		vi.stubGlobal('Bun', { secrets: { get: fail, set: fail, delete: fail } });
-		const store = keychain();
+		const store = keychain({ get: fail, set: fail, delete: fail });
 		expect(await store.get('SAP_URL')).toBeNull();
 		expect(await store.available()).toBe(false);
 		await expect(store.set('SAP_URL', 'x')).rejects.toThrow('no keyring service');

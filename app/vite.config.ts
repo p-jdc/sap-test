@@ -72,8 +72,12 @@ export default defineConfig({
 			{
 				extends: './vite.config.ts',
 				test: {
+					// On Bun, like the app (`bun run test`): the database is Bun's built-in SQLite. Threads,
+					// since Bun cannot run Vitest's forked workers.
 					name: 'server',
 					environment: 'node',
+					pool: 'threads',
+					setupFiles: ['src/test/server-setup.ts'],
 					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
 				}

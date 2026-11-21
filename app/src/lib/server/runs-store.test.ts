@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -6,46 +6,54 @@ import { must } from '../../test/must.js';
 import type { RunState, TestStatus } from '#lib/shared/types.js';
 
 // paths.ts reads TEST_APP_DATA_DIR when it is first imported, so each test gets a fresh data
-// directory and a fresh copy of the store.
+// directory, with its own database, and a fresh copy of the store.
 let dataDir = '';
 let n = 0;
+type Store = typeof import('./runs-store.js');
+let current: Store;
 
-function freshStore() {
+async function freshStore(): Promise<Store> {
 	dataDir = mkdtempSync(join(tmpdir(), 'runs-store-'));
 	vi.stubEnv('TEST_APP_DATA_DIR', dataDir);
 	vi.resetModules();
-	return import('./runs-store.js');
+	current = await import('./runs-store.js');
+	return current;
 }
 
-/** Writes a run the way runner.ts does. Ids sort by creation order. */
-function writeRun(
-	results: Record<string, TestStatus>,
-	status: RunState['status'] = 'passed'
-): string {
+/** A run with one test per entry of `results`. Ids sort by creation order. */
+function runState(results: Record<string, TestStatus>, status: RunState['status']): RunState {
 	n += 1;
 	const id = `20260101-0000${String(n).padStart(2, '0')}-abcd`;
-	const dir = join(dataDir, 'runs', id);
-	mkdirSync(dir, { recursive: true });
-	const meta = {
+	return {
 		id,
 		startedAt: `2026-01-01T00:00:${String(n).padStart(2, '0')}.000Z`,
 		status,
 		files: [],
-		stats: { total: 0, passed: 0, failed: 0, skipped: 0 }
+		stats: { total: 0, passed: 0, failed: 0, skipped: 0 },
+		tests: Object.entries(results).map(([key, s]) => ({
+			testId: key,
+			key,
+			file: 'a.spec.ts',
+			title: key,
+			line: 1,
+			status: s,
+			steps: [],
+			attachments: []
+		})),
+		log: [],
+		hasReport: false
 	};
-	const tests = Object.entries(results).map(([key, s]) => ({
-		testId: key,
-		key,
-		file: 'a.spec.ts',
-		title: key,
-		line: 1,
-		status: s,
-		steps: [],
-		attachments: []
-	}));
-	writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
-	writeFileSync(join(dir, 'state.json'), JSON.stringify({ ...meta, tests }));
-	return id;
+}
+
+/** Stores a run the way runner.ts does, with its directory. */
+function writeRun(
+	results: Record<string, TestStatus>,
+	status: RunState['status'] = 'passed'
+): string {
+	const state = runState(results, status);
+	mkdirSync(join(dataDir, 'runs', state.id), { recursive: true });
+	current.saveRun(state);
+	return state.id;
 }
 
 beforeEach(() => {
@@ -94,21 +102,13 @@ describe('the reliability table at a long history', () => {
 		expect(row?.history.map((h) => h.runId)).toEqual(ids.slice(-15));
 	});
 
-	test('reads each run from a small results file, which older runs get on first use', async () => {
+	test('a sign-in is no flow', async () => {
 		const store = await freshStore();
-		const id = writeRun({ flow: 'failed', 'sign in': 'passed' }, 'failed');
-		const dir = join(dataDir, 'runs', id);
-		expect(store.stability()).toHaveLength(2);
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by the store
-		const stored = JSON.parse(readFileSync(join(dir, 'results.json'), 'utf8')) as unknown[];
-		expect(stored).toHaveLength(2);
-		expect(stored[0]).toEqual({ key: 'flow', file: 'a.spec.ts', title: 'flow', status: 'failed' });
-
-		// A fresh start no longer needs the full state for the table.
-		rmSync(join(dir, 'state.json'));
-		vi.resetModules();
-		const restarted = await import('./runs-store.js');
-		expect(restarted.stability().map((r) => r.key)).toEqual(['flow', 'sign in']);
+		const state = runState({ flow: 'passed', 'sign in': 'passed' }, 'passed');
+		const signIn = must(state.tests[1]);
+		signIn.setup = true;
+		store.saveRun(state);
+		expect(store.stability().map((r) => r.key)).toEqual(['flow']);
 	});
 });
 
@@ -207,17 +207,14 @@ const DAYS_LATER = (days: number) => Date.parse('2026-01-01T00:00:00.000Z') + da
 
 /** Gives the first test of a stored run a step, an error and an attachment. */
 function withDetails(id: string) {
-	const file = join(dataDir, 'runs', id, 'state.json');
-	// Written by writeRun above.
-	// oxlint-disable-next-line typescript/no-unsafe-type-assertion
-	const state = JSON.parse(readFileSync(file, 'utf8')) as RunState;
+	const state = must(current.readRunState(id));
 	const first = must(state.tests[0]);
 	first.steps = [{ stepId: 's1', title: 'Click', category: 'pw:api', startTime: '' }];
 	first.error = { message: 'Order 4711 not found', file: 'a.spec.ts', line: 7 };
 	first.attachments = [
 		{ name: 'trace', contentType: 'application/zip', path: 'results/test-a/trace.zip' }
 	];
-	writeFileSync(file, JSON.stringify(state));
+	current.saveRun(state);
 }
 
 describe('applyRetention', () => {
@@ -251,6 +248,13 @@ describe('applyRetention', () => {
 			error: { message: 'The error message was removed to save space.', line: 7 }
 		});
 		expect(JSON.stringify(state)).not.toContain('4711');
+		// Nor is it left readable in the database file or its write-ahead log.
+		const raw = ['app.sqlite', 'app.sqlite-wal']
+			.map((f) => join(dataDir, f))
+			.filter((f) => existsSync(f))
+			.map((f) => readFileSync(f, 'latin1'))
+			.join('');
+		expect(raw).not.toContain('Order 4711');
 		expect(store.readRunState(newest)?.artifactsRemoved).toBeUndefined();
 		expect(
 			store
@@ -317,35 +321,75 @@ describe('applyRetention', () => {
 	});
 });
 
-describe('a long history', () => {
-	test('finished runs are read from disk once, however often the list and the table are asked for', async () => {
+describe('a run that finishes', () => {
+	test('is stored running at its start and with its result at its end', async () => {
 		const store = await freshStore();
-		const ids = Array.from({ length: 30 }, () => writeRun({ flow: 'passed' }));
-		expect(store.listRuns()).toHaveLength(30);
-		expect(store.stability()[0]?.streak).toBe(30);
-		for (const id of ids) expect(store.readRunState(id)?.status).toBe('passed');
-
-		// With the files gone, anything still answered comes from memory.
-		for (const id of ids) {
-			rmSync(join(dataDir, 'runs', id, 'meta.json'));
-			rmSync(join(dataDir, 'runs', id, 'state.json'));
-		}
-		expect(store.listRuns()).toHaveLength(30);
-		expect(store.stability()[0]?.streak).toBe(30);
-		// The full state, with every step, is kept for the runs opened last only.
-		expect(store.readRunState(must(ids.at(-1)))).not.toBeNull();
-		expect(store.readRunState(must(ids[0]))).toBeNull();
-	});
-
-	test('a run that finishes is read again', async () => {
-		const store = await freshStore();
-		const id = writeRun({ flow: 'failed' }, 'running');
-		store.markLive(id);
+		const state = runState({ flow: 'failed' }, 'running');
+		const tests = state.tests;
+		store.saveRun({ ...state, tests: [] });
+		store.markLive(state.id);
 		expect(store.listRuns()[0]?.status).toBe('running');
-		const dir = join(dataDir, 'runs', id);
-		const meta = { ...store.listRuns()[0], status: 'passed' };
-		writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
-		store.rememberFinished(id);
-		expect(store.listRuns()[0]?.status).toBe('passed');
+		store.saveRun({ ...state, tests, status: 'failed', finishedAt: '2026-01-01T00:01:00.000Z' });
+		store.rememberFinished(state.id);
+		expect(store.listRuns()[0]).toMatchObject({ status: 'failed', exitCode: null });
+		expect(store.readRunState(state.id)?.tests.map((t) => t.status)).toEqual(['failed']);
+	});
+});
+
+/** Writes a run the way this app kept them before the database. */
+function writeOldRun(results: Record<string, TestStatus>, status: RunState['status'] = 'passed') {
+	const { log, hasReport, ...state } = runState(results, status);
+	void log;
+	void hasReport;
+	const { tests, ...meta } = state;
+	void tests;
+	const dir = join(dataDir, 'runs', state.id);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, 'state.json'), JSON.stringify(state));
+	writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
+	writeFileSync(join(dir, 'results.json'), '[]');
+	writeFileSync(join(dir, 'output.log'), 'line one\n');
+	return { id: state.id, dir };
+}
+
+describe('runs kept in files before the database', () => {
+	test('move into it once at the first use, and their files go', async () => {
+		dataDir = mkdtempSync(join(tmpdir(), 'runs-store-'));
+		const passed = writeOldRun({ flow: 'passed' });
+		const failed = writeOldRun({ flow: 'failed' }, 'failed');
+		writeFileSync(join(failed.dir, 'artifacts-removed'), '2026-02-01T00:00:00.000Z');
+		// The app stopped while writing this state.json: meta.json and results.json still tell.
+		const cut = writeOldRun({ flow: 'passed' });
+		writeFileSync(join(cut.dir, 'state.json'), '{"id":');
+		writeFileSync(
+			join(cut.dir, 'results.json'),
+			JSON.stringify([{ key: 'flow', file: 'a.spec.ts', title: 'flow', status: 'passed' }])
+		);
+		// A run that was cut off before its state was written has nothing to move.
+		mkdirSync(join(dataDir, 'runs', '20260101-000099-none'));
+		vi.stubEnv('TEST_APP_DATA_DIR', dataDir);
+		vi.resetModules();
+		const store = await import('./runs-store.js');
+
+		expect(store.listRuns().map((r) => r.id)).toEqual([cut.id, failed.id, passed.id]);
+		expect(store.stability()[0]?.history.map((h) => h.status)).toEqual([
+			'passed',
+			'failed',
+			'passed'
+		]);
+		expect(store.readRunState(failed.id)).toMatchObject({
+			status: 'failed',
+			artifactsRemoved: true,
+			log: ['line one', '']
+		});
+		for (const name of ['state.json', 'meta.json', 'results.json', 'artifacts-removed'])
+			expect(existsSync(join(failed.dir, name))).toBe(false);
+		// The log stays a file.
+		expect(readFileSync(join(failed.dir, 'output.log'), 'utf8')).toBe('line one\n');
+
+		// Moved once: a restart finds them in the database.
+		vi.resetModules();
+		const restarted = await import('./runs-store.js');
+		expect(restarted.listRuns()).toHaveLength(3);
 	});
 });
