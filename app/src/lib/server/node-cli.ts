@@ -39,10 +39,9 @@ export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv 
 export const REQUIRED_NODE_MAJOR = 22;
 
 /**
- * Why `version` (the output of `node --version`) is not fine for Playwright, or null when it is.
- * Not just a style rule: on Node 26 the fork (Playwright 1.53) records test locations one or more
- * lines off, so running a single test (`file:line`) ends in "No tests found", and its browser
- * install hangs while extracting.
+ * Why `version` (the output of `node --version`) is not the tested Node for Playwright, or null
+ * when it is. A caution, not a hard failure: since sap-tests loads as CommonJS, test lines are right
+ * on Node 26 too, but CI runs only 22, and on 26 the fork's browser install hung while extracting.
  */
 export function nodeWarning(version: string | null, path: string): string | null {
 	const fix = `Set PLAYWRIGHT_NODE to a Node ${REQUIRED_NODE_MAJOR} binary and restart the app.`;
@@ -51,8 +50,8 @@ export function nodeWarning(version: string | null, path: string): string | null
 	const major = Number(/^v?(\d+)\./.exec(version)?.[1]);
 	if (major === REQUIRED_NODE_MAJOR) return null;
 	return (
-		`Playwright runs on Node ${version} (${path}), but Playwright-SAP needs Node ${REQUIRED_NODE_MAJOR}. ` +
-		`On other versions it can report wrong test lines, so running a single test finds "No tests found". ${fix}`
+		`Playwright runs on Node ${version} (${path}). Playwright-SAP is only tested on Node ${REQUIRED_NODE_MAJOR}; ` +
+		`on other versions its browser install has been seen to hang. ${fix}`
 	);
 }
 

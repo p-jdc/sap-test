@@ -30,7 +30,21 @@ Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 
 ## Setup
 
-Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright always runs on Node). Run everything from the repo root:
+Requirements: Bun ≥ 1.4 (installs and runs scripts) and Node 22 (Playwright always runs on Node; CI
+uses 22). If the `node` on your PATH is another version, install 22 next to it and point
+`PLAYWRIGHT_NODE` at it, e.g. with Homebrew:
+
+```bash
+brew install node@22   # keg-only, leaves the default node alone
+echo 'export PLAYWRIGHT_NODE=/opt/homebrew/opt/node@22/bin/node' >> ~/.zshrc
+```
+
+The dashboard shows which Node runs Playwright and warns, as does each run's log, when it is not 22.
+Other versions are untested rather than known broken: on Node 26 the tests run and report correct
+lines (see the CommonJS note below), but the fork's `playwright install chromium` was seen hanging
+while it extracts the browser.
+
+Run everything from the repo root:
 
 ```bash
 bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
@@ -74,7 +88,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
-| `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped) |
+| `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |

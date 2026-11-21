@@ -10,7 +10,7 @@ describe('nodeWarning', () => {
 		const warning = nodeWarning('v26.13.1', '/opt/homebrew/bin/node');
 		expect(warning).toContain('v26.13.1');
 		expect(warning).toContain('/opt/homebrew/bin/node');
-		expect(warning).toContain('No tests found');
+		expect(warning).toContain(`only tested on Node ${REQUIRED_NODE_MAJOR}`);
 		expect(warning).toContain('PLAYWRIGHT_NODE');
 	});
 
