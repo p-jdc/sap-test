@@ -157,11 +157,20 @@ export interface RunState extends RunMeta {
 	artifactsRemoved?: boolean;
 }
 
+/** How many of a test's latest results the reliability table shows and the server sends. */
+export const HISTORY_SHOWN = 15;
+
+/** How many runs the run list loads at a time. */
+export const RUNS_PER_PAGE = 100;
+
 export interface StabilityRow {
 	key: string;
 	file: string;
 	title: string;
-	/** Oldest → newest; runs where the test was skipped or interrupted are excluded. */
+	/**
+	 * The latest HISTORY_SHOWN results, oldest → newest; runs where the test was skipped or
+	 * interrupted are excluded. `streak` counts over the whole history.
+	 */
 	history: { runId: string; status: TestStatus }[];
 	streak: number;
 	lastStatus?: TestStatus;

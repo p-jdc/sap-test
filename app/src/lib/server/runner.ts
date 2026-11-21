@@ -19,7 +19,8 @@ import {
 	markLive,
 	pruneRuns,
 	readRunState,
-	rememberFinished
+	rememberFinished,
+	writeResults
 } from './runs-store.js';
 import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
@@ -48,9 +49,9 @@ function persist(live: Live) {
 	void log;
 	writeFileSync(join(live.dir, 'state.json'), JSON.stringify(rest));
 	const { tests, hasReport, ...meta } = rest;
-	void tests;
 	void hasReport;
 	writeFileSync(join(live.dir, 'meta.json'), JSON.stringify(meta));
+	if (rest.finishedAt) writeResults(live.dir, tests);
 }
 
 export type StartRunInput = {

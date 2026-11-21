@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { runHref } from '#lib/client/links.js';
 	import { statusLabel } from '#lib/shared/format.js';
-	import type { TestStatus } from '#lib/shared/types.js';
+	import { HISTORY_SHOWN, type TestStatus } from '#lib/shared/types.js';
 
-	let { history, max = 15 }: { history: { runId: string; status: TestStatus }[]; max?: number } =
-		$props();
+	let {
+		history,
+		max = HISTORY_SHOWN
+	}: { history: { runId: string; status: TestStatus }[]; max?: number } = $props();
 	const shown = $derived(history.slice(-max));
 </script>
 

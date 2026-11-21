@@ -2,7 +2,15 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { RUNS_DIR, within } from './paths.js';
 import { decide, retentionFromEnv, type Retention } from './retention.js';
-import type { RunMeta, RunState, StabilityRow, TestStatus } from '#lib/shared/types.js';
+import {
+	HISTORY_SHOWN,
+	RUNS_PER_PAGE,
+	type RunMeta,
+	type RunState,
+	type RunTest,
+	type StabilityRow,
+	type TestStatus
+} from '#lib/shared/types.js';
 
 // A finished run never changes, so what was read from its files is kept. The history can grow to
 // thousands of runs: the small parts (meta, test results) are kept for all of them, the full state
@@ -99,6 +107,21 @@ export function listRuns(): RunMeta[] {
 		.toSorted((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
+/**
+ * One page of the run list, newest first: the newest runs, or the ones after the run `before`.
+ * `total` is the number of all runs.
+ */
+export function runsPage(
+	before?: string,
+	size = RUNS_PER_PAGE
+): { runs: RunMeta[]; total: number } {
+	const all = listRuns();
+	const start = before === undefined ? 0 : all.findIndex((run) => run.id === before) + 1;
+	// An unknown `before` (the run was deleted meanwhile) has no page after it.
+	const runs = before !== undefined && start === 0 ? [] : all.slice(start, start + size);
+	return { runs, total: all.length };
+}
+
 export function readRunState(id: string): RunState | null {
 	const dir = within(RUNS_DIR, id);
 	if (!dir) return null;
@@ -122,21 +145,40 @@ export function readRunState(id: string): RunState | null {
 	return full;
 }
 
-/** The results of a finished run's tests, read once per run and without its steps and log. */
+/** A run's test results without steps and log: small enough to read for every run at a start. */
+const RESULTS_FILE = 'results.json';
+
+function summarize(tests: RunTest[]): TestResult[] {
+	return tests.map(({ key, file, title, status, setup, error }): TestResult => ({
+		key,
+		file,
+		title,
+		status,
+		setup,
+		failedAt: error && `${error.file ?? ''}:${error.line ?? ''}`
+	}));
+}
+
+/** Stores the results of a run that has finished next to its state. Called by runner.ts. */
+export function writeResults(dir: string, tests: RunTest[]) {
+	writeFileSync(join(dir, RESULTS_FILE), JSON.stringify(summarize(tests)));
+}
+
+/**
+ * The results of a finished run's tests, read once per run. A run from before the results file
+ * existed is read from its full state once, and gets the file then.
+ */
 function testResults(id: string): TestResult[] {
 	const hit = results.get(id);
 	if (hit) return hit;
-	const state = readState(join(RUNS_DIR, id, 'state.json'));
-	const found = (state?.tests ?? []).map(
-		({ key, file, title, status, setup, error }): TestResult => ({
-			key,
-			file,
-			title,
-			status,
-			setup,
-			failedAt: error && `${error.file ?? ''}:${error.line ?? ''}`
-		})
-	);
+	const dir = join(RUNS_DIR, id);
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- own file, see readRunFile
+	let found = readRunFile(join(dir, RESULTS_FILE)) as TestResult[] | null;
+	if (!found) {
+		const state = readState(join(dir, 'state.json'));
+		found = summarize(state?.tests ?? []);
+		if (state) writeFileSync(join(dir, RESULTS_FILE), JSON.stringify(found));
+	}
 	results.set(id, found);
 	return found;
 }
@@ -168,6 +210,8 @@ export function stability(): StabilityRow[] {
 		row.lastStatus = row.history.at(-1)?.status;
 		const lastNonPass = row.history.findLastIndex((h) => h.status !== 'passed');
 		row.streak = row.history.length - 1 - lastNonPass;
+		// The page shows the latest results only; a long history would be megabytes.
+		row.history = row.history.slice(-HISTORY_SHOWN);
 	}
 	return [...rows.values()].toSorted((a, b) => a.key.localeCompare(b.key));
 }

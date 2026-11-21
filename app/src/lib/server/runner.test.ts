@@ -187,6 +187,16 @@ describe('startRun', () => {
 		expect(state.log.join('\n')).not.toContain('@@pwlive@@');
 		expect(readFileSync(join(runner.RUNS_DIR, id, 'output.log'), 'utf8')).toContain('hello ä');
 
+		// The results alone, for the reliability table.
+		expect(JSON.parse(readFileSync(join(runner.RUNS_DIR, id, 'results.json'), 'utf8'))).toEqual([
+			{
+				key: 'a.spec.ts::creates an order',
+				file: 'a.spec.ts',
+				title: 'creates an order',
+				status: 'passed'
+			}
+		]);
+
 		expect(runner.activeRunId()).toBeNull();
 		expect(runner.readRunState(id)).toMatchObject({ id, status: 'passed' });
 		expect(runner.listRuns().map((r) => r.id)).toEqual([id]);

@@ -70,3 +70,40 @@ test('settings page shows the setting names and the browser path with technical 
 	await expect(page.locator('[data-setting]')).toHaveCount(11);
 	await expect(page.getByText('SAP_PASSWORD')).toBeVisible();
 });
+
+test('Mock PLC: the demo stores an HU, sends one with a contour error to clearing, and stops', async ({
+	page
+}) => {
+	await page.goto('/mfs');
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+	await page.locator('#mode').click();
+	await page.locator('ui5-option[data-value="demo"]').click();
+	await page.locator('#speed').click();
+	await page.locator('ui5-option[data-value="10"]').click();
+	await page.locator('ui5-button[icon="play"]').click();
+
+	await expect(page.getByText('Demo running')).toBeVisible({ timeout: 20_000 });
+	// A UI5 tag's text includes its shadow content, so match plain text, not an anchored pattern.
+	const connected = page.locator('ui5-tag', { hasText: 'Connected', hasNotText: 'Not connected' });
+	await expect(connected).toHaveCount(4);
+	// The warehouse is drawn: 3 aisles of 10 × 5 bins.
+	await expect(page.locator('svg rect.bin')).toHaveCount(150);
+
+	await page.locator('#hu').locator('input').fill('900001');
+	await page.locator('ui5-button[icon="add"]').click();
+	const stored = page.locator('.line', { hasText: '900001' });
+	await expect(stored.getByText('Stored')).toBeVisible({ timeout: 20_000 });
+	await expect(page.locator('svg rect.bin.occupied')).toHaveCount(1);
+
+	await page.locator('#idpoint').click();
+	await page.locator('ui5-option[data-value="CONT"]').click();
+	await page.locator('#hu').locator('input').fill('900002');
+	await page.locator('ui5-button[icon="add"]').click();
+	await expect(page.locator('.line', { hasText: '900002' }).getByText('In clearing')).toBeVisible({
+		timeout: 20_000
+	});
+	await expect(page.getByText('IP reads HU 900002: CONT')).toBeVisible();
+
+	await page.locator('ui5-button[icon="stop"]').click();
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+});

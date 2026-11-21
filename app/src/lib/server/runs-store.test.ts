@@ -84,6 +84,49 @@ describe('stability', () => {
 	});
 });
 
+describe('the reliability table at a long history', () => {
+	test('sends the latest 15 results of a test and counts the streak over all of them', async () => {
+		const store = await freshStore();
+		writeRun({ flow: 'failed' }, 'failed');
+		const ids = Array.from({ length: 20 }, () => writeRun({ flow: 'passed' }));
+		const [row] = store.stability();
+		expect(row).toMatchObject({ streak: 20, lastStatus: 'passed' });
+		expect(row?.history.map((h) => h.runId)).toEqual(ids.slice(-15));
+	});
+
+	test('reads each run from a small results file, which older runs get on first use', async () => {
+		const store = await freshStore();
+		const id = writeRun({ flow: 'failed', 'sign in': 'passed' }, 'failed');
+		const dir = join(dataDir, 'runs', id);
+		expect(store.stability()).toHaveLength(2);
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by the store
+		const stored = JSON.parse(readFileSync(join(dir, 'results.json'), 'utf8')) as unknown[];
+		expect(stored).toHaveLength(2);
+		expect(stored[0]).toEqual({ key: 'flow', file: 'a.spec.ts', title: 'flow', status: 'failed' });
+
+		// A fresh start no longer needs the full state for the table.
+		rmSync(join(dir, 'state.json'));
+		vi.resetModules();
+		const restarted = await import('./runs-store.js');
+		expect(restarted.stability().map((r) => r.key)).toEqual(['flow', 'sign in']);
+	});
+});
+
+describe('runsPage', () => {
+	test('returns the newest runs first, then the ones after a given run', async () => {
+		const store = await freshStore();
+		const ids = Array.from({ length: 5 }, () => writeRun({ flow: 'passed' })).toReversed();
+		const first = store.runsPage(undefined, 2);
+		expect(first.total).toBe(5);
+		expect(first.runs.map((r) => r.id)).toEqual(ids.slice(0, 2));
+		expect(store.runsPage(ids[1], 2).runs.map((r) => r.id)).toEqual(ids.slice(2, 4));
+		expect(store.runsPage(ids[3], 2).runs.map((r) => r.id)).toEqual(ids.slice(4));
+		expect(store.runsPage(ids[4], 2).runs).toEqual([]);
+		expect(store.runsPage('20250101-000000-gone', 2).runs).toEqual([]);
+		expect(store.runsPage().runs).toHaveLength(5);
+	});
+});
+
 describe('runs cut off by an app restart', () => {
 	test('a stored "running" run that is not live shows as interrupted', async () => {
 		const store = await freshStore();
