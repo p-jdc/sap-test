@@ -42,6 +42,8 @@
 		matchFlow(specs.current?.flatMap((f) => f.tests) ?? [], run?.tests ?? [], key)
 	);
 	const test = $derived(flow.test);
+	/** Findings on the whole spec file, such as a missing reviewer; not tied to a step. */
+	const fileIssues = $derived(specs.current?.find((f) => f.file === test?.file)?.issues ?? []);
 	const runTest = $derived(flow.runTest);
 	const source = $derived(test ? getSpecSource(test.file) : undefined);
 	const overlay = $derived(test ? overlaySteps(test.steps, runTest) : {});
@@ -355,6 +357,11 @@
 							? 'Click a step to see its locator, rule findings and Playwright calls.'
 							: 'Click a step to see what it does and how it went.'}
 					</span>
+					{#each fileIssues as issue (issue.rule + issue.line)}
+						<ui5-message-strip design="Critical" hide-close-button>
+							{view.technical ? `Line ${issue.line}: ` : ''}{issue.message}
+						</ui5-message-strip>
+					{/each}
 					{#if test.issues.length}
 						<ui5-message-strip design="Critical" hide-close-button>
 							{test.issues.length} quality warning{test.issues.length > 1 ? 's' : ''} in this test, marked

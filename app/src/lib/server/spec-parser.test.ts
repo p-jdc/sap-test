@@ -376,6 +376,17 @@ test.describe(() => {
 			'fiori/ai.spec.ts',
 			`// KI-generiert, geprüft von: <Name>\ntest('x', async () => {});`
 		);
-		expect(spec.issues[0]?.rule).toBe('ai-review');
+		expect(spec.issues).toMatchObject([{ rule: 'ai-review', severity: 'warning', line: 1 }]);
+	});
+
+	test('a reviewer name, or no marker at all, is not a finding', () => {
+		const body = `test('x', async () => {});`;
+		expect(
+			parseSpec('fiori/ai.spec.ts', `// KI-generiert, geprüft von: A. Reviewer\n${body}`).issues
+		).toEqual([]);
+		expect(
+			parseSpec('fiori/ai.spec.ts', `// KI-generiert, geprüft von:\n${body}`).issues
+		).toHaveLength(1);
+		expect(parseSpec('fiori/own.spec.ts', body).issues).toEqual([]);
 	});
 });

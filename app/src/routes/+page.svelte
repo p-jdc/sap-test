@@ -24,8 +24,15 @@
 			return acc;
 		}, {})
 	);
+	// Findings on steps, plus findings on a whole file (an AI-generated test nobody has signed off).
 	const issueCount = $derived(
-		tests.reduce((n, t) => n + t.issues.filter((i) => i.severity !== 'info').length, 0)
+		(specs.current ?? []).reduce(
+			(n, f) =>
+				n +
+				f.issues.length +
+				f.tests.reduce((m, t) => m + t.issues.filter((i) => i.severity !== 'info').length, 0),
+			0
+		)
 	);
 	const target = $derived(stab.current?.target ?? 10);
 	const stableCount = $derived(stab.current?.rows.filter((r) => r.streak >= target).length ?? 0);
@@ -224,7 +231,8 @@
 			</div>
 			{#if issueCount}
 				<span class="muted">
-					Quality warnings point at steps that are written in a fragile way. The tests still run.
+					Quality warnings point at steps that are written in a fragile way, or at tests nobody has
+					signed off yet. The tests still run.
 				</span>
 			{/if}
 			<a href={testsHref()}>See all tests</a>
