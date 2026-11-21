@@ -35,6 +35,7 @@
 	const toolsReady = $derived(!!env.current?.playwrightVersion);
 	const sapReady = $derived(has('SAP_URL', 'SAP_USERNAME', 'SAP_PASSWORD'));
 	const aribaReady = $derived(has('ARIBA_URL', 'ARIBA_USER', 'ARIBA_PASS'));
+	const apiReady = $derived(has('SAP_API_URL', 'SAP_API_USERNAME', 'SAP_API_PASSWORD'));
 	const hasRuns = $derived((runs.current?.runs.length ?? 0) > 0);
 	// The first steps stay on the page until both are done; before the data is there, nothing shows.
 	const gettingStarted = $derived(!!env.current && !!runs.current && !(hasRuns && sapReady));
@@ -138,6 +139,13 @@
 					<StatusTag
 						status={aribaReady ? 'passed' : undefined}
 						label={aribaReady ? 'Ready' : 'Not set up'}
+					/>
+				</div>
+				<div class="check">
+					<span>SAP services (API) <span class="muted">(optional)</span></span>
+					<StatusTag
+						status={apiReady ? 'passed' : undefined}
+						label={apiReady ? 'Ready' : 'Not set up'}
 					/>
 				</div>
 				{#if !toolsReady}

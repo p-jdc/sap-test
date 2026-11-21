@@ -145,6 +145,31 @@ describe('settings in the credential store', () => {
 		expect([...values.keys()].toSorted()).toEqual(['ARIBA_PASS', 'SAP_URL']);
 	});
 
+	test('the API system has its own credentials, cleared only when its own URL moves', async () => {
+		const env = await withEnvFile(null);
+		const { store, values } = fakeStore({
+			SAP_URL: 'https://sap.example.com',
+			SAP_PASSWORD: 'P',
+			SAP_API_URL: 'https://dev.example.com',
+			SAP_API_USERNAME: 'API',
+			SAP_API_PASSWORD: 'AP',
+			SAP_CLIENT: '100'
+		});
+		expect(await env.keychainEnv(store)).toMatchObject({
+			SAP_API_URL: 'https://dev.example.com',
+			SAP_CLIENT: '100'
+		});
+		expect(await env.changeSetting('SAP_API_URL', 'https://other.example.com', store)).toEqual({
+			cleared: ['SAP_API_USERNAME', 'SAP_API_PASSWORD']
+		});
+		expect([...values.keys()].toSorted()).toEqual([
+			'SAP_API_URL',
+			'SAP_CLIENT',
+			'SAP_PASSWORD',
+			'SAP_URL'
+		]);
+	});
+
 	test('removing a stored URL that hid a different .env URL also removes the credentials', async () => {
 		const env = await withEnvFile(FILE);
 		const { store, values } = fakeStore({

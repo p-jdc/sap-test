@@ -1,7 +1,8 @@
-export type Surface = 'fiori' | 'webgui' | 'ariba' | 'demo' | 'other';
+export type Surface = 'fiori' | 'webgui' | 'ariba' | 'api' | 'demo' | 'other';
 
 export type LocatorKind =
 	| 'ui5'
+	| 'ui5-xpath'
 	| 'sid'
 	| 'sid-path'
 	| 'role'
@@ -141,7 +142,10 @@ export interface StabilityRow {
 	lastStatus?: TestStatus;
 }
 
-/** The settings of the test project: SAP and Ariba access, and an optional browser path. */
+/**
+ * The settings of the test project: SAP and Ariba access, the system the OData tests call, and an
+ * optional browser path.
+ */
 export const SETTING_NAMES = [
 	'SAP_URL',
 	'SAP_USERNAME',
@@ -149,9 +153,20 @@ export const SETTING_NAMES = [
 	'ARIBA_URL',
 	'ARIBA_USER',
 	'ARIBA_PASS',
+	'SAP_API_URL',
+	'SAP_API_USERNAME',
+	'SAP_API_PASSWORD',
+	'SAP_CLIENT',
 	'CHROMIUM_PATH'
 ] as const;
 export type SettingName = (typeof SETTING_NAMES)[number];
+
+/** Stored exactly as typed and never trimmed. */
+export const SECRET_SETTINGS: readonly SettingName[] = [
+	'SAP_PASSWORD',
+	'ARIBA_PASS',
+	'SAP_API_PASSWORD'
+];
 
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
 export type SettingSource = 'keychain' | 'file' | 'process';

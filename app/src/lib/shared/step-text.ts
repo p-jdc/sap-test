@@ -22,7 +22,11 @@ const SAVED: Record<string, string> = {
 	SAP_PASSWORD: 'the SAP password',
 	ARIBA_URL: 'the Ariba address',
 	ARIBA_USER: 'the Ariba user',
-	ARIBA_PASS: 'the Ariba password'
+	ARIBA_PASS: 'the Ariba password',
+	SAP_API_URL: 'the SAP services address',
+	SAP_API_USERNAME: 'the SAP services user',
+	SAP_API_PASSWORD: 'the SAP services password',
+	SAP_CLIENT: 'the SAP client'
 };
 
 /** A step's value in words: saved settings by what they are, everything else quoted. */
@@ -48,7 +52,13 @@ const HELPER_NOUN: Record<string, string> = { button: 'button', input: 'field', 
 export function targetText(locator: LocatorInfo | undefined): string | undefined {
 	if (!locator) return undefined;
 	const { kind, display } = locator;
-	if (kind === 'css' || kind === 'xpath' || kind === 'sid-path' || kind === 'testid') {
+	if (
+		kind === 'css' ||
+		kind === 'xpath' ||
+		kind === 'ui5-xpath' ||
+		kind === 'sid-path' ||
+		kind === 'testid'
+	) {
 		return undefined;
 	}
 	// A variable that holds a locator: `reviewsTile` → the reviews tile.
@@ -162,6 +172,14 @@ const CHECKS_WITH_VALUE: Record<string, [string, string]> = {
 	toHaveCount: ['appears this many times:', 'does not appear this many times:']
 };
 
+const PROPERTY_PATH = /^([A-Za-z_$][\w$]*)(?:\.[A-Za-z_$][\w$]*)*$/;
+
+/** A checked value in words: `products.length` → `the products`; an expression → `a result`. */
+function valueSubject(display: string): string {
+	const name = PROPERTY_PATH.exec(display)?.[1];
+	return name ? `the ${words(name)}` : 'a result';
+}
+
 function assertText(step: FlowStep): string {
 	const negated = step.action.startsWith('not.');
 	const matcher = negated ? step.action.slice(4) : step.action;
@@ -183,18 +201,41 @@ function assertText(step: FlowStep): string {
 		const value = matcher === 'toHaveCount' ? (step.value ?? '') : valueText(step.value);
 		return `Check that ${target} ${pick(withValue)} ${value}`.trimEnd();
 	}
+	// Any other matcher on something that is not a locator checks a value the test read or computed.
+	if (step.locator?.kind === 'other') {
+		return `Check ${targetText(step.locator) ?? valueSubject(step.locator.display)}`;
+	}
 	return `Check ${target}`;
 }
 
+/** Requests to an SAP service (OData), by what they do; the parser names them `odata.<operation>`. */
+const SERVICE_CALLS: Record<string, string> = {
+	'odata.getAll': 'Read data from the SAP service',
+	'odata.getByKey': 'Read one entry from the SAP service',
+	'odata.create': 'Create an entry in the SAP service',
+	'odata.update': 'Change an entry in the SAP service',
+	'odata.delete': 'Delete an entry in the SAP service',
+	'odata.batch': 'Send several requests to the SAP service at once',
+	'odata.request': 'Call the SAP service'
+};
+
 function otherText(step: FlowStep): string {
+	const call = SERVICE_CALLS[step.action];
+	if (call) return step.value ? `${call}: ${words(step.value)}` : call;
 	switch (step.action) {
+		case 'ui5BoundData':
+			return `Read the entries loaded in ${targetText(step.locator) ?? 'a list'}`;
+		case 'ui5ModelProperty':
+			return `Read a value behind ${targetText(step.locator) ?? ELEMENT}`;
+		case 'ui5HasPendingChanges':
+			return 'Look for unsaved changes';
 		case 'for':
 		case 'while':
 		case 'do':
 			return 'Repeat the next steps';
 		case 'if':
 		case 'switch':
-			return 'Depending on the screen';
+			return 'Depending on the situation';
 		case 'try':
 			return 'Try the next steps';
 		default:

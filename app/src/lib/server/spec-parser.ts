@@ -14,6 +14,7 @@ export type HelperMap = Record<string, { locator?: LocatorKind; isAction: boolea
 
 const LOCATOR_METHODS: Record<string, LocatorKind> = {
 	getByRoleUI5: 'ui5',
+	locateUI5: 'ui5-xpath',
 	getByRoleSID: 'sid',
 	locateSID: 'sid-path',
 	getByRole: 'role',
@@ -48,8 +49,13 @@ const WAITS = new Set([
 	'waitForURL',
 	'waitForLoadState',
 	'waitForSelector',
-	'waitForResponse'
+	'waitForResponse',
+	'waitForUI5'
 ]);
+/** The plugin's reads of UI5 model state; their first argument is the control to read from. */
+const MODEL_READS = new Set(['ui5BoundData', 'ui5ModelProperty', 'ui5HasPendingChanges']);
+/** What a request built with a generated OData client does, by the builder method that says so. */
+const ODATA_OPERATIONS = ['batch', 'getAll', 'getByKey', 'create', 'update', 'delete'] as const;
 /** Clicks on these labels change data, so the guide wants an assertion right after them (§5.2). */
 const DATA_CHANGING =
 	/\b(save|post|submit|confirm|approve|delete|sichern|speichern|buchen|löschen|genehmigen)\b/i;
@@ -58,8 +64,10 @@ const SAP_SURFACES = new Set<Surface>(['fiori', 'webgui']);
 
 function surfaceFromPath(file: string): Surface | undefined {
 	const top = file.split('/')[0];
-	if (top === 'fiori' || top === 'webgui' || top === 'ariba') return top;
+	if (top === 'fiori' || top === 'webgui' || top === 'ariba' || top === 'api') return top;
 	if (top === '_demo') return 'demo';
+	// The plugin's own tests mix UI5 and WebGUI stand-ins; they are no business flow of a surface.
+	if (top === '_plugin') return 'other';
 	return undefined;
 }
 
@@ -265,6 +273,12 @@ function expectChain(
 	return undefined;
 }
 
+/** What an expression points at: a locator if it is one, otherwise its source text. */
+function subjectOf(ctx: Ctx, node: ts.Expression): LocatorInfo {
+	const { root, segments } = flatten(node);
+	return describeLocator(ctx, root, segments) ?? { kind: 'other', display: node.getText(ctx.sf) };
+}
+
 /** Turns one awaited expression into a flow step, or undefined if it is not test-relevant. */
 function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | undefined {
 	const { root, segments } = flatten(expr);
@@ -274,14 +288,7 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	const assertion = expectChain(root, segments);
 	if (assertion) {
 		const { target } = assertion;
-		let locator: LocatorInfo | undefined;
-		if (target) {
-			const inner = flatten(target);
-			locator = describeLocator(ctx, inner.root, inner.segments) ?? {
-				kind: 'other',
-				display: target.getText(ctx.sf)
-			};
-		}
+		const locator = target ? subjectOf(ctx, target) : undefined;
 		const matcher = assertion.matchers.findLast((s) => s.name !== 'not');
 		const firstArg = matcher?.args[0];
 		const negated = assertion.matchers.some((s) => s.name === 'not');
@@ -354,6 +361,26 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 			},
 			{ literalSecret }
 		);
+	}
+	if (MODEL_READS.has(last.name) && segments.length === 1) {
+		const [control] = last.args;
+		return makeStep(ctx, stmt, {
+			kind: 'other',
+			action: last.name,
+			locator: control ? subjectOf(ctx, control) : undefined
+		});
+	}
+	// products.requestBuilder().getAll().top(5).execute(sapApi) / gwsample.batch(…).execute(sapApi)
+	if (last.name === 'execute') {
+		const operation = ODATA_OPERATIONS.find((name) => segments.some((s) => s.name === name));
+		if (operation || segments.some((s) => s.name === 'requestBuilder')) {
+			return makeStep(ctx, stmt, {
+				kind: 'other',
+				action: `odata.${operation ?? 'request'}`,
+				// The entity API the request goes to, as the spec names it: `products`.
+				value: operation !== 'batch' && ts.isIdentifier(root) ? root.text : undefined
+			});
+		}
 	}
 	return makeStep(ctx, stmt, { kind: 'other', action: last.name });
 }
@@ -456,9 +483,11 @@ function fnArg(call: ts.CallExpression) {
 function detectSurface(file: string, steps: FlowStep[]): Surface {
 	const byPath = surfaceFromPath(file);
 	if (byPath) return byPath;
-	if (steps.some((s) => s.locator?.kind === 'ui5')) return 'fiori';
+	if (steps.some((s) => s.locator?.kind === 'ui5' || s.locator?.kind === 'ui5-xpath'))
+		return 'fiori';
 	if (steps.some((s) => s.locator?.kind === 'sid' || s.locator?.kind === 'sid-path'))
 		return 'webgui';
+	if (steps.some((s) => s.action.startsWith('odata.'))) return 'api';
 	return 'other';
 }
 
@@ -493,6 +522,13 @@ function checkRules(ctx: Ctx, test: Pick<SpecTest, 'surface' | 'steps'>): Issue[
 					'no-css-xpath',
 					'error',
 					`${kind.toUpperCase()} selector on an SAP screen. Use getByRoleUI5 / getByRoleSID / locateSID.`
+				);
+			}
+			if (kind === 'ui5-xpath') {
+				add(
+					'prefer-role-ui5',
+					'info',
+					'Path through the UI5 control tree. Prefer getByRoleUI5 where a property identifies the control.'
 				);
 			}
 			if (facts?.nth) {
