@@ -130,7 +130,10 @@
 	async function runThis() {
 		if (!test) return;
 		try {
-			const { id } = await startTestRun({ files: [`${test.file}:${test.line}`] });
+			const { id } = await startTestRun({
+				files: [`${test.file}:${test.line}`],
+				headed: view.showBrowser
+			});
 			await goto(flowHref(key, id), { replace: true });
 		} catch (e) {
 			error = errorMessage(e);
