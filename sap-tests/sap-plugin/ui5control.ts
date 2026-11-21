@@ -68,3 +68,36 @@ export function ui5ControlEngine() {
 		}
 	};
 }
+
+/**
+ * A data point of a chart (sap.viz: VizFrame and the charts built on it), by the values it stands
+ * for: its dimensions and, when the chart shows several measures, `measureNames`. For example
+ * `{ 'Item Category': 'Pop', measureNames: 'Revenue' }`.
+ */
+export type UI5ChartPoint = Record<string, string>;
+
+export const UI5_CHART_POINT_ENGINE = 'ui5chartpoint';
+
+/** The selector string for `locator()` on the chart's locator. */
+export const ui5ChartPointSelector = (point: UI5ChartPoint) =>
+	`${UI5_CHART_POINT_ENGINE}=${JSON.stringify(point)}`;
+
+/**
+ * The engine, for selectors.register(). Runs in the page. A chart draws its bars, points and
+ * slices as SVG shapes that are no UI5 controls and carry no text, so neither UI5 nor a standard
+ * locator can name one. The chart library (D3) keeps the record each shape stands for on the
+ * shape's element; this finds the shapes whose record has the given values.
+ */
+export function ui5ChartPointEngine() {
+	return {
+		queryAll(root: Element | Document, body: string): Element[] {
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the selector is written by ui5ChartPointSelector
+			const wanted = Object.entries(JSON.parse(body) as Record<string, unknown>);
+			return [...root.querySelectorAll('.v-datapoint')].filter((shape) => {
+				const record: unknown = Reflect.get(shape, '__data__');
+				if (typeof record !== 'object' || record === null) return false;
+				return wanted.every(([name, value]) => String(Reflect.get(record, name)) === String(value));
+			});
+		}
+	};
+}
