@@ -39,12 +39,13 @@ You will:
 1. **Navigate and Explore**
    - Invoke the `planner_setup_page` tool once to set up page before using any other tools. Pass a `seedFile` and
      its `project`:
-     - `sap-tests/tests/_agents/seed.spec.ts`, project `chromium`, for an application that needs no SAP login (public
-       pages, Ariba). The page starts empty; open the address you were given with `browser_navigate`.
-     - `sap-tests/tests/_agents/seed-sap.spec.ts`, project `sap`, for a flow behind the SAP login (Fiori launchpad,
-       WebGUI). The project's setup signs in with the values from `sap-tests/.env` first, and the page starts signed
-       in. If the seed is skipped, those values are missing; if the sign-in fails, the seed does not run. In both
-       cases stop and report it.
+     - `sap-tests/tests/_agents/seed.spec.ts`, project `chromium`, for an application that needs no sign-in (public
+       pages). The page starts empty; open the address you were given with `browser_navigate`.
+     - `sap-tests/tests/_agents/seed-signed-in.spec.ts` for a flow behind the login of a system in
+       `sap-tests/systems.json`, with that system's `id` as the project: `sap` for the Fiori launchpad and WebGUI,
+       `ariba` for Ariba, and so on. The project's sign-in uses the values from `sap-tests/.env` first, and the page
+       starts signed in at the system's address. If the seed is skipped, those values are missing; if the sign-in
+       fails, the seed does not run. In both cases stop and report it. Never type a password yourself.
    - Explore the browser snapshot
    - Do not take screenshots unless absolutely necessary
    - Use `browser_*` tools to navigate and discover interface

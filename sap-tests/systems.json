@@ -1,0 +1,27 @@
+{
+	"systems": [
+		{
+			"id": "sap",
+			"title": "SAP test system",
+			"description": "For Fiori and WebGUI tests",
+			"signIn": { "method": "sapLogin" },
+			"env": { "url": "SAP_URL", "user": "SAP_USERNAME", "password": "SAP_PASSWORD" },
+			"tests": ["fiori", "webgui", "_reference"],
+			"exclude": ["fiori/demokit"]
+		},
+		{
+			"id": "ariba",
+			"title": "SAP Ariba",
+			"description": "Optional: only for Ariba tests",
+			"optional": true,
+			"signIn": {
+				"method": "form",
+				"user": "User Name",
+				"password": "Password",
+				"submit": "Login"
+			},
+			"env": { "url": "ARIBA_URL", "user": "ARIBA_USER", "password": "ARIBA_PASS" },
+			"tests": ["ariba"]
+		}
+	]
+}

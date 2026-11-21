@@ -150,30 +150,23 @@ export interface StabilityRow {
 }
 
 /**
- * The settings of the test project: SAP and Ariba access, the system the OData tests call, and an
- * optional browser path.
+ * The name of a setting of the test project, an environment variable: the address, user and
+ * password of each system in sap-tests/systems.json, the system the OData tests call, and an
+ * optional browser path. The server knows the list (lib/server/systems.ts).
  */
-export const SETTING_NAMES = [
-	'SAP_URL',
-	'SAP_USERNAME',
-	'SAP_PASSWORD',
-	'ARIBA_URL',
-	'ARIBA_USER',
-	'ARIBA_PASS',
-	'SAP_API_URL',
-	'SAP_API_USERNAME',
-	'SAP_API_PASSWORD',
-	'SAP_CLIENT',
-	'CHROMIUM_PATH'
-] as const;
-export type SettingName = (typeof SETTING_NAMES)[number];
+export type SettingName = string;
 
-/** Stored exactly as typed and never trimmed. */
-export const SECRET_SETTINGS: readonly SettingName[] = [
-	'SAP_PASSWORD',
-	'ARIBA_PASS',
-	'SAP_API_PASSWORD'
-];
+/** A system the tests sign in to, as sap-tests/systems.json describes it. */
+export interface SignInSystemInfo {
+	id: string;
+	title: string;
+	description?: string;
+	/** Not needed to get started: the Home page shows it as optional. */
+	optional?: boolean;
+	method: 'sapLogin' | 'ias' | 'form';
+	/** The settings that hold its address, user and password. */
+	env: { url: SettingName; user: SettingName; password: SettingName };
+}
 
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
 export type SettingSource = 'keychain' | 'file' | 'process';
@@ -188,6 +181,8 @@ export interface EnvStatus {
 	 * saved in the app points at another host than the URL set there.
 	 */
 	vars: { name: SettingName; set: boolean; source?: SettingSource; withheld?: SettingSource }[];
+	/** The systems of sap-tests/systems.json, in its order. */
+	systems: SignInSystemInfo[];
 	/** Stock Playwright in sap-tests, which runs the tests. */
 	playwrightVersion?: string;
 	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */

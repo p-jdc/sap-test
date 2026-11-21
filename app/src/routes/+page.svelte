@@ -7,7 +7,7 @@
 	import { duration, SURFACE_LABEL, when } from '#lib/shared/format.js';
 	import { getEnvStatus, getSpecs } from '#lib/remote/specs.remote.js';
 	import { getRuns, getStability } from '#lib/remote/runs.remote.js';
-	import type { SettingName, Surface } from '#lib/shared/types.js';
+	import type { SettingName, SignInSystemInfo, Surface } from '#lib/shared/types.js';
 
 	const env = getEnvStatus();
 	const specs = getSpecs();
@@ -40,8 +40,10 @@
 	const has = (...names: SettingName[]) =>
 		names.every((n) => env.current?.vars.find((v) => v.name === n)?.set);
 	const toolsReady = $derived(!!env.current?.playwrightVersion);
-	const sapReady = $derived(has('SAP_URL', 'SAP_USERNAME', 'SAP_PASSWORD'));
-	const aribaReady = $derived(has('ARIBA_URL', 'ARIBA_USER', 'ARIBA_PASS'));
+	const systems = $derived(env.current?.systems ?? []);
+	const ready = (s: SignInSystemInfo) => has(s.env.url, s.env.user, s.env.password);
+	// Every system of sap-tests/systems.json that is not marked optional is set up.
+	const sapReady = $derived(systems.every((s) => s.optional || ready(s)));
 	const apiReady = $derived(has('SAP_API_URL', 'SAP_API_USERNAME', 'SAP_API_PASSWORD'));
 	const hasRuns = $derived((runs.current?.runs.length ?? 0) > 0);
 	// The first steps stay on the page until both are done; before the data is there, nothing shows.
@@ -134,20 +136,18 @@
 						label={toolsReady ? 'Ready' : 'Not installed'}
 					/>
 				</div>
-				<div class="check">
-					<span>SAP connection</span>
-					<StatusTag
-						status={sapReady ? 'passed' : 'interrupted'}
-						label={sapReady ? 'Ready' : 'Not set up'}
-					/>
-				</div>
-				<div class="check">
-					<span>Ariba connection <span class="muted">(optional)</span></span>
-					<StatusTag
-						status={aribaReady ? 'passed' : undefined}
-						label={aribaReady ? 'Ready' : 'Not set up'}
-					/>
-				</div>
+				{#each systems as system (system.id)}
+					<div class="check">
+						<span>
+							{system.title}
+							{#if system.optional}<span class="muted">(optional)</span>{/if}
+						</span>
+						<StatusTag
+							status={ready(system) ? 'passed' : system.optional ? undefined : 'interrupted'}
+							label={ready(system) ? 'Ready' : 'Not set up'}
+						/>
+					</div>
+				{/each}
 				<div class="check">
 					<span>SAP services (API) <span class="muted">(optional)</span></span>
 					<StatusTag

@@ -69,7 +69,7 @@ describe('applyEvent', () => {
 					id: 's',
 					title: 'sign in',
 					titlePath: ['sign in'],
-					location: at(`${SETUP_DIR}/sap.setup.ts`)
+					location: at(`${SETUP_DIR}/sign-in.setup.ts`)
 				},
 				{
 					id: 'h',
