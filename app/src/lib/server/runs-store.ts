@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNS_DIR, within } from './paths.js';
+import { decide, retentionFromEnv, type Retention } from './retention.js';
 import type { RunMeta, RunState, StabilityRow, TestStatus } from '#lib/shared/types.js';
 
 // A finished run never changes, so what was read from its files is kept. The history can grow to
@@ -11,8 +12,17 @@ const results = new Map<string, TestResult[]>();
 const finished = new Map<string, RunState>();
 const FULL_STATES = 20;
 
-/** What the stability table needs from one test of one run. */
-type TestResult = { key: string; file: string; title: string; status?: TestStatus };
+/** What the stability table and the retention rules need from one test of one run. */
+type TestResult = {
+	key: string;
+	file: string;
+	title: string;
+	status?: TestStatus;
+	/** A sign-in, which is no flow. */
+	setup?: boolean;
+	/** Where the test failed (`file:line`). */
+	failedAt?: string;
+};
 
 function forget(id: string) {
 	metas.delete(id);
@@ -28,8 +38,12 @@ function remember(state: RunState) {
 	if (finished.size > FULL_STATES && oldest !== undefined) finished.delete(oldest);
 }
 
-/** Marks a run whose report, screenshots, videos and traces were deleted (trimArtifacts). */
+/** Marks a run whose report, screenshots, videos and traces were deleted (applyRetention). */
 const ARTIFACTS_REMOVED = 'artifacts-removed';
+/** Marks a run that has lost the steps and error messages of all its tests, and its log. */
+const DETAILS_REMOVED = 'details-removed';
+/** Stands in for an error message that was removed; where the test failed is kept. */
+const ERROR_REMOVED = 'The error message was removed to save space.';
 
 /** The run this process is executing, if any. Set by runner.ts. */
 let liveId: string | null = null;
@@ -113,10 +127,16 @@ function testResults(id: string): TestResult[] {
 	const hit = results.get(id);
 	if (hit) return hit;
 	const state = readState(join(RUNS_DIR, id, 'state.json'));
-	// A sign-in is no flow.
-	const found = (state?.tests ?? [])
-		.filter((t) => !t.setup)
-		.map(({ key, file, title, status }) => ({ key, file, title, status }));
+	const found = (state?.tests ?? []).map(
+		({ key, file, title, status, setup, error }): TestResult => ({
+			key,
+			file,
+			title,
+			status,
+			setup,
+			failedAt: error && `${error.file ?? ''}:${error.line ?? ''}`
+		})
+	);
 	results.set(id, found);
 	return found;
 }
@@ -129,6 +149,8 @@ export function stability(): StabilityRow[] {
 	for (const meta of listRuns().toReversed()) {
 		if (meta.status === 'running') continue;
 		for (const t of testResults(meta.id)) {
+			// A sign-in is no flow.
+			if (t.setup) continue;
 			// A test that was skipped or cut off by stopping the run says nothing about the flow.
 			if (!t.status || t.status === 'skipped' || t.status === 'interrupted') continue;
 			const row = rows.get(t.key) ?? {
@@ -167,32 +189,75 @@ export function pruneRuns(keep = Number(process.env.TEST_APP_KEEP_RUNS)): string
 	return removed;
 }
 
-/** Runs whose artifacts are kept when TEST_APP_KEEP_ARTIFACTS is not set. */
-const KEEP_ARTIFACTS = 50;
-
-/** TEST_APP_KEEP_ARTIFACTS: a positive number, or `all` to never delete artifacts. */
-function artifactLimit(value = process.env.TEST_APP_KEEP_ARTIFACTS): number {
-	if (value === undefined || value === '') return KEEP_ARTIFACTS;
-	const keep = Number(value);
-	return Number.isInteger(keep) && keep > 0 ? keep : Infinity;
+/** Removes the steps and error messages of the tests not in `keep`. True when the file changed. */
+function removeDetails(dir: string, keep: Set<string>): boolean {
+	const file = join(dir, 'state.json');
+	const state = readState(file);
+	if (!state) return false;
+	let changed = false;
+	for (const t of state.tests) {
+		if (keep.has(t.key) || t.detailsRemoved) continue;
+		t.steps = [];
+		if (t.error) t.error = { ...t.error, message: ERROR_REMOVED };
+		t.detailsRemoved = true;
+		changed = true;
+	}
+	if (changed) writeFileSync(file, JSON.stringify(state));
+	return changed;
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
 /**
- * Deletes the report, screenshots, videos and traces of all but the newest runs. They are most of
- * a run's size, and what the history is evidence for (which test passed when) stays: the results,
- * the steps and the log are kept.
+ * Applies the retention rules (retention.ts) to the finished runs: deletes reports, screenshots,
+ * videos and traces, steps, error messages and logs that the rules no longer keep. What happened in
+ * each run stays. Returns the ids of the runs it changed. Does nothing when the rules are off.
  */
-export function trimArtifacts(keep = artifactLimit()): string[] {
-	const trimmed: string[] = [];
-	for (const run of listRuns().slice(keep)) {
+export function applyRetention(
+	now = Date.now(),
+	policy: Retention | null = retentionFromEnv()
+): string[] {
+	if (!policy) return [];
+	const runs = listRuns()
+		.filter((run) => run.status !== 'running')
+		.toReversed();
+	// A run older than every limit keeps nothing and cannot matter to a younger one, so its tests
+	// are not read.
+	const oldest = now - Math.max(policy.reportDays, policy.stepsDays, policy.failureDays) * DAY;
+	const decisions = decide(
+		runs.map((run) => ({
+			id: run.id,
+			startedAt: run.startedAt,
+			tests: Date.parse(run.startedAt) < oldest ? [] : testResults(run.id)
+		})),
+		now,
+		policy
+	);
+	const changed: string[] = [];
+	for (const run of runs) {
 		const dir = within(RUNS_DIR, run.id);
-		if (!dir || dir === RUNS_DIR || run.status === 'running') continue;
-		if (existsSync(join(dir, ARTIFACTS_REMOVED))) continue;
-		rmSync(join(dir, 'report'), { recursive: true, force: true });
-		rmSync(join(dir, 'results'), { recursive: true, force: true });
-		writeFileSync(join(dir, ARTIFACTS_REMOVED), new Date().toISOString());
-		finished.delete(run.id);
-		trimmed.push(run.id);
+		const decision = decisions.get(run.id);
+		if (!dir || dir === RUNS_DIR || !decision) continue;
+		let touched = false;
+		if (!decision.artifacts && !existsSync(join(dir, ARTIFACTS_REMOVED))) {
+			rmSync(join(dir, 'report'), { recursive: true, force: true });
+			rmSync(join(dir, 'results'), { recursive: true, force: true });
+			writeFileSync(join(dir, ARTIFACTS_REMOVED), new Date(now).toISOString());
+			touched = true;
+		}
+		if (decision.details !== 'all' && !existsSync(join(dir, DETAILS_REMOVED))) {
+			if (removeDetails(dir, decision.details)) touched = true;
+			if (!decision.log) rmSync(join(dir, 'output.log'), { force: true });
+			// Nothing left to remove later: the run is not read again.
+			if (decision.details.size === 0 && !decision.log) {
+				writeFileSync(join(dir, DETAILS_REMOVED), new Date(now).toISOString());
+				touched = true;
+			}
+		}
+		if (touched) {
+			finished.delete(run.id);
+			changed.push(run.id);
+		}
 	}
-	return trimmed;
+	return changed;
 }
