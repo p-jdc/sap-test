@@ -43,6 +43,28 @@ if (mode === 'pass') {
 	emit({ type: 'end', status: 'passed', duration: 5 });
 	process.stdout.write('last line without newline');
 }
+if (mode === 'sign-in-failed') {
+	// The sign-in setup project fails, so Playwright never runs the test that depends on it.
+	const signIn = {
+		id: 'setup1',
+		title: 'sign in to SAP',
+		titlePath: ['sign in to SAP'],
+		location: { file: join(process.cwd(), 'setup/sap.setup.ts'), line: 5, column: 1 }
+	};
+	emit({ type: 'begin', rootDir: process.cwd(), tests: [signIn, test] });
+	emit({ type: 'testBegin', testId: 'setup1', retry: 0, startTime: new Date().toISOString() });
+	emit({
+		type: 'testEnd',
+		testId: 'setup1',
+		status: 'failed',
+		expectedStatus: 'passed',
+		duration: 5,
+		retry: 0,
+		error: { message: 'Still on the login page' },
+		attachments: []
+	});
+	emit({ type: 'end', status: 'failed', duration: 5 });
+}
 if (mode === 'secret') {
 	// What Playwright reports for fill(password): the value in the step title and in errors.
 	emit({
@@ -79,7 +101,10 @@ if (mode === 'hang') {
 let testsRoot = '';
 
 /** A fresh runner on a fresh test project and data directory. */
-async function freshRunner(run: 'pass' | 'hang' | 'secret' | 'none', installed = true) {
+async function freshRunner(
+	run: 'pass' | 'hang' | 'secret' | 'sign-in-failed' | 'none',
+	installed = true
+) {
 	// The real path: the stand-in reports files under its working directory, and on macOS the
 	// temporary folder is reached through a link.
 	testsRoot = realpathSync(mkdtempSync(join(tmpdir(), 'runner-tests-')));
@@ -196,6 +221,20 @@ describe('startRun', () => {
 			readFileSync(join(runner.RUNS_DIR, id, f), 'utf8')
 		);
 		expect([JSON.stringify(state), ...stored].join('\n')).not.toContain('pw-from-env');
+	});
+
+	test('a failed sign-in marks the tests that needed it as skipped and is no flow', async () => {
+		const runner = await freshRunner('sign-in-failed');
+		const state = await finished(runner, await started(runner));
+
+		expect(state.status).toBe('failed');
+		expect(state.tests.map((t) => [t.title, t.setup, t.status])).toEqual([
+			['sign in to SAP', true, 'failed'],
+			['creates an order', undefined, 'skipped']
+		]);
+		expect(state.stats).toMatchObject({ total: 2, failed: 1, skipped: 1 });
+		// Reliability counts flows only.
+		expect(runner.stability()).toEqual([]);
 	});
 
 	test('a run in which no test ran is an error, not a pass', async () => {

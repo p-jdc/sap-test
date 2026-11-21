@@ -2,6 +2,7 @@
 // workers: 1 until it is clear which tests can safely share data.
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
+import type { SapOptions } from './sap-plugin';
 
 // Optional escape hatch for machines where `npx playwright install` cannot download
 // the browser build (CI sandboxes, locked-down laptops).
@@ -20,7 +21,17 @@ if (odataMock)
 		SAP_CLIENT: ''
 	});
 
-export default defineConfig({
+// Tests that start with a saved session (sap-plugin/session.ts). Their setup project signs in once
+// per run without a trace and runs only when a selected test needs it. tests/fiori/demokit opens
+// SAP's public demo apps and needs no sign-in.
+const SAP_TESTS = /[\\/]tests[\\/](fiori(?![\\/]demokit[\\/])|webgui|_reference)[\\/]/;
+const ARIBA_TESTS = /[\\/]tests[\\/]ariba[\\/]/;
+const browser = { ...devices['Desktop Chrome'] };
+// The password is typed only in the setup projects: no trace (it would record the filled field
+// and the login request) and no video.
+const signIn = { ...browser, trace: 'off', video: 'off' } as const;
+
+export default defineConfig<SapOptions>({
 	webServer: odataMock
 		? {
 				command: `"${process.execPath}" odata/mock/server.mjs`,
@@ -42,5 +53,21 @@ export default defineConfig({
 		video: 'retain-on-failure',
 		launchOptions: executablePath ? { executablePath } : {}
 	},
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+	projects: [
+		{ name: 'sap-sign-in', testDir: './setup', testMatch: 'sap.setup.ts', use: signIn },
+		{ name: 'ariba-sign-in', testDir: './setup', testMatch: 'ariba.setup.ts', use: signIn },
+		{
+			name: 'sap',
+			testMatch: SAP_TESTS,
+			dependencies: ['sap-sign-in'],
+			use: { ...browser, sapSession: 'sap' }
+		},
+		{
+			name: 'ariba',
+			testMatch: ARIBA_TESTS,
+			dependencies: ['ariba-sign-in'],
+			use: { ...browser, sapSession: 'ariba' }
+		},
+		{ name: 'chromium', testIgnore: [SAP_TESTS, ARIBA_TESTS], use: browser }
+	]
 });

@@ -15,7 +15,7 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 ## Aufbau
 
 - Hilfsfunktionen aus helpers/ verwenden, wenn es eine passende gibt.
-- Anmeldung mit page.SAPLogin und Umgebungsvariablen.
+- Anmeldung mit page.SAPLogin und Umgebungsvariablen. Tests unter tests/fiori (außer demokit), tests/webgui und tests/_reference starten mit der Sitzung, die setup/sap.setup.ts einmal je Lauf ohne Trace speichert; page.SAPLogin öffnet dann nur die Adresse. Ariba-Tests (tests/ariba) starten angemeldet und melden sich nicht selbst an.
 - Passwörter mit `fillSecret(locator, wert)` aus sap-plugin eintippen, nie mit `fill`: `fill` schreibt den Wert in den Bericht und die Laufdaten der Test-App. page.SAPLogin tut das bereits.
 - Ein Geschäftsablauf je Test. Nach jedem datenverändernden Schritt prüfen.
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.

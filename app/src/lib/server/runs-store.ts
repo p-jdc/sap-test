@@ -78,8 +78,9 @@ export function stability(): StabilityRow[] {
 		if (meta.status === 'running') continue;
 		const state = readRunState(meta.id);
 		for (const t of state?.tests ?? []) {
-			// A test that was skipped or cut off by stopping the run says nothing about the flow.
-			if (!t.status || t.status === 'skipped' || t.status === 'interrupted') continue;
+			// A test that was skipped or cut off by stopping the run says nothing about the flow, and a
+			// sign-in is no flow.
+			if (!t.status || t.status === 'skipped' || t.status === 'interrupted' || t.setup) continue;
 			const row = rows.get(t.key) ?? {
 				key: t.key,
 				file: t.file,

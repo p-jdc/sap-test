@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { must } from '../../test/must.js';
-import { TESTS_DIR } from './paths.js';
+import { SETUP_DIR, TESTS_DIR, TESTS_ROOT } from './paths.js';
 import { applyEvent, type ReporterEvent } from './run-events.js';
 import type { RunState, TestStatus } from '#lib/shared/types.js';
 
@@ -46,6 +46,8 @@ const end = (
 	...extra
 });
 
+const at = (file: string) => ({ file, line: 1, column: 1 });
+
 describe('applyEvent', () => {
 	test('begin lists the tests with spec-relative file and key', () => {
 		const state = started(['a']);
@@ -55,6 +57,34 @@ describe('applyEvent', () => {
 			line: 3
 		});
 		expect(state.stats.total).toBe(1);
+	});
+
+	test('marks the sign-ins of sap-tests/setup, and nothing else, as setup', () => {
+		const state = started([]);
+		applyEvent(state, DIR, {
+			type: 'begin',
+			rootDir: TESTS_DIR,
+			tests: [
+				{
+					id: 's',
+					title: 'sign in',
+					titlePath: ['sign in'],
+					location: at(`${SETUP_DIR}/sap.setup.ts`)
+				},
+				{
+					id: 'h',
+					title: 'helper',
+					titlePath: ['helper'],
+					location: at(`${TESTS_ROOT}/helpers/x.ts`)
+				},
+				{ id: 't', title: 'flow', titlePath: ['flow'], location: at(spec) }
+			]
+		});
+		expect(state.tests.map((t) => [t.testId, t.setup])).toEqual([
+			['s', true],
+			['h', undefined],
+			['t', undefined]
+		]);
 	});
 
 	test('counts passed, failed and skipped; an interrupted test is none of them', () => {

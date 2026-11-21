@@ -2,7 +2,7 @@
 // the UI5 wait and model reads.
 // The UI5 tests use SAP's public demo kit and need internet access; the SID tests use a stand-in
 // page, because a real WebGUI needs a test system.
-import { test, expect, fillSecret } from '../../sap-plugin';
+import { test, expect, fillSecret, signingIn, type Page } from '../../sap-plugin';
 
 const TOOL_PAGE =
 	'https://ui5.sap.com/test-resources/sap/tnt/demokit/toolpageapp/webapp/index.html';
@@ -205,6 +205,43 @@ test('SAPLogin: logs in on a NetWeaver login page', async ({ page }) => {
 	await page.setContent(LOGIN_STAND_IN);
 	await page.SAPLogin('TESTUSER', 'pw-123');
 	await expect(page.locator('#sent')).toHaveText('TESTUSER:pw-123');
+});
+
+/** A stand-in SAP system that shows `body` for every page; the context holds a session cookie. */
+async function withSavedSession(page: Page, body: string) {
+	await page.route('https://sap.test/**', (route) =>
+		route.fulfill({ contentType: 'text/html', body })
+	);
+	await page
+		.context()
+		.addCookies([{ name: 'SAP_SESSIONID', value: 'ok', url: 'https://sap.test' }]);
+}
+
+test('SAPLogin: with a saved session it only opens the URL', async ({ page }) => {
+	await withSavedSession(page, '<!doctype html><h1>Launchpad</h1>');
+	await page.SAPLogin('TESTUSER', 'pw-123', 'https://sap.test/launchpad');
+	await expect(page.getByRole('heading', { name: 'Launchpad' })).toBeVisible();
+});
+
+test('SAPLogin: an expired saved session fails instead of typing the password', async ({
+	page
+}) => {
+	await withSavedSession(page, LOGIN_STAND_IN);
+	await expect(page.SAPLogin('TESTUSER', 'pw-123', 'https://sap.test/')).rejects.toThrow(
+		/saved SAP session is no longer valid/
+	);
+	await expect(page.locator('#password')).toHaveValue('');
+});
+
+test('signingIn: a failed sign-in leaves no password in the page', async ({ page }) => {
+	await page.setContent(LOGIN_STAND_IN);
+	await expect(
+		signingIn(page, async () => {
+			await fillSecret(page.locator('#password'), 'pw-123');
+			throw new Error('login page did not go away');
+		})
+	).rejects.toThrow('login page did not go away');
+	await expect(page.locator('#password')).toHaveValue('');
 });
 
 test('fillSecret: a UI5 password input takes the value as if typed', async ({ page }) => {
