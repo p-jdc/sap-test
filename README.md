@@ -259,8 +259,13 @@ Same layout as the reference app, but stricter:
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
-lint, format check and spec discovery (`playwright test --list`) for `sap-tests`. The SAP flows
-themselves need a test system and are not run in CI.
+lint, format check, spec discovery (`playwright test --list`), the plugin tests and the API tests on
+the mock for `sap-tests`. The SAP flows themselves need a test system and are not run in CI.
+
+A second workflow (`.github/workflows/demo-kit.yml`) runs the flows in `tests/fiori/demokit` against
+SAP's public UI5 demo apps every weekday night, and on demand from the Actions tab. They are kept out
+of the pull request checks because they depend on a site outside the project. Locally:
+`bun run test:demokit` in `sap-tests`.
 
 First time: `bunx playwright install chromium` (the app's own Playwright, separate from the
 one in `sap-tests`). Where that cannot download, set `CHROMIUM_PATH` to an installed Chromium.
