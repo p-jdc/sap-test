@@ -20,6 +20,14 @@ The tests run on stock Playwright. `sap-tests/sap-plugin` adds the SAP locators 
 unchanged under Apache-2.0 and registered as custom selector engines. Specs import `test` and
 `expect` from `sap-plugin` instead of `@playwright/test`.
 
+Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
+itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
+HTML report of every run. `fillSecret` hands the value to the password field through a one-time
+page binding instead. The app also masks every password it knows of in the run state and log it
+keeps. The trace of a failed test still holds the password of a browser login (its page snapshots
+and network log record it, like any Playwright trace), and so may `error-context.md`: treat
+`app/.data/runs` as secret.
+
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
 only, because its codegen is what writes SAP locators. The app starts it for "Record a test" and
 then points the recorded spec's import at `sap-plugin`. The app never imports Playwright itself;
@@ -36,12 +44,12 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Page | What it shows |
 | --- | --- |
 | Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values) |
-| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, unreviewed `KI-generiert` tests |
+| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
 | Record a test | Starts the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4) with the saved credentials, writes `tests/<surface>/<name>.spec.ts` and makes it import from `sap-plugin`. Technical details: optionally saves the session (§7.4) |
 | Checklist | The guide's §12 rollout checklist, persisted |
-| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. Technical details: where each value comes from and an optional Chromium path |
+| Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
 Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
 

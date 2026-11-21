@@ -8,6 +8,7 @@
 import { test as base, expect, selectors } from '@playwright/test';
 import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
+import { fillSecret } from './secret';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
@@ -90,11 +91,11 @@ async function sapLogin(
 
 	if (await netweaverUser.isVisible()) {
 		await netweaverUser.fill(username);
-		await page.getByRole('textbox', { name: 'Password Required' }).fill(password);
+		await fillSecret(page.getByRole('textbox', { name: 'Password Required' }), password);
 		await page.getByRole('button', { name: 'Log On Emphasized' }).click();
 	} else {
 		await fioriUser.fill(username);
-		await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
+		await fillSecret(page.getByRole('textbox', { name: 'Password', exact: true }), password);
 		await page.getByRole('button', { name: 'Log On' }).click();
 	}
 	await page.waitForLoadState();
@@ -148,6 +149,6 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 	]
 });
 
-export { expect };
+export { expect, fillSecret };
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';

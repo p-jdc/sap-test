@@ -6,6 +6,7 @@ import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
 import {
+	SECRET_SETTINGS,
 	SETTING_NAMES,
 	type EnvStatus,
 	type SettingName,
@@ -26,7 +27,47 @@ function parse(text: string): Record<string, string> {
 	return out;
 }
 
-type Resolved = Map<string, { value: string; source: SettingSource }>;
+type Setting = { value: string; source: SettingSource };
+
+type Resolved = {
+	/** The settings in effect. */
+	values: Map<string, Setting>;
+	/** Credentials that are set outside the app but not used, with where they are set. */
+	withheld: Map<SettingName, SettingSource>;
+};
+
+/** The URL setting of a system and the credentials that belong to it. */
+const SYSTEMS: { url: SettingName; credentials: SettingName[] }[] = [
+	{ url: 'SAP_URL', credentials: ['SAP_USERNAME', 'SAP_PASSWORD'] },
+	{ url: 'ARIBA_URL', credentials: ['ARIBA_USER', 'ARIBA_PASS'] },
+	{ url: 'SAP_API_URL', credentials: ['SAP_API_USERNAME', 'SAP_API_PASSWORD'] }
+];
+
+/**
+ * Credentials from sap-tests/.env or the app's environment belong to the URL set there. When the
+ * URL saved in the app points at another host, or nothing outside the app sets one, they are
+ * withheld (removed from `values`): otherwise saving a URL on the Settings page would send a
+ * password kept in .env to that host. Credentials saved in the app are protected by changeSetting.
+ */
+function withholdCredentials(
+	values: Map<string, Setting>,
+	outside: (name: SettingName) => string | undefined
+): Map<SettingName, SettingSource> {
+	const withheld = new Map<SettingName, SettingSource>();
+	for (const system of SYSTEMS) {
+		const url = values.get(system.url);
+		if (url?.source !== 'keychain') continue;
+		const outsideUrl = outside(system.url);
+		if (outsideUrl && sameOrigin(outsideUrl, url.value)) continue;
+		for (const name of system.credentials) {
+			const credential = values.get(name);
+			if (!credential || credential.source === 'keychain') continue;
+			withheld.set(name, credential.source);
+			values.delete(name);
+		}
+	}
+	return withheld;
+}
 
 /**
  * Where each setting comes from. The credential store (Settings page) wins over sap-tests/.env,
@@ -35,51 +76,66 @@ type Resolved = Map<string, { value: string; source: SettingSource }>;
 async function resolveSettings(store: SecretStore): Promise<Resolved> {
 	const file = resolve(TESTS_ROOT, '.env');
 	const fromFile = existsSync(file) ? parse(readFileSync(file, 'utf8')) : {};
-	const out: Resolved = new Map();
+	const values = new Map<string, Setting>();
 	for (const [name, value] of Object.entries(fromFile)) {
-		if (value) out.set(name, { value, source: 'file' });
+		if (value) values.set(name, { value, source: 'file' });
 	}
 	const stored = await Promise.all(SETTING_NAMES.map((name) => store.get(name)));
 	SETTING_NAMES.forEach((name, i) => {
 		const secret = stored[i];
 		const fromProcess = process.env[name];
-		if (secret) out.set(name, { value: secret, source: 'keychain' });
-		else if (!out.has(name) && fromProcess)
-			out.set(name, { value: fromProcess, source: 'process' });
+		if (secret) values.set(name, { value: secret, source: 'keychain' });
+		else if (!values.has(name) && fromProcess)
+			values.set(name, { value: fromProcess, source: 'process' });
 	});
-	return out;
+	const withheld = withholdCredentials(
+		values,
+		(name) => fromFile[name] || process.env[name] || undefined
+	);
+	return { values, withheld };
 }
 
-/** Every setting with its value. Values stay server-side; the UI only sees set/unset. */
+/** Every setting in effect with its value. Values stay server-side; the UI only sees set/unset. */
 export async function readTestEnv(
 	store: SecretStore = keychain()
 ): Promise<Record<string, string>> {
-	const resolved = await resolveSettings(store);
-	return Object.fromEntries([...resolved].map(([name, { value }]) => [name, value]));
+	const { values } = await resolveSettings(store);
+	return Object.fromEntries([...values].map(([name, { value }]) => [name, value]));
 }
 
 /**
- * The settings held in the credential store, to hand to a Playwright process as environment
- * variables. Values from sap-tests/.env are not included: the test project loads that file itself
- * (dotenv), and dotenv does not replace a variable that is already set, so these win there too.
+ * The environment variables to hand to a Playwright process: the settings held in the credential
+ * store, and an empty value for each withheld credential. Values from sap-tests/.env are not
+ * included: the test project loads that file itself (dotenv), and dotenv does not replace a
+ * variable that is already set, even to an empty value, so these win there too.
  */
 export async function keychainEnv(
 	store: SecretStore = keychain()
 ): Promise<Record<string, string>> {
-	const resolved = await resolveSettings(store);
-	return Object.fromEntries(
-		[...resolved].flatMap(([name, { value, source }]) =>
-			source === 'keychain' ? [[name, value]] : []
-		)
-	);
+	return childVars(await resolveSettings(store));
 }
 
-/** The URL setting of a system and the credentials that belong to it. */
-const SYSTEMS: { url: SettingName; credentials: SettingName[] }[] = [
-	{ url: 'SAP_URL', credentials: ['SAP_USERNAME', 'SAP_PASSWORD'] },
-	{ url: 'ARIBA_URL', credentials: ['ARIBA_USER', 'ARIBA_PASS'] },
-	{ url: 'SAP_API_URL', credentials: ['SAP_API_USERNAME', 'SAP_API_PASSWORD'] }
-];
+function childVars({ values, withheld }: Resolved): Record<string, string> {
+	const vars: Record<string, string> = {};
+	for (const [name, { value, source }] of values) if (source === 'keychain') vars[name] = value;
+	for (const name of withheld.keys()) vars[name] = '';
+	return vars;
+}
+
+/**
+ * What a Playwright run needs from the settings: its environment variables (see keychainEnv) and
+ * the passwords it can use, from wherever they are set, to mask in everything the run records.
+ */
+export async function runSettings(
+	store: SecretStore = keychain()
+): Promise<{ env: Record<string, string>; secrets: string[] }> {
+	const resolved = await resolveSettings(store);
+	const secrets = SECRET_SETTINGS.flatMap((name) => {
+		const value = resolved.values.get(name)?.value;
+		return value ? [value] : [];
+	});
+	return { env: childVars(resolved), secrets };
+}
 
 /**
  * Saves or removes (value null) one setting in the credential store. When that moves a system's
@@ -92,11 +148,11 @@ export async function changeSetting(
 	store: SecretStore = keychain()
 ): Promise<{ cleared: SettingName[] }> {
 	const system = SYSTEMS.find((s) => s.url === name);
-	const before = system ? (await resolveSettings(store)).get(name)?.value : undefined;
+	const before = system ? (await resolveSettings(store)).values.get(name)?.value : undefined;
 	if (value === null) await store.delete(name);
 	else await store.set(name, value);
 	if (!system || !before) return { cleared: [] };
-	const after = await resolveSettings(store);
+	const after = (await resolveSettings(store)).values;
 	const url = after.get(name)?.value;
 	if (url && sameOrigin(before, url)) return { cleared: [] };
 	const cleared = system.credentials.filter((c) => after.get(c)?.source === 'keychain');
@@ -117,7 +173,7 @@ function packageVersion(packageDir: string): string | undefined {
 }
 
 export async function envStatus(store: SecretStore = keychain()): Promise<EnvStatus> {
-	const [resolved, keychainAvailable] = await Promise.all([
+	const [{ values, withheld }, keychainAvailable] = await Promise.all([
 		resolveSettings(store),
 		store.available()
 	]);
@@ -129,8 +185,11 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 		envFile: existsSync(resolve(TESTS_ROOT, '.env')),
 		keychain: keychainAvailable,
 		vars: SETTING_NAMES.map((name) => {
-			const source = resolved.get(name)?.source;
-			return { name, set: source !== undefined, source };
+			const source = values.get(name)?.source;
+			const entry: EnvStatus['vars'][number] = { name, set: source !== undefined, source };
+			const unused = withheld.get(name);
+			if (unused) entry.withheld = unused;
+			return entry;
 		}),
 		playwrightVersion,
 		sapPlugin: existsSync(resolve(TESTS_ROOT, 'sap-plugin/index.ts')),

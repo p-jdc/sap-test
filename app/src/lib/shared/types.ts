@@ -176,7 +176,11 @@ export interface EnvStatus {
 	envFile: boolean;
 	/** Whether the system credential store can be used on this machine. */
 	keychain: boolean;
-	vars: { name: SettingName; set: boolean; source?: SettingSource }[];
+	/**
+	 * `withheld`: a credential set in .env or the environment that is not used, because the URL
+	 * saved in the app points at another host than the URL set there.
+	 */
+	vars: { name: SettingName; set: boolean; source?: SettingSource; withheld?: SettingSource }[];
 	/** Stock Playwright in sap-tests, which runs the tests. */
 	playwrightVersion?: string;
 	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */

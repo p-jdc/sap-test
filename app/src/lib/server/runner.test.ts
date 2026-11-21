@@ -24,7 +24,7 @@ const test = {
 	location: { file: join(process.cwd(), 'tests/a.spec.ts'), line: 3, column: 1 }
 };
 const mode = process.env.FAKE_RUN;
-if (mode === 'pass' || mode === 'hang') {
+if (mode === 'pass' || mode === 'hang' || mode === 'secret') {
 	emit({ type: 'begin', rootDir: process.cwd(), tests: [test] });
 	emit({ type: 'testBegin', testId: 't1', retry: 0, startTime: new Date().toISOString() });
 }
@@ -43,6 +43,30 @@ if (mode === 'pass') {
 	emit({ type: 'end', status: 'passed', duration: 5 });
 	process.stdout.write('last line without newline');
 }
+if (mode === 'secret') {
+	// What Playwright reports for fill(password): the value in the step title and in errors.
+	emit({
+		type: 'stepBegin',
+		testId: 't1',
+		stepId: 's1',
+		title: 'Fill "pw-from-env"',
+		category: 'pw:api',
+		startTime: new Date().toISOString()
+	});
+	emit({ type: 'stepEnd', testId: 't1', stepId: 's1', duration: 1 });
+	console.log('typed pw-from-env');
+	emit({
+		type: 'testEnd',
+		testId: 't1',
+		status: 'failed',
+		expectedStatus: 'passed',
+		duration: 5,
+		retry: 0,
+		error: { message: 'Expected "pw-from-env" to be gone', stack: 'at pw-from-env' },
+		attachments: []
+	});
+	emit({ type: 'end', status: 'failed', duration: 5 });
+}
 if (mode === 'hang') {
 	process.on('SIGINT', () => {
 		emit({ type: 'end', status: 'interrupted', duration: 1 });
@@ -55,7 +79,7 @@ if (mode === 'hang') {
 let testsRoot = '';
 
 /** A fresh runner on a fresh test project and data directory. */
-async function freshRunner(run: 'pass' | 'hang' | 'none', installed = true) {
+async function freshRunner(run: 'pass' | 'hang' | 'secret' | 'none', installed = true) {
 	// The real path: the stand-in reports files under its working directory, and on macOS the
 	// temporary folder is reached through a link.
 	testsRoot = realpathSync(mkdtempSync(join(tmpdir(), 'runner-tests-')));
@@ -155,6 +179,23 @@ describe('startRun', () => {
 			expect.arrayContaining(['test', 'tests/fiori/a.spec.ts:12', '--grep', 'order'])
 		);
 		expect(JSON.stringify(args)).not.toContain('outside');
+	});
+
+	test('passwords never reach the run state, the log or the stored files', async () => {
+		const runner = await freshRunner('secret');
+		// The test project reads its passwords from .env; the runner masks them wherever they are set.
+		writeFileSync(join(testsRoot, '.env'), 'SAP_PASSWORD=pw-from-env\n');
+		const id = await started(runner);
+		const state = await finished(runner, id);
+
+		const result = must(state.tests[0]);
+		expect(must(result.steps[0]).title).toBe('Fill "***"');
+		expect(result.error?.message).toBe('Expected "***" to be gone');
+		expect(state.log).toContain('typed ***');
+		const stored = ['state.json', 'meta.json', 'output.log'].map((f) =>
+			readFileSync(join(runner.RUNS_DIR, id, f), 'utf8')
+		);
+		expect([JSON.stringify(state), ...stored].join('\n')).not.toContain('pw-from-env');
 	});
 
 	test('a run in which no test ran is an error, not a pass', async () => {

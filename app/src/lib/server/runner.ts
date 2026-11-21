@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { keychainEnv } from './env-file.js';
+import { runSettings } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
+import { redactor } from './redact.js';
 import { ANSI, applyEvent, PREFIX, recount, type ReporterEvent } from './run-events.js';
 import { markLive, pruneRuns, readRunState, rememberFinished } from './runs-store.js';
 import type { RunState, RunStatus } from '#lib/shared/types.js';
@@ -48,7 +49,10 @@ export async function startRun(
 	// Settings saved in the app live in the system credential store; the tests get them as
 	// environment variables. Read before the check below: nothing after it yields, so two requests
 	// cannot both start a run.
-	const settings = await keychainEnv();
+	const settings = await runSettings();
+	// Playwright writes typed values into step titles (`Fill "…"`) and errors; a password must not
+	// reach the run state, the log or the UI that way.
+	const redact = redactor(settings.secrets);
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
 	if (!existsSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test'))) {
 		return {
@@ -76,7 +80,7 @@ export async function startRun(
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
 		env: childEnv({
-			...settings,
+			...settings.env,
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'
@@ -110,13 +114,14 @@ export async function startRun(
 			try {
 				// The line comes from reporter/live-reporter.ts in this repo, so its shape is trusted.
 				// oxlint-disable-next-line typescript/no-unsafe-type-assertion
-				applyEvent(live.state, dir, JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent);
+				const event = JSON.parse(raw.slice(PREFIX.length)) as ReporterEvent;
+				applyEvent(live.state, dir, redact(event));
 			} catch {
 				// a malformed line must not kill the run
 			}
 			return;
 		}
-		const line = raw.replaceAll(ANSI, '').replaceAll('\r', '');
+		const line = redact(raw.replaceAll(ANSI, '').replaceAll('\r', ''));
 		if (!line.trim()) return;
 		appendFileSync(logFile, line + '\n');
 		live.state.log.push(line);
