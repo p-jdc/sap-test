@@ -2,7 +2,7 @@
 
 ## Application Overview
 
-Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
+Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand, and corrected after scenario 1.1 was written and run (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
 
 **Address:** `https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html?sap-ui-theme=sap_horizon_dark` (no login; needs internet access). The checkout is at `#/checkout`, the confirmation at `#/ordercompleted`.
 
@@ -18,11 +18,12 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 **Locators and pitfalls found while exploring** (each locator below was checked on the running app):
 
 - Every control named in a step is given as `ControlType, property "value"` for `page.getByRoleUI5`.
-- Controls of views and steps that are not shown stay in the page. Where a step says "visible only", add `.filter({ visible: true })`, otherwise the locator matches more than one control. This applies to the four address inputs (they exist for the invoice and for the shipping address), to `ObjectListItem, title "Notebook Basic 17"` (4 matches), to `Text, text "Standard Delivery"` (2) and to `Button, text "Return to Shop"` (2).
+- Controls of views and steps that are not shown stay in the page. Where a step says "visible only", add `.filter({ visible: true })`, otherwise the locator matches more than one control. This applies to the four address inputs (they exist for the invoice and for the shipping address), to `ObjectListItem, title "Notebook Basic 17"` (4 matches), to `Text, text "Total: 0,00 EUR"` (2) and to `Button, text "Return to Shop"` (2).
 - On the step "Shipping Address" both address forms are visible. The shipping inputs are the last of the two visible matches (`.filter({ visible: true }).last()`).
-- `text` matches as a part of the value: `Text, text "Credit Card"` also matches longer texts. Pass `{ exact: true }` there.
+- `text` matches as a part of the value: `Text, text "Credit Card"` also matches longer texts, and `Text, text "Standard Delivery"` also matches the info text of the delivery step ("Standard delivery time is 5 workdays…"). Pass `{ exact: true }` for both.
 - The card number and the security code are `MaskInput` controls (masks `CCCC-CCCC-CCCC-CCCC` and `CCC`, digits only). `fill()` with the bare digits works and the field adds the dashes. Clicking the field and typing on the keyboard loses the first digit; do not use the `typeInto` helper here.
 - A field is validated when it loses focus: press Tab after each `fill()`.
+- The confirmation text is one `FormattedText` control. `getByRoleUI5` resolves it (and the `Page` around it) to the link inside the text, so read it with `page.locateUI5Control({ controlType: 'sap.m.FormattedText', interaction: 'root' })` and `toContainText`.
 - The order summary page has no page title. Recognise it by `Button, text "Submit"` or `Title, text "Credit Card Payment"`.
 
 **Behaviour worth knowing**
@@ -66,10 +67,10 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 16. Fill Input, placeholder "Enter your zip code" (visible only) with "69190", then press Tab
 17. Fill Input, placeholder "Enter your country" (visible only) with "Germany", then press Tab - expect: Button, text "Step 5" is visible
 18. Click Button, text "Step 5" - expect: WizardStep, title "Delivery Type" is visible - expect: SegmentedButton has selectedKey "Standard Delivery" (preselected)
-19. Click Button, text "Order Summary" - expect: Button, text "Submit" is visible - expect: Title, text "Total: 1.249,00 EUR" is visible - expect: Text, text "Credit Card" (exact) is visible - expect: Title, text "Credit Card Payment" is visible - expect: Text, text "Alex Example" is visible - expect: Text, text "1234-5678-9012-3456" is visible - expect: Text, text "12/2030" is visible - expect: Text, text "Musterstrasse 1" is visible - expect: Text, text "Walldorf" is visible - expect: Text, text "Standard Delivery" (visible only) is visible - expect: Text, text "Same as invoice address" is visible
+19. Click Button, text "Order Summary" - expect: Button, text "Submit" is visible - expect: Title, text "Total: 1.249,00 EUR" is visible - expect: Text, text "Credit Card" (exact) is visible - expect: Title, text "Credit Card Payment" is visible - expect: Text, text "Alex Example" is visible - expect: Text, text "1234-5678-9012-3456" is visible - expect: Text, text "12/2030" is visible - expect: Text, text "Musterstrasse 1" is visible - expect: Text, text "Walldorf" is visible - expect: Text, text "Standard Delivery" (exact) is visible - expect: Text, text "Same as invoice address" is visible
 20. Click Button, text "Submit" - expect: Dialog, title "Confirmation" is visible - expect: Text, text "Are you sure you want to submit your order?" is visible
-21. Click Button, text "Yes" - expect: Page, title "Order Completed" is visible - expect: The page shows the text "Thank you for your order!" (FormattedText; getByText works) - expect: The page shows the text "Your order number:" - expect: The page shows the text "You will receive an e-mail confirmation shortly."
-22. Click Button, text "Return to Shop" (visible only), then open the cart with the openCart helper - expect: Text, text "Total: 0,00 EUR" is visible - expect: Button, text "Proceed" is disabled
+21. Click Button, text "Yes" - expect: Page, title "Order Completed" is visible - expect: The confirmation text contains "Thank you for your order!" - expect: The confirmation text contains "Your order number:" - expect: The confirmation text contains "You will receive an e-mail confirmation shortly."
+22. Click Button, text "Return to Shop" (visible only), then open the cart with the openCart helper - expect: Text, text "Total: 0,00 EUR" (visible only) is visible - expect: Button, text "Proceed" is disabled
 
 #### 1.2. demo kit: check out with cash on delivery, a different shipping address and express delivery
 
@@ -102,7 +103,7 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 23. Click Button, text "Express" - expect: SegmentedButton has selectedKey "Express Delivery"
 24. Click Button, text "Order Summary" - expect: Button, text "Submit" is visible - expect: Title, text "Cash on Delivery" is visible - expect: Text, text "alex.example@example.com" is visible - expect: Text, text "+49 6227 000000" is visible - expect: Text, text "Musterstrasse 1" is visible - expect: Text, text "Express Delivery" is visible - expect: Text, text "Beispielweg 2" is visible - expect: Text, text "Heidelberg" is visible - expect: There is no Text, text "Same as invoice address" (visible only)
 25. Click Button, text "Submit" - expect: Dialog, title "Confirmation" is visible - expect: Text, text "Are you sure you want to submit your order?" is visible
-26. Click Button, text "Yes" - expect: Page, title "Order Completed" is visible - expect: The page shows the text "Thank you for your order!" (FormattedText; getByText works) - expect: The page shows the text "Your order number:" - expect: The page shows the text "You will receive an e-mail confirmation shortly."
+26. Click Button, text "Yes" - expect: Page, title "Order Completed" is visible - expect: The confirmation text contains "Thank you for your order!" - expect: The confirmation text contains "Your order number:" - expect: The confirmation text contains "You will receive an e-mail confirmation shortly."
 
 #### 1.3. demo kit: the credit card step only lets valid details through
 
