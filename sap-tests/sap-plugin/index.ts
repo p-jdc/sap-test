@@ -8,6 +8,8 @@
 import { test as base, expect, selectors } from '@playwright/test';
 import type { Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
+import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
+import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
@@ -21,6 +23,11 @@ export interface SapPageMethods {
 	getByRoleUI5(role: string, properties?: ByRoleUI5Properties, options?: ByRoleUI5Options): Locator;
 	/** A UI5 control by an XPath over the UI5 control tree. */
 	locateUI5(xpath: string): Locator;
+	/**
+	 * SPIKE. A UI5 control by a control selector in UI5's own format (OPA5, wdi5, RecordReplay):
+	 * control type, properties, binding path and the control it sits in.
+	 */
+	locateUI5Control(selector: UI5ControlSelector): Locator;
 	/** A WebGUI element by its full SID path, e.g. `wnd[0]/tbar[1]/btn[8]`. */
 	locateSID(sid: string): Locator;
 	/** A WebGUI element by role and name or position, e.g. `('textField', { name: 'VBAK-VBELN' })`. */
@@ -107,6 +114,7 @@ export function withSapMethods(page: Page): Page {
 		getByRoleUI5: (role, properties, options) =>
 			page.locator(getByRoleUI5Selector(role, properties, options)),
 		locateUI5: (xpath) => page.locator(locateUI5Selector(xpath)),
+		locateUI5Control: (selector) => page.locator(ui5ControlSelector(selector)),
 		locateSID: (sid) => page.locator(locateSIDSelector(sid)),
 		getByRoleSID: (role, options) => page.locator(getByRoleSIDSelector(role, options)),
 		SAPLogin: (username, password, url) => sapLogin(page, username, password, url),
@@ -126,6 +134,7 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 		async ({}, use) => {
 			for (const name of ENGINE_NAMES)
 				await selectors.register(name, { content: engineSource(name) });
+			await selectors.register(UI5_CONTROL_ENGINE, ui5ControlEngine);
 			await use();
 		},
 		{ scope: 'worker', auto: true }
@@ -140,3 +149,5 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 export { expect };
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';
+export type { UI5ControlSelector } from './ui5control';
+export { ui5ControlSelector } from './ui5control';
