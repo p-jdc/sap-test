@@ -296,6 +296,20 @@ test('steps on a second page come after the steps on the first', async ({ browse
 	]);
 });
 
+test('what was typed into the last field is recorded when the recording ends there', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, webgui, async (page) => {
+		await page.getByLabel('Order').click();
+		// The cursor stays in the field: nobody clicks elsewhere before pressing Stop.
+		await page.getByLabel('Order').pressSequentially('4711');
+	});
+	expect(steps.map((step) => [step.action, step.sid, step.value])).toEqual([
+		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711']
+	]);
+});
+
 const withPassword: Flow = {
 	url: 'https://webgui.test/password',
 	prepare: (context) =>
@@ -406,6 +420,67 @@ test('inside an iframe: a UI5 app is recorded and replays', async ({ browser }, 
 	expect(needingALook(steps)).toEqual([]);
 	await replay(browser, framed, steps, async (page) => {
 		await expect(page.frameLocator('iframe').getByText(/ - HT-\d+/)).toBeVisible();
+	});
+});
+
+// A chart draws its bars as SVG shapes: no controls, no text. The recorder names a bar by the
+// values it stands for, read from the record the chart library keeps on the shape.
+const CHART = 'https://ui5.sap.com/test-resources/sap/viz/demokit/chartdemo/index.html';
+const selectedInChart = (page: Page) =>
+	page.evaluate(() =>
+		[...document.querySelectorAll('.v-datapoint-selected')].map((shape) => {
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- D3's record on the shape
+			const values = Reflect.get(shape, '__data__') as Record<string, unknown>;
+			return `${String(values['Item Category'])} / ${String(values.measureNames)}`;
+		})
+	);
+
+test('a bar in a chart is recorded by the values it stands for and replays', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, { url: CHART }, async (page) => {
+		await ui5Started(page);
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		// The first bar: profit for action movies.
+		await clickLikeAPerson(page, page.locator('.v-datapoint').first());
+		expect(await selectedInChart(page)).toEqual(['Action Movies / Profit']);
+	});
+
+	expect(needingALook(steps)).toEqual([]);
+	expect(steps.map((step) => step.chartPoint)).toEqual([
+		{ measureNames: 'Profit', 'Item Category': 'Action Movies' }
+	]);
+	expect(renderSpec(CHART, steps, '../../sap-plugin')).toContain(
+		`.locator(ui5ChartPointSelector({ measureNames: 'Profit', 'Item Category': 'Action Movies' })).click();`
+	);
+
+	await replay(browser, { url: CHART }, steps, async (page) => {
+		await expect.poll(() => selectedInChart(page)).toEqual(['Action Movies / Profit']);
+	});
+});
+
+test('a point of a line chart is recorded by its values and replays', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, { url: CHART }, async (page) => {
+		await ui5Started(page);
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		await clickLikeAPerson(page, page.locator('[id$="--select-arrow"]'));
+		await clickLikeAPerson(page, page.getByRole('option', { name: 'Line', exact: true }));
+		await page.waitForUI5();
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		await clickLikeAPerson(page, page.locator('.v-datapoint').nth(2));
+		await expect.poll(() => selectedInChart(page)).toHaveLength(1);
+	});
+
+	expect(needingALook(steps)).toEqual([]);
+	const point = steps.at(-1)?.chartPoint;
+	expect(point).toBeDefined();
+
+	await replay(browser, { url: CHART }, steps, async (page) => {
+		await expect
+			.poll(() => selectedInChart(page))
+			.toEqual([`${point?.['Item Category']} / ${point?.measureNames}`]);
 	});
 });
 

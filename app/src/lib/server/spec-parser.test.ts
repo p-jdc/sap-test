@@ -56,6 +56,7 @@ test('recorded', async ({ page }) => {
 	await page.locateUI5Control({ id: 'app--calendar', interaction: 'root' }).getByText('15', { exact: true }).click();
 	await page.frameLocator('iframe[name="application"]').locator(ui5ControlSelector({ controlType: 'sap.m.Button', properties: { text: 'Go' } })).click();
 	await page.frameLocator('iframe[name="application"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();
+	await page.locateUI5Control({ id: 'chart', interaction: 'root' }).locator(ui5ChartPointSelector({ Category: 'Pop' })).click();
 });`,
 			helpers
 		);
@@ -65,7 +66,8 @@ test('recorded', async ({ page }) => {
 			['fill', 'ui5'],
 			['click', 'text'],
 			['click', 'ui5'],
-			['click', 'sid-path']
+			['click', 'sid-path'],
+			['click', 'ui5']
 		]);
 		// No CSS finding for the selector strings; only the calendar day is a standard locator.
 		expect(t.issues.map((i) => i.rule).toSorted()).toEqual(['has-assertion', 'prefer-sap-locator']);

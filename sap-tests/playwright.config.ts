@@ -60,7 +60,7 @@ export default defineConfig<SapOptions>({
 			testDir: './setup',
 			testMatch: 'sign-in.setup.ts',
 			grep: new RegExp(`${signInTag(system)}(?:\\s|$)`),
-			use: signIn
+			use: { ...signIn, baseURL: process.env[system.env.url] }
 		})),
 		// First of the projects no other one depends on: the test agents' MCP server uses it when a
 		// tool call names no project.
@@ -73,7 +73,8 @@ export default defineConfig<SapOptions>({
 			name: system.id,
 			testMatch: [testFiles(system), SIGNED_IN_SEED],
 			dependencies: [`${system.id}-sign-in`],
-			use: { ...browser, system: system.id }
+			// A relative address in a test of this system means this system, not SAP.
+			use: { ...browser, system: system.id, baseURL: process.env[system.env.url] }
 		}))
 	]
 });

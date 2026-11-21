@@ -6,6 +6,7 @@ import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 import { redactor } from './redact.js';
+import { systemsProblem } from './systems.js';
 import {
 	ANSI,
 	applyEvent,
@@ -81,6 +82,10 @@ export async function startRun(
 	// Settings saved in the app live in the system credential store; the tests get them as
 	// environment variables. Read before the check below: nothing after it yields, so two requests
 	// cannot both start a run.
+	// A broken systems.json: Playwright could not even load its config, and the settings below
+	// would miss every system's password.
+	const broken = systemsProblem();
+	if (broken) return { ok: false, error: broken };
 	const settings = await runSettings();
 	// Playwright writes typed values into step titles (`Fill "…"`) and errors; a password must not
 	// reach the run state, the log or the UI that way.

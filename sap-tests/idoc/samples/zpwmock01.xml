@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Made-up custom IDoc type ZPWMOCK01: two IDocs in one document, three segment levels, a namespaced segment
+     (/PWM/Z1NOTE, written _-PWM_-Z1NOTE) and a CDATA section. The layout is zpwmock01.layout.json. -->
+<ZPWMOCK01>
+	<IDOC BEGIN="1">
+		<EDI_DC40 SEGMENT="1">
+			<TABNAM>EDI_DC40</TABNAM>
+			<MANDT>100</MANDT>
+			<DOCNUM>0000000000000001</DOCNUM>
+			<DIRECT>2</DIRECT>
+			<IDOCTYP>ZPWMOCK01</IDOCTYP>
+			<MESTYP>ZPWMOCK</MESTYP>
+			<SNDPOR>XMLPWMOCK</SNDPOR>
+			<SNDPRT>LS</SNDPRT>
+			<SNDPRN>PWMOCK</SNDPRN>
+			<RCVPOR>SAPS4D</RCVPOR>
+			<RCVPRT>LS</RCVPRT>
+			<RCVPRN>S4DCLNT100</RCVPRN>
+		</EDI_DC40>
+		<Z1PWHDR SEGMENT="1">
+			<MOCKID>RUN-0042</MOCKID>
+			<KIND>A</KIND>
+			<Z1PWITM SEGMENT="1">
+				<ITEMNO>000010</ITEMNO>
+				<QTY>3</QTY>
+				<Z1PWTXT SEGMENT="1">
+					<TEXT><![CDATA[Fragile: <handle> with care]]></TEXT>
+				</Z1PWTXT>
+			</Z1PWITM>
+			<Z1PWITM SEGMENT="1">
+				<ITEMNO>000020</ITEMNO>
+				<QTY>1</QTY>
+			</Z1PWITM>
+		</Z1PWHDR>
+		<_-PWM_-Z1NOTE SEGMENT="1">
+			<NOTE>  leading spaces are kept</NOTE>
+		</_-PWM_-Z1NOTE>
+	</IDOC>
+	<IDOC BEGIN="1">
+		<EDI_DC40 SEGMENT="1">
+			<TABNAM>EDI_DC40</TABNAM>
+			<MANDT>100</MANDT>
+			<DOCNUM>0000000000000002</DOCNUM>
+			<DIRECT>2</DIRECT>
+			<IDOCTYP>ZPWMOCK01</IDOCTYP>
+			<MESTYP>ZPWMOCK</MESTYP>
+			<SNDPRN>PWMOCK</SNDPRN>
+			<RCVPRN>S4DCLNT100</RCVPRN>
+		</EDI_DC40>
+		<Z1PWHDR SEGMENT="1">
+			<MOCKID>RUN-0043</MOCKID>
+			<KIND>B</KIND>
+		</Z1PWHDR>
+	</IDOC>
+</ZPWMOCK01>

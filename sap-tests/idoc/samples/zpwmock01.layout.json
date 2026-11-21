@@ -1,0 +1,16 @@
+{
+	"description": "Made-up field lengths of the made-up custom IDoc type ZPWMOCK01 (zpwmock01.xml). Real lengths come from the segment definitions (WE31) or the IDoc type's XML schema (WE60).",
+	"segments": {
+		"Z1PWHDR": [
+			{ "name": "MOCKID", "length": 20 },
+			{ "name": "KIND", "length": 1 },
+			{ "name": "CREATED", "length": 8 }
+		],
+		"Z1PWITM": [
+			{ "name": "ITEMNO", "length": 6 },
+			{ "name": "QTY", "length": 15 }
+		],
+		"Z1PWTXT": [{ "name": "TEXT", "length": 70 }],
+		"/PWM/Z1NOTE": [{ "name": "NOTE", "length": 40 }]
+	}
+}

@@ -204,12 +204,15 @@ export interface EnvStatus {
 	/** Whether the system credential store can be used on this machine. */
 	keychain: boolean;
 	/**
-	 * `withheld`: a credential set in .env or the environment that is not used, because the URL
-	 * saved in the app points at another host than the URL set there.
+	 * `withheld`: a credential that is set but not used, because its system's URL now points at
+	 * another host: one from .env or the environment when the URL saved in the app differs from the
+	 * URL set there, one saved in the app (`keychain`) when the URL changed outside the app.
 	 */
 	vars: { name: SettingName; set: boolean; source?: SettingSource; withheld?: SettingSource }[];
 	/** The systems of sap-tests/systems.json, in its order. */
 	systems: SignInSystemInfo[];
+	/** What is wrong with sap-tests/systems.json; `systems` is then empty. */
+	systemsError?: string;
 	/** Stock Playwright in sap-tests, which runs the tests. */
 	playwrightVersion?: string;
 	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */
