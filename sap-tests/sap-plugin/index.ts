@@ -6,7 +6,7 @@
 // Apache-2.0, Copyright Arpit Sureka). waitForUI5 and the ui5* model reads (ui5.ts) are our own
 // additions; the fork has no counterpart.
 import { test as base, expect, selectors } from '@playwright/test';
-import type { Locator, Page, Response } from '@playwright/test';
+import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
@@ -101,7 +101,11 @@ async function sapLogin(
 	return response;
 }
 
-/** Adds the SAP methods to one page object. Popups and new tabs are covered by the fixture below. */
+/**
+ * Adds the SAP methods to one page object. The fixture below does this for every page of the
+ * worker's browser; call it yourself only for a page from another browser (a second launch, a
+ * persistent context, a remote connection).
+ */
 export function withSapMethods(page: Page): Page {
 	const methods: SapPageMethods = {
 		getByRoleUI5: (role, properties, options) =>
@@ -118,6 +122,8 @@ export function withSapMethods(page: Page): Page {
 	return Object.assign(page, methods);
 }
 
+const onContext = (context: BrowserContext) => context.on('page', withSapMethods);
+
 export const test = base.extend<object, { sapSelectorEngines: void }>({
 	// Once per worker. Not a content script: the UI5 engines read window.sap, which only the page's
 	// own JavaScript world has.
@@ -130,11 +136,16 @@ export const test = base.extend<object, { sapSelectorEngines: void }>({
 		},
 		{ scope: 'worker', auto: true }
 	],
-	// Every page of the context gets the methods: the test's own page, popups and new tabs.
-	context: async ({ context }, use) => {
-		context.on('page', withSapMethods);
-		await use(context);
-	}
+	// Every page of every context of this worker's browser gets the methods: the test's own page,
+	// popups, new tabs, and the pages of contexts a test opens itself (browser.newContext()).
+	browser: [
+		async ({ browser }, use) => {
+			browser.on('context', onContext);
+			await use(browser);
+			browser.off('context', onContext);
+		},
+		{ scope: 'worker' }
+	]
 });
 
 export { expect };

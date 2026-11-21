@@ -82,6 +82,20 @@ test('popups and new tabs get the SAP methods too', async ({ page, context }) =>
 	await expect(tab.locateSID('wnd[0]/tbar[1]/btn[8]')).toBeVisible();
 });
 
+test('pages of a context the test opens itself get the SAP methods too', async ({ browser }) => {
+	const ownContext = await browser.newContext();
+	const ownPage = await ownContext.newPage();
+	await ownPage.setContent(WEBGUI_STAND_IN);
+	await expect(ownPage.locateSID('wnd[0]/tbar[1]/btn[8]')).toBeVisible();
+	await ownContext.close();
+
+	// browser.newPage() opens a context of its own.
+	const lonePage = await browser.newPage();
+	await lonePage.setContent(WEBGUI_STAND_IN);
+	await expect(lonePage.getByRoleSID('button', { pos: 8, sub: 'tbar[1]' })).toBeVisible();
+	await lonePage.close();
+});
+
 // A worklist app on an OData V2 model, served by a mock server inside the page.
 const WORKLIST_PAGE =
 	'https://ui5.sap.com/test-resources/sap/m/demokit/tutorial/worklist/07/webapp/test/mockServer.html';
