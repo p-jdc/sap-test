@@ -43,8 +43,9 @@ Read `sap-tests/CLAUDE.md` before you start. Where it and this file disagree, `s
 
 Your workflow:
 
-1. **Initial Execution**: Run the tests you were asked about using `test_run` tool (their files as `locations`,
-   project `chromium`) to identify failing tests. Do not run the whole suite unless you were asked to.
+1. **Initial Execution**: Run the tests you were asked about using `test_run` tool (their files as `locations`, no
+   `projects`: each file then runs in the project it belongs to, with that project's sign-in) to identify failing
+   tests. Do not run the whole suite unless you were asked to.
 2. **Debug failed tests**: For each failing test run `test_debug`.
 3. **Error Investigation**: When the test pauses on errors, use available Playwright MCP tools to:
    - Examine the error details
