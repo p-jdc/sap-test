@@ -40,9 +40,34 @@ that runs elsewhere (`MFS_EMULATOR_URL`), give the app its token as `MFS_EMULATO
 | Part                                         | Status                                                                                                                                                                                                           |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Warehouse layout `setups/sap-example`        | SAP's MFS training example (SAP Learning, "Integrating a Material Flow System"): 3 aisles with stacker cranes, transfer car, identification point, clearing, goods issue, pick point. Travel times are invented. |
-| Telegram layout `layouts/demo.telegram.json` | **Made up.** Real layouts come from the EWM Customizing of the PLC interface type and differ per project. The code reads any layout of this shape.                                                               |
-| Protocol rules (`channel.mts`)               | Sequence numbers, acknowledgement with resend, duplicate detection, life telegrams: the usual MFS handshake. Exact rules (timeouts, which telegrams need an acknowledgement) come from the channel Customizing.  |
+| Telegram layout `layouts/demo.telegram.json` | **Made up.** Real layouts come from the EWM Customizing of the PLC interface type and differ per project. Everything about the telegrams is read from the layout file (see "Telegram layout").                   |
+| Protocol rules (`channel.mts`)               | Sequence numbers, acknowledgement with resend, duplicate detection, life telegrams. How a telegram is acknowledged comes from the layout file; timeouts come from the channel Customizing.                       |
 | Fake EWM (`fake-ewm.mts`)                    | Simplified stand-in for EWM: one task per stage, round-robin aisle choice, first free bin. Only there so the emulator can run without SAP.                                                                       |
+
+## Telegram layout
+
+One file per PLC interface type, `layouts/<name>.telegram.json`. A setup names its layout in `telegramLayout`.
+The code holds no telegram names, field names or result codes: a layout with other names needs a new file, not
+new code. `tests/_mfs/foreign-layout.mts` is a second, deliberately different layout that the tests run a whole
+putaway with.
+
+| Part                     | What it decides                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `header`, `telegrams`    | The fields of the header and of each telegram type, with their lengths. `"type": "numc"` is digits padded with zeros; everything else is padded with `fill`.                                                                                                                                                                                                |
+| `start`, `end`, `length` | Where a telegram ends. With `end`: at that character. Without: after `length` characters (every telegram is filled up to it), or, without `length`, after the length of its type. `start` is optional in all three.                                                                                                                                         |
+| `roles`                  | Which header fields hold sender, receiver, sequence number and type, and which type is the life telegram. Sequence numbers run up to the largest number the field holds.                                                                                                                                                                                    |
+| `handshake`              | `{ "mode": "telegram", "type", "seqField" }`: acknowledged with a telegram of its own that names the sequence number. `{ "mode": "echo", "field", "request", "confirm", "swapAddresses" }`: the telegram itself is sent back with the header field changed from `request` to `confirm`; `swapAddresses` (default true) exchanges sender and receiver in it. |
+| `messages`               | What the telegrams mean: `task`, `confirmation`, and optionally `scan` and `status`. Each has the telegram `type`, `fields` (the emulator's name → the layout's field) and `codes` (the emulator's result → the code sent).                                                                                                                                 |
+
+In `messages`, a field that is left out is neither sent nor read (a task without a task number, for example). A
+result without a code of its own is sent as `codes.error`. Without `status`, device failures are not reported;
+a setup with an identification point needs `scan`. The emulator's results are `ok`, `noRoute`, `wrongPlc`, `noHu`
+and `occupied` for a confirmation, `ok`, `noRead`, `contour` and `overweight` for a scan, `up` and `down` for a
+status. A layout file with a wrong reference (a field or type that does not exist) is refused when it is read,
+with every problem listed.
+
+Not covered yet: acknowledgements that send back only the header, telegrams in both directions of one type with
+different fields, and binary fields.
 
 ## How it fits together
 

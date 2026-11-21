@@ -1,7 +1,8 @@
 // One MFS communication channel: a TCP connection between EWM and a PLC that carries telegrams. Both the
 // emulator (PLC side) and the fake EWM use it, so the protocol rules live in one place:
 // - every telegram gets a sequence number;
-// - every telegram except acknowledgements and life telegrams is acknowledged with its sequence number;
+// - every telegram except acknowledgements is acknowledged, the way the layout says (handshake): with a telegram
+//   of its own that names the sequence number, or by sending the telegram back with a changed header field;
 // - an unacknowledged telegram is sent again with the same number, a few times;
 // - a number from the other side that was seen lately is acknowledged again but not processed twice;
 // - telegrams still unacknowledged when the connection ends are handed back, to be sent again after a reconnect;
@@ -28,6 +29,8 @@ export interface LogEntry {
 	fields: Fields;
 	/** Protocol events: resend, duplicate, dropped acknowledgement, decode error, … */
 	note?: string;
+	/** Acknowledgements and life telegrams: the protocol's own traffic, hidden in most views. */
+	technical?: boolean;
 }
 
 export interface ChannelTiming {
@@ -55,6 +58,9 @@ const SEEN = 64;
 
 let logCounter = 0;
 
+/** A sequence number as it is compared: without padding. */
+const bare = (seq: string) => seq.trim().replace(/^0+(?=\d)/, '');
+
 export class Channel {
 	readonly name: string;
 	readonly local: string;
@@ -68,6 +74,7 @@ export class Channel {
 	#timing: ChannelTiming;
 	#framer: Framer;
 	#seq = 0;
+	#seqLength: number;
 	#pending = new Map<string, { timer: NodeJS.Timeout } & Unacknowledged>();
 	#unacknowledged: Unacknowledged[] = [];
 	#seenIn = new Set<string>();
@@ -95,6 +102,8 @@ export class Channel {
 		this.#socket = options.socket;
 		this.#timing = options.timing;
 		this.#framer = new Framer(options.layout);
+		const { seqField } = options.layout.roles;
+		this.#seqLength = options.layout.header.find((def) => def.name === seqField)?.length ?? 4;
 		this.#log = options.log;
 		this.#onTelegram = options.onTelegram;
 		this.#socket.setEncoding('latin1');
@@ -107,7 +116,7 @@ export class Channel {
 		// Lets the operating system notice a peer that vanished without closing the connection.
 		this.#socket.setKeepAlive(true, this.#timing.lifeIntervalMs);
 		this.#lifeTimer = setInterval(() => {
-			if (!this.faults.stopLife) this.#write(this.#layout.roles.life, {});
+			if (!this.faults.stopLife) this.#write(this.#layout.roles.life, {}, { technical: true });
 		}, this.#timing.lifeIntervalMs);
 	}
 
@@ -138,26 +147,43 @@ export class Channel {
 		this.#pending.clear();
 	}
 
+	/** Counts up to the largest number the sequence field holds, then starts again at 1. */
 	#nextSeq(): string {
-		this.#seq = (this.#seq % 9999) + 1;
+		const max = 10 ** Math.min(this.#seqLength, 15) - 1;
+		this.#seq = (this.#seq % max) + 1;
 		return String(this.#seq);
 	}
 
-	#header(seq: string): Fields {
-		const { senderField, receiverField, seqField } = this.#layout.roles;
-		return { [senderField]: this.local, [receiverField]: this.remote, [seqField]: seq };
-	}
-
-	#write(type: string, fields: Fields, seq = this.#nextSeq(), note?: string): string | undefined {
+	#write(
+		type: string,
+		fields: Fields,
+		options: {
+			seq?: string;
+			note?: string;
+			technical?: boolean;
+			/** Header fields that differ from an ordinary telegram of this side (an echoed acknowledgement). */
+			header?: Fields;
+		} = {}
+	): string | undefined {
 		if (this.#closed) return undefined;
-		const frame = encode(this.#layout, type, this.#header(seq), fields);
+		const seq = options.seq ?? this.#nextSeq();
+		const { roles, handshake } = this.#layout;
+		const header: Fields = {
+			[roles.senderField]: this.local,
+			[roles.receiverField]: this.remote,
+			[roles.seqField]: seq,
+			// Asks the other side to send this telegram back as its acknowledgement.
+			...(handshake.mode === 'echo' ? { [handshake.field]: handshake.request } : {}),
+			...options.header
+		};
+		const frame = encode(this.#layout, type, header, fields);
 		this.#socket.write(frame, 'latin1');
-		this.#entry(this.local, this.remote, type, seq.padStart(4, '0'), fields, note);
+		this.#entry(this.local, this.remote, type, seq, fields, options.note, options.technical);
 		return seq;
 	}
 
 	#expectAck(seq: string, type: string, fields: Fields, tries: number) {
-		const key = seq.padStart(4, '0');
+		const key = bare(seq);
 		const timer = setTimeout(() => {
 			this.#pending.delete(key);
 			if (this.#closed) return;
@@ -166,13 +192,13 @@ export class Channel {
 					this.local,
 					this.remote,
 					type,
-					key,
+					seq,
 					fields,
 					`no acknowledgement after ${tries} tries, given up`
 				);
 				return;
 			}
-			this.#write(type, fields, seq, `resent (try ${tries + 1}): no acknowledgement`);
+			this.#write(type, fields, { seq, note: `resent (try ${tries + 1}): no acknowledgement` });
 			this.#expectAck(seq, type, fields, tries + 1);
 		}, this.#timing.ackTimeoutMs);
 		this.#pending.set(key, { timer, type, fields });
@@ -211,18 +237,37 @@ export class Channel {
 	}
 
 	#handle(telegram: Telegram) {
-		const { roles } = this.#layout;
-		const seq = telegram.header[roles.seqField] ?? '';
-		if (telegram.type === roles.ack) {
-			const acked = telegram.fields[roles.ackSeqField] ?? '';
+		const { roles, handshake } = this.#layout;
+		const seq = bare(telegram.header[roles.seqField] ?? '');
+		const isAck =
+			handshake.mode === 'telegram'
+				? telegram.type === handshake.type
+				: telegram.header[handshake.field] === handshake.confirm;
+		if (isAck) {
+			const acked =
+				handshake.mode === 'telegram' ? bare(telegram.fields[handshake.seqField] ?? '') : seq;
 			clearTimeout(this.#pending.get(acked)?.timer);
 			this.#pending.delete(acked);
-			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields);
+			this.#entry(
+				this.remote,
+				this.local,
+				telegram.type,
+				seq,
+				telegram.fields,
+				handshake.mode === 'echo' ? 'acknowledgement' : undefined,
+				true
+			);
 			return;
 		}
+		// An echo layout marks the telegrams that want an acknowledgement; life telegrams are among them.
+		const wantsAck =
+			handshake.mode === 'telegram'
+				? telegram.type !== roles.life
+				: telegram.header[handshake.field] === handshake.request;
 		if (telegram.type === roles.life) {
 			this.lastLifeAt = Date.now();
-			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields);
+			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields, undefined, true);
+			if (wantsAck) this.#acknowledge(telegram, seq);
 			return;
 		}
 		const duplicate = this.#seenIn.has(seq);
@@ -234,18 +279,21 @@ export class Channel {
 			telegram.fields,
 			duplicate ? 'repeated sequence number: acknowledged again, not processed' : undefined
 		);
-		if (this.faults.dropAcks && this.faults.dropAcks > 0) {
-			this.faults.dropAcks--;
-			this.#entry(
-				this.local,
-				this.remote,
-				roles.ack,
-				'',
-				{ [roles.ackSeqField]: seq },
-				'acknowledgement withheld (fault)'
-			);
-		} else {
-			this.#write(roles.ack, { [roles.ackSeqField]: seq });
+		if (wantsAck) {
+			if (this.faults.dropAcks && this.faults.dropAcks > 0) {
+				this.faults.dropAcks--;
+				this.#entry(
+					this.local,
+					this.remote,
+					handshake.mode === 'telegram' ? handshake.type : telegram.type,
+					handshake.mode === 'telegram' ? '' : seq,
+					handshake.mode === 'telegram' ? { [handshake.seqField]: seq } : telegram.fields,
+					'acknowledgement withheld (fault)',
+					true
+				);
+			} else {
+				this.#acknowledge(telegram, seq);
+			}
 		}
 		if (duplicate) return;
 		this.#seenIn.add(seq);
@@ -255,7 +303,46 @@ export class Channel {
 		this.#onTelegram(telegram);
 	}
 
-	#entry(from: string, to: string, type: string, seq: string, fields: Fields, note?: string) {
+	#acknowledge(telegram: Telegram, seq: string) {
+		const { roles, handshake } = this.#layout;
+		// Acknowledging runs from the socket: a telegram that cannot be built must not end the program.
+		try {
+			if (handshake.mode === 'telegram') {
+				this.#write(handshake.type, { [handshake.seqField]: seq }, { technical: true });
+				return;
+			}
+			// The telegram goes back as it came, marked as confirmed and with its own sequence number.
+			const back = handshake.swapAddresses
+				? { [roles.senderField]: this.local, [roles.receiverField]: this.remote }
+				: {};
+			this.#write(telegram.type, telegram.fields, {
+				seq,
+				note: 'acknowledgement',
+				technical: true,
+				header: { ...telegram.header, ...back, [handshake.field]: handshake.confirm }
+			});
+		} catch (error) {
+			this.#entry(
+				this.local,
+				this.remote,
+				telegram.type,
+				seq,
+				telegram.fields,
+				`acknowledgement not sent: ${error instanceof Error ? error.message : String(error)}`,
+				true
+			);
+		}
+	}
+
+	#entry(
+		from: string,
+		to: string,
+		type: string,
+		seq: string,
+		fields: Fields,
+		note?: string,
+		technical?: boolean
+	) {
 		this.#log({
 			n: ++logCounter,
 			at: Date.now(),
@@ -263,9 +350,10 @@ export class Channel {
 			from,
 			to,
 			type,
-			seq,
+			seq: seq && bare(seq).padStart(this.#seqLength, '0'),
 			fields,
-			note
+			note,
+			...(technical ? { technical } : {})
 		});
 	}
 }

@@ -5,7 +5,7 @@
 import { connect } from 'node:net';
 import { Channel, type ChannelTiming, type LogEntry } from './channel.mts';
 import { craneBins, deviceFor, type LoadedSetup, type StackerCraneDef } from './setup.mts';
-import type { Fields, Telegram } from './telegram.mts';
+import { fromWire, toWire, type Fields, type Telegram } from './telegram.mts';
 
 export type EwmHuStatus =
 	| 'routing'
@@ -161,7 +161,7 @@ export class FakeEwm {
 	sendTask(plc: string, hu: string, src: string, dst: string): string {
 		const tanum = this.#newTanum();
 		this.tasks.set(tanum, { tanum, hu, src, dst, plc, status: 'open', raw: true });
-		this.#send(plc, 'WT', { hu, src, dst, tanum });
+		this.#sendTask(plc, hu, src, dst, tanum);
 		return tanum;
 	}
 
@@ -187,26 +187,33 @@ export class FakeEwm {
 	}
 
 	#onTelegram(telegram: Telegram) {
-		const { fields } = telegram;
-		switch (telegram.type) {
-			case 'SCAN':
-				return this.#onScan(fields.cp ?? '', fields.hu ?? '', fields.result ?? '');
-			case 'WTCO':
-				return this.#onConfirmation(fields.tanum ?? '', fields.result ?? '');
-			case 'STAT':
-				if (fields.status === 'DOWN') this.#craneDown.add(fields.device ?? '');
-				else this.#craneDown.delete(fields.device ?? '');
+		const message = fromWire(this.#setup.layout, telegram);
+		if (!message) return;
+		const { values, code } = message;
+		switch (message.kind) {
+			case 'scan':
+				return this.#onScan(
+					values.point ?? '',
+					values.hu ?? '',
+					code === 'ok',
+					values.result ?? ''
+				);
+			case 'confirmation':
+				return this.#onConfirmation(this.#taskOf(values), code, values.result ?? '');
+			case 'status':
+				if (code === 'down') this.#craneDown.add(values.device ?? '');
+				else this.#craneDown.delete(values.device ?? '');
 				return;
 			default:
 				return;
 		}
 	}
 
-	#onScan(cp: string, hu: string, result: string) {
+	#onScan(cp: string, hu: string, ok: boolean, result: string) {
 		const id = hu || `NOREAD-${++this.#noRead}`;
 		const record: EwmHu = { hu: id, status: 'routing', location: cp, path: [cp], scan: result };
 		this.hus.set(id, record);
-		if (result === 'OK' && hu) return this.#putaway(record);
+		if (ok && hu) return this.#putaway(record);
 		const clearing = this.#setup.points.find((point) => point.role === 'clearing');
 		if (!clearing)
 			return this.#fail(
@@ -259,21 +266,32 @@ export class FakeEwm {
 			plc: device.plc,
 			status: 'open'
 		});
-		this.#send(device.plc, 'WT', { hu, src: stage.src, dst: stage.dst, tanum });
+		this.#sendTask(device.plc, hu, stage.src, stage.dst, tanum);
 	}
 
-	#onConfirmation(paddedTanum: string, result: string) {
+	/**
+	 * The task a confirmation belongs to: by its number, or, in a layout whose telegrams carry none, the oldest
+	 * open task for the same move.
+	 */
+	#taskOf(values: Record<string, string | undefined>): EwmTask | undefined {
 		// Numeric telegram fields arrive with leading zeros.
-		const tanum = paddedTanum.replace(/^0+(?=\d)/, '');
-		const task = this.tasks.get(tanum);
+		if (values.task !== undefined) return this.tasks.get(values.task.replace(/^0+(?=\d)/, ''));
+		return [...this.tasks.values()].find(
+			(task) =>
+				task.status === 'open' && task.src === values.source && task.dst === values.destination
+		);
+	}
+
+	#onConfirmation(task: EwmTask | undefined, code: string | undefined, result: string) {
 		if (!task) return;
+		const { tanum } = task;
 		task.result = result;
 		const record = task.raw ? undefined : this.hus.get(task.hu);
-		if (result !== 'OK') {
+		if (code !== 'ok') {
 			task.status = 'failed';
 			if (!record) return;
 			// The crane found the bin occupied: block it and route the HU to another bin of the same aisle.
-			if (result === 'OCCU' && record.bin === task.dst) {
+			if (code === 'occupied' && record.bin === task.dst) {
 				const crane = this.#craneOfBin(task.dst);
 				const bin = this.#freeBin(crane);
 				if (!bin)
@@ -336,6 +354,11 @@ export class FakeEwm {
 
 	#role(point: string) {
 		return this.#setup.points.find((candidate) => candidate.id === point)?.role;
+	}
+
+	#sendTask(plc: string, hu: string, source: string, destination: string, task: string) {
+		const telegram = toWire(this.#setup.layout, 'task', { hu, source, destination, task });
+		if (telegram) this.#send(plc, telegram.type, telegram.fields);
 	}
 
 	/** Sends now, or once the PLC is connected again. */

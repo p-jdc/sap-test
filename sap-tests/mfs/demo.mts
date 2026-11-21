@@ -22,8 +22,7 @@ const describe = (entry: LogEntry) => {
 	return `${time(entry.at)}  ${entry.from.padEnd(4)} → ${entry.to.padEnd(4)} ${entry.type.padEnd(4)} #${entry.seq || '----'}  ${fields}${entry.note ? `  [${entry.note}]` : ''}`;
 };
 emulator.onLog((entry) => {
-	if (showAll || (entry.type !== 'ACK' && entry.type !== 'LIFE') || entry.note)
-		console.log(describe(entry));
+	if (showAll || !entry.technical || entry.note) console.log(describe(entry));
 });
 emulator.onEvent((event) => console.log(`${time(event.at)}  · ${event.text}`));
 

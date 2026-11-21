@@ -41,8 +41,48 @@
 		"receiverField": "receiver",
 		"seqField": "seq",
 		"typeField": "type",
-		"ack": "ACK",
-		"ackSeqField": "ackseq",
 		"life": "LIFE"
+	},
+	"handshake": { "mode": "telegram", "type": "ACK", "seqField": "ackseq" },
+	"messages": {
+		"task": {
+			"type": "WT",
+			"fields": { "hu": "hu", "source": "src", "destination": "dst", "task": "tanum" },
+			"codes": {}
+		},
+		"confirmation": {
+			"type": "WTCO",
+			"fields": {
+				"hu": "hu",
+				"source": "src",
+				"destination": "dst",
+				"task": "tanum",
+				"result": "result"
+			},
+			"codes": {
+				"ok": "OK",
+				"error": "ERR",
+				"noRoute": "NORT",
+				"wrongPlc": "WPLC",
+				"noHu": "NOHU",
+				"occupied": "OCCU"
+			}
+		},
+		"scan": {
+			"type": "SCAN",
+			"fields": { "point": "cp", "hu": "hu", "result": "result" },
+			"codes": {
+				"ok": "OK",
+				"error": "ERR",
+				"noRead": "NORD",
+				"contour": "CONT",
+				"overweight": "WGHT"
+			}
+		},
+		"status": {
+			"type": "STAT",
+			"fields": { "device": "device", "status": "status" },
+			"codes": { "up": "UP", "down": "DOWN" }
+		}
 	}
 }
