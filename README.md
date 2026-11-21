@@ -177,7 +177,7 @@ to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference a
 | `codegen`, `report` | Playwright-SAP recorder (from `sap-tests/recorder`) and HTML report |
 | `record` | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save |
 | `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
-| `pregate` | Fast check before committing: check, lint, unit tests, spec discovery (no e2e) |
+| `pregate` | Every mechanical check before a pull request, short of the e2e tests: types, lint and format side by side (all failures in one round), then the app's unit tests and the sap-tests suites that need no SAP system. About five minutes; `bun run pregate --only static` for the first part alone |
 | `ci` | Everything CI runs, in order |
 | `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
 
@@ -309,6 +309,24 @@ The rules are applied after each run, when the app starts and once a day.
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
+
+### Gate before a pull request
+
+`/gate` in Claude Code checks a committed branch before it becomes a pull request. It is a smaller
+form of the reference app's four-lens review:
+
+1. `bun run pregate`. A failure ends the gate there.
+2. One reviewer (`.claude/agents/gate-reviewer.md`) reads the branch's changes against main. A
+   second one looks only at security when the change touches sign-in, credentials, endpoints, the
+   code that starts processes, or the CI workflows.
+3. Every serious finding goes to a verifier (`.claude/agents/gate-verifier.md`) that tries to
+   refute it against the code.
+4. The verdict follows a fixed rule: a confirmed serious finding fails the gate. Its final line
+   (`GATE: PASS`, `PASS-WITH-FIXES`, `FAIL`) goes into the pull request description.
+
+It is a convention, written down in `CLAUDE.md`: nothing on GitHub prevents a merge without it,
+and a review by agents can miss defects or be wrong about one. It does not replace a person
+reading a change to sign-in or credentials.
 
 ### AI test agents (guide §5.4, §6.4)
 
