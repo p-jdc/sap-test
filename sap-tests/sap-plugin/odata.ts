@@ -4,6 +4,7 @@
 // the API, run the business flow in the UI and check the result over the API again.
 import type { HttpDestination } from '@sap-cloud-sdk/connectivity';
 import { test as base, expect } from './index';
+import { isInsecureHttp } from './secure-url';
 import { gwsampleBasic } from '../odata/clients/GWSAMPLE_BASIC';
 
 // With its default (de)serializers: Edm.Decimal as BigNumber, Edm.DateTime as Moment.
@@ -37,6 +38,11 @@ function sapApiDestination(): { destination?: HttpDestination; missing: string[]
 		!password && 'SAP_API_PASSWORD'
 	].filter((name): name is string => !!name);
 	if (!url || !username || !password) return { missing };
+	// Basic authentication sends the password with every request.
+	if (isInsecureHttp(url))
+		throw new Error(
+			'SAP_API_URL must start with https://: over http:// the password would cross the network unencrypted.'
+		);
 	return {
 		missing,
 		destination: {

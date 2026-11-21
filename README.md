@@ -384,5 +384,10 @@ lookups.
   `bun run codegen` from the terminal do not read the credential store and still need `.env`.
   Where no credential store exists (CI, headless Linux) the page says so and `.env` is used.
   Moving a system's URL to another host removes the saved user and password of that system.
+- Passwords go only to `https://` addresses: the Settings page does not save an `http://` address,
+  and `fillSecret` (and so `SAPLogin` and every sign-in), the OData tests' basic authentication and
+  the recorders refuse one, also when it comes from `.env`. Over `http://` the password would cross
+  the network unencrypted. Addresses on this computer (`localhost`, `127.x.x.x`, `::1`) may use
+  `http://`, for the OData mock and local stand-ins.
 - Not covered (guide §10): SAP GUI for Windows.
 - Octane import is not part of this version.
