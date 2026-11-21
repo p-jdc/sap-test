@@ -184,6 +184,12 @@
 					{r.id === active ? '● live · ' : ''}{when(r.startedAt)} · {statusLabel(r.status)}
 				</ui5-option>
 			{/each}
+			<!-- The list holds the newest runs only; a run opened from further back still shows. -->
+			{#if run && !runs.current?.runs.some((r) => r.id === run.id)}
+				<ui5-option data-id={run.id} selected>
+					{when(run.startedAt)} · {statusLabel(run.status)}
+				</ui5-option>
+			{/if}
 		</ui5-select>
 		<ui5-button icon="play" design="Emphasized" onclick={runThis} disabled={!!active || undefined}>
 			Run this test
