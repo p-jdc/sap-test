@@ -73,7 +73,7 @@ export async function startRun(
 		join(dir, 'results')
 	];
 	const command = playwrightCommand(args);
-	// On the wrong Node a single-test run fails with a bare "No tests found"; say why up front.
+	// Put an untested Node at the top of the log, where it is seen when a run behaves oddly.
 	const nodeWarning = playwrightNode().warning;
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,

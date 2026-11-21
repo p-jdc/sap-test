@@ -82,7 +82,7 @@
 								: 'Playwright not installed'}
 					/>
 					<StatusTag
-						status={env.current.node.warning ? 'failed' : 'passed'}
+						status={env.current.node.warning ? 'interrupted' : 'passed'}
 						label="Node {env.current.node.version ?? 'unknown'}"
 					/>
 					<StatusTag
