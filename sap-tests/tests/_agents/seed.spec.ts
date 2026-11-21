@@ -2,7 +2,7 @@
 // generator run this test first and then take over its page. Importing `test` from sap-plugin is
 // what matters: it registers the SAP selector engines and adds getByRoleUI5, locateSID and the
 // other SAP methods to the page. The page starts empty; the agent opens the address it was given.
-// For a flow behind the SAP login use seed-sap.spec.ts instead.
+// For a flow that starts signed in (SAP, Ariba, ...) use seed-signed-in.spec.ts instead.
 import { test } from '../../sap-plugin';
 
 test('seed', async ({ page }) => {

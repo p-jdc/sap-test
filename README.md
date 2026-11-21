@@ -34,22 +34,70 @@ keeps.
 ### Signing in once per run
 
 A Playwright trace records the password of any browser login: the page snapshots show the filled
-field and the network log the login request. So the tests do not sign in themselves. Two setup
-projects in `sap-tests/playwright.config.ts` sign in once per run, with trace and video off, and
-save the session in `sap-tests/.auth/` (gitignored):
+field and the network log the login request. So the tests do not sign in themselves. The systems
+they sign in to are listed in `sap-tests/systems.json`, and `sap-tests/playwright.config.ts` makes
+two projects for each: `<id>-sign-in` signs in once per run with `setup/sign-in.setup.ts`, with
+trace and video off (also with `--trace on`), and saves the session in
+`sap-tests/.auth/<id>-session.json` (gitignored); `<id>` holds the system's tests, which start with
+that session.
 
-| Project | Tests | Signs in with | Session |
-| --- | --- | --- | --- |
-| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference`, `tests/_agents/seed-sap.spec.ts` | `setup/sap.setup.ts`: `SAPLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` | `.auth/sap-session.json` |
-| `ariba` | `tests/ariba` | `setup/ariba.setup.ts`: `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` | `.auth/ariba-session.json` |
-| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – | – |
+| Project | Tests | Signs in with |
+| --- | --- | --- |
+| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `sapLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` |
+| `ariba` | `tests/ariba` | `form` with `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` |
+| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – |
 
-The tests of the `sap` and `ariba` projects start signed in. `page.SAPLogin(…)` stays in the
-specs and in recordings, but with a saved session it only opens the URL. A login page there means
-the session has expired, which fails the test instead of typing the password into its trace. A
-setup project runs only when a selected test needs it (also with a file or `--grep` filter). If it
-fails, the tests that need it do not run, and the Results page says so. With `--no-deps`, or for a
-second test user signing in within a test, the password is typed in a traced test again.
+`tests/_agents/seed-signed-in.spec.ts` belongs to every system's project (see the test agents
+below).
+
+The sign-in methods:
+
+| Method | For | How |
+| --- | --- | --- |
+| `sapLogin` | Fiori launchpad and WebGUI | `page.SAPLogin`: the NetWeaver or launchpad login page |
+| `ias` | SuccessFactors, IBP and other applications behind SAP Cloud Identity Services | The IAS login page, found by its field names (`j_username`, `j_password`), so its language and texts do not matter |
+| `form` | An application's own login page (Ariba, Concur) | Fields by their labels and the button by its name, given in the row |
+
+`ias` and `form` also handle a login page that asks for the user first and for the password on a
+second page, and wait until an identity service has sent the browser back to the system. Sign-in
+through a company identity provider with MFA (Entra and others) is not covered: use a test user
+without MFA.
+
+`page.SAPLogin(…)` stays in the specs and in recordings, but with a saved session it only opens the
+URL. A login page there means the session has expired, which fails the test instead of typing the
+password into its trace. A sign-in project runs only when a selected test needs it (also with a
+file or `--grep` filter). If it fails, the tests that need it do not run, and the Results page says
+so. With `--no-deps`, or for a second test user signing in within a test, the password is typed in
+a traced test again.
+
+#### Adding a system
+
+Add a row to `sap-tests/systems.json` and put its tests in the folder the row names. For example
+SuccessFactors behind IAS:
+
+```json
+{
+	"id": "successfactors",
+	"title": "SuccessFactors",
+	"description": "Optional: only for SuccessFactors tests",
+	"optional": true,
+	"signIn": { "method": "ias" },
+	"env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
+	"tests": ["successfactors"]
+}
+```
+
+For an application's own login page: `"signIn": { "method": "form", "user": "<label of the user
+field>", "password": "<label of the password field>", "submit": "<name of the button>" }`. The tests
+start with `await page.goto(process.env.SF_URL!)`, already signed in. The Settings page shows the
+new system's fields, and the app masks its password in everything a run records and does not send
+the user and password from `.env` to another address saved in the app, as for SAP. `optional`
+leaves the system out of the Home page's getting started. A row's `exclude` lists folders inside
+its `tests` folders that belong to no system (like `fiori/demokit`). The test project refuses a
+table with an unknown method, a variable used twice, or a folder claimed by two systems.
+
+The recorder and the grouping of tests by application on the Tests page still know only Fiori,
+WebGUI and Ariba; tests of another system show there as "other".
 
 A trace still holds the session cookies, which are valid until the SAP session ends. Treat
 `app/.data/runs` and `sap-tests/.auth` as secret.
@@ -229,9 +277,9 @@ and then moved to the repo root, where Claude Code sessions start:
 They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
 started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
 from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page, project `chromium`) or
-`seed-sap.spec.ts` (project `sap`: its setup signs in first with the values from `sap-tests/.env`,
-in a browser of its own, so the agents' browser never sends the password; values saved on the
-Settings page are not read). The seeds
+`seed-signed-in.spec.ts` with a system's id as the project (`sap`, `ariba`, ...: its sign-in
+project signs in first with the values from `sap-tests/.env`, in a browser of its own, so the
+agents' browser never sends the password; values saved on the Settings page are not read). The seeds
 import from `sap-plugin`, which is what makes `page.getByRoleUI5` and the other SAP locators work in
 the agents' browser.
 

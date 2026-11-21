@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { must } from '../../test/must.js';
 import type { RunState } from '#lib/shared/types.js';
+import { copySystems } from '../../test/systems.js';
 
 // Runs on the Node that would run Playwright. FAKE_RUN picks what the "run" does; the arguments
 // are written to argv.json in the test project.
@@ -49,7 +50,7 @@ if (mode === 'sign-in-failed') {
 		id: 'setup1',
 		title: 'sign in to SAP',
 		titlePath: ['sign in to SAP'],
-		location: { file: join(process.cwd(), 'setup/sap.setup.ts'), line: 5, column: 1 }
+		location: { file: join(process.cwd(), 'setup/sign-in.setup.ts'), line: 5, column: 1 }
 	};
 	emit({ type: 'begin', rootDir: process.cwd(), tests: [signIn, test] });
 	emit({ type: 'testBegin', testId: 'setup1', retry: 0, startTime: new Date().toISOString() });
@@ -113,6 +114,7 @@ async function freshRunner(
 		mkdirSync(pkg, { recursive: true });
 		writeFileSync(join(pkg, 'cli.js'), FAKE_CLI);
 	}
+	copySystems(testsRoot);
 	vi.stubEnv('SAP_TESTS_DIR', testsRoot);
 	vi.stubEnv('TEST_APP_DATA_DIR', mkdtempSync(join(tmpdir(), 'runner-data-')));
 	vi.stubEnv('FAKE_RUN', run);

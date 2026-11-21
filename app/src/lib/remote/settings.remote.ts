@@ -3,10 +3,11 @@ import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import { changeSetting } from '#lib/server/env-file.js';
 import { settingProblem } from '#lib/server/setting-value.js';
-import { SECRET_SETTINGS, SETTING_NAMES } from '#lib/shared/types.js';
+import { secretSettings, settingNames } from '#lib/server/systems.js';
 import { getEnvStatus } from './specs.remote.js';
 
-const name = z.enum(SETTING_NAMES);
+// The list comes from sap-tests/systems.json, so it is checked on each call, not at import.
+const name = z.string().refine((n) => settingNames().includes(n), { message: 'Unknown setting' });
 
 function message(e: unknown) {
 	return e instanceof Error ? e.message : String(e);
@@ -17,7 +18,7 @@ export const saveSetting = command(
 	z.object({ name, value: z.string().min(1).max(2000) }),
 	async (input) => {
 		// A password is stored exactly as typed; anything else loses stray spaces from a paste.
-		const value = SECRET_SETTINGS.includes(input.name) ? input.value : input.value.trim();
+		const value = secretSettings().includes(input.name) ? input.value : input.value.trim();
 		const problem = settingProblem(input.name, value);
 		if (problem) error(400, problem);
 		try {

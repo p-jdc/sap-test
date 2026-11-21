@@ -1,4 +1,4 @@
-// Starts signed in: setup/ariba.setup.ts saves the session for the "ariba" project.
+// Starts signed in: setup/sign-in.setup.ts saves the session for the "ariba" project (systems.json).
 import { test, expect } from '../../sap-plugin';
 import { requireEnv } from '../../helpers/env';
 

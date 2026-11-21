@@ -3,10 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { RecorderState } from './recorder.js';
+import { copySystems } from '../../test/systems.js';
 
 async function recorderWith(envFile: string) {
 	const dir = mkdtempSync(join(tmpdir(), 'recorder-'));
 	writeFileSync(join(dir, '.env'), envFile);
+	copySystems(dir);
 	vi.stubEnv('SAP_TESTS_DIR', dir);
 	vi.resetModules();
 	return { dir, recorder: await import('./recorder.js') };

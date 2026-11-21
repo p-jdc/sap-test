@@ -5,13 +5,8 @@ import { playwrightNode, RECORDER_PACKAGE } from './node-cli.js';
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
-import {
-	SECRET_SETTINGS,
-	SETTING_NAMES,
-	type EnvStatus,
-	type SettingName,
-	type SettingSource
-} from '#lib/shared/types.js';
+import { API_SYSTEM, secretSettings, settingNames, signInSystems } from './systems.js';
+import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
 function parse(text: string): Record<string, string> {
 	const out: Record<string, string> = {};
@@ -36,12 +31,13 @@ type Resolved = {
 	withheld: Map<SettingName, SettingSource>;
 };
 
-/** The URL setting of a system and the credentials that belong to it. */
-const SYSTEMS: { url: SettingName; credentials: SettingName[] }[] = [
-	{ url: 'SAP_URL', credentials: ['SAP_USERNAME', 'SAP_PASSWORD'] },
-	{ url: 'ARIBA_URL', credentials: ['ARIBA_USER', 'ARIBA_PASS'] },
-	{ url: 'SAP_API_URL', credentials: ['SAP_API_USERNAME', 'SAP_API_PASSWORD'] }
-];
+/** The URL setting of each system (systems.json and the OData system) and the credentials that belong to it. */
+function credentialGroups(): { url: SettingName; credentials: SettingName[] }[] {
+	return [...signInSystems().map((s) => s.env), API_SYSTEM].map(({ url, user, password }) => ({
+		url,
+		credentials: [user, password]
+	}));
+}
 
 /**
  * Credentials from sap-tests/.env or the app's environment belong to the URL set there. When the
@@ -54,7 +50,7 @@ function withholdCredentials(
 	outside: (name: SettingName) => string | undefined
 ): Map<SettingName, SettingSource> {
 	const withheld = new Map<SettingName, SettingSource>();
-	for (const system of SYSTEMS) {
+	for (const system of credentialGroups()) {
 		const url = values.get(system.url);
 		if (url?.source !== 'keychain') continue;
 		const outsideUrl = outside(system.url);
@@ -80,8 +76,9 @@ async function resolveSettings(store: SecretStore): Promise<Resolved> {
 	for (const [name, value] of Object.entries(fromFile)) {
 		if (value) values.set(name, { value, source: 'file' });
 	}
-	const stored = await Promise.all(SETTING_NAMES.map((name) => store.get(name)));
-	SETTING_NAMES.forEach((name, i) => {
+	const names = settingNames();
+	const stored = await Promise.all(names.map((name) => store.get(name)));
+	names.forEach((name, i) => {
 		const secret = stored[i];
 		const fromProcess = process.env[name];
 		if (secret) values.set(name, { value: secret, source: 'keychain' });
@@ -130,7 +127,7 @@ export async function runSettings(
 	store: SecretStore = keychain()
 ): Promise<{ env: Record<string, string>; secrets: string[] }> {
 	const resolved = await resolveSettings(store);
-	const secrets = SECRET_SETTINGS.flatMap((name) => {
+	const secrets = secretSettings().flatMap((name) => {
 		const value = resolved.values.get(name)?.value;
 		return value ? [value] : [];
 	});
@@ -147,7 +144,7 @@ export async function changeSetting(
 	value: string | null,
 	store: SecretStore = keychain()
 ): Promise<{ cleared: SettingName[] }> {
-	const system = SYSTEMS.find((s) => s.url === name);
+	const system = credentialGroups().find((s) => s.url === name);
 	const before = system ? (await resolveSettings(store)).values.get(name)?.value : undefined;
 	if (value === null) await store.delete(name);
 	else await store.set(name, value);
@@ -184,7 +181,8 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 		testsDir: TESTS_ROOT,
 		envFile: existsSync(resolve(TESTS_ROOT, '.env')),
 		keychain: keychainAvailable,
-		vars: SETTING_NAMES.map((name) => {
+		systems: signInSystems(),
+		vars: settingNames().map((name) => {
 			const source = values.get(name)?.source;
 			const entry: EnvStatus['vars'][number] = { name, set: source !== undefined, source };
 			const unused = withheld.get(name);

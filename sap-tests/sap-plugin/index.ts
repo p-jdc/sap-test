@@ -11,7 +11,7 @@ import type { BrowserContext, Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
 import { sapLogin } from './login';
 import { fillSecret } from './secret';
-import { sessionFile, type SapSession } from './session';
+import { sessionFile } from './session';
 import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
 import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
@@ -113,21 +113,21 @@ export function withSapMethods(page: Page): Page {
 
 const onContext = (context: BrowserContext) => context.on('page', withSapMethods);
 
-/** Options of the SAP projects in playwright.config.ts. */
+/** Options of the projects in playwright.config.ts. */
 export type SapOptions = {
 	/**
-	 * The saved session the tests start with (session.ts), or none. Set per project; the setup
-	 * project that saves it must be one of the project's dependencies.
+	 * The id of the system in systems.json whose saved session the tests start with (session.ts),
+	 * or none. Set per project; the sign-in project that saves it must be one of its dependencies.
 	 */
-	sapSession: SapSession | undefined;
+	system: string | undefined;
 };
 
 export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
-	sapSession: [undefined, { option: true }],
+	system: [undefined, { option: true }],
 	// Read when the test starts, after the setup project has saved the session. Without the file
 	// (the setup was left out, e.g. with --no-deps), the test starts signed out.
-	storageState: async ({ sapSession, storageState }, use) => {
-		const file = sapSession ? sessionFile(sapSession) : undefined;
+	storageState: async ({ system, storageState }, use) => {
+		const file = system ? sessionFile(system) : undefined;
 		await use(file && existsSync(file) ? file : storageState);
 	},
 	// Once per worker. Not a content script: the UI5 engines read window.sap, which only the page's
@@ -156,7 +156,16 @@ export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
 
 export { expect, fillSecret };
 export { sapLoginPage } from './login';
-export { clearSession, saveSession, signingIn, type SapSession } from './session';
+export { clearSession, saveSession, signingIn } from './session';
+export { signIn } from './sign-in';
+export {
+	signInSystem,
+	signInSystems,
+	signInTag,
+	testFiles,
+	type SignInMethod,
+	type SignInSystem
+} from './systems';
 export type { Locator, Page } from '@playwright/test';
 export type { WaitForUI5Options } from './ui5';
 export type { UI5ControlSelector } from './ui5control';
