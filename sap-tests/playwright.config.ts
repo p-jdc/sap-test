@@ -22,6 +22,49 @@ if (odataMock)
 		SAP_CLIENT: ''
 	});
 
+// MFS_MOCK=1 (`bun run test:mfs`): tests with the `mfs` fixture (sap-plugin/mfs.ts) run against a local
+// Mock PLC with the simulated EWM instead of one from MFS_EMULATOR_URL. Bun runs it, as in the app.
+// MFS_SPEED sets its time factor (default 10, so scenarios take seconds).
+const mfsMock = process.env.MFS_MOCK === '1';
+const mfsMockPort = Number(process.env.MFS_MOCK_PORT || 4020);
+if (mfsMock) {
+	process.env.MFS_EMULATOR_URL = `http://127.0.0.1:${mfsMockPort}`;
+	delete process.env.MFS_EMULATOR_TOKEN;
+}
+type WebServer = {
+	command: string;
+	url: string;
+	env: Record<string, string>;
+	reuseExistingServer: boolean;
+};
+const webServers: WebServer[] = [
+	...(odataMock
+		? [
+				{
+					command: `"${process.execPath}" odata/mock/server.mjs`,
+					url: `http://127.0.0.1:${mockPort}/health`,
+					env: { ODATA_MOCK_PORT: String(mockPort) },
+					reuseExistingServer: false
+				}
+			]
+		: []),
+	...(mfsMock
+		? [
+				{
+					command: 'bun mfs/server.mts',
+					url: `http://127.0.0.1:${mfsMockPort}/health`,
+					env: {
+						MFS_FAKE_EWM: '1',
+						MFS_CONTROL_PORT: String(mfsMockPort),
+						MFS_BASE_PORT: '0',
+						MFS_SPEED: process.env.MFS_SPEED || '10'
+					},
+					reuseExistingServer: false
+				}
+			]
+		: [])
+];
+
 // Each system of systems.json gets a sign-in project, which signs in once per run without a trace
 // and runs only when a selected test needs it, and a project for its tests, which start with the
 // saved session (sap-plugin/session.ts). The test agents' seed-signed-in.spec.ts belongs to each.
@@ -33,14 +76,7 @@ const browser = { ...devices['Desktop Chrome'] };
 const signIn = { ...browser, trace: 'off', video: 'off' } as const;
 
 export default defineConfig<SapOptions>({
-	webServer: odataMock
-		? {
-				command: `"${process.execPath}" odata/mock/server.mjs`,
-				url: `http://127.0.0.1:${mockPort}/health`,
-				env: { ODATA_MOCK_PORT: String(mockPort) },
-				reuseExistingServer: false
-			}
-		: undefined,
+	webServer: webServers.length > 0 ? webServers : undefined,
 	testDir: './tests',
 	timeout: 120_000,
 	expect: { timeout: 15_000 },

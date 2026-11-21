@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { Emulator } from './emulator.mts';
 import { FakeEwm } from './fake-ewm.mts';
 import { authorize, fail, isLoopback, json, readBody, requestTarget, UserError } from './http.mts';
-import { ScenarioRunner } from './scenario.mts';
+import { ScenarioRunner, ScenarioSchema } from './scenario.mts';
 import { loadSetup } from './setup.mts';
 
 const env = process.env;
@@ -73,7 +73,11 @@ async function ewmRoute(
 }
 
 const scenarios = new ScenarioRunner({ emulator, ewm, speed });
-const StartScenarioBody = z.object({ name: z.string().min(1) });
+/** A scenario file by name, or a whole scenario written by the caller (a test's own, one-off situation). */
+const StartScenarioBody = z.union([
+	z.strictObject({ name: z.string().min(1) }),
+	z.strictObject({ scenario: ScenarioSchema, name: z.string().min(1).optional() })
+]);
 
 /** Scenarios: list the ones this Mock PLC can run, start one, and pause, resume or stop the run. */
 async function scenarioRoute(
@@ -84,8 +88,16 @@ async function scenarioRoute(
 	if (method === 'GET' && path === '/scenarios') return json(response, 200, scenarios.available());
 	if (method === 'GET' && path === '/scenario')
 		return json(response, 200, scenarios.state() ?? null);
-	if (method === 'POST' && path === '/scenario/start')
-		return json(response, 201, scenarios.start((await readBody(request, StartScenarioBody)).name));
+	if (method === 'POST' && path === '/scenario/start') {
+		const body = await readBody(request, StartScenarioBody);
+		return json(
+			response,
+			201,
+			scenarios.start(
+				'scenario' in body ? { name: body.name ?? 'inline', ...body.scenario } : body.name
+			)
+		);
+	}
 	if (method === 'POST' && path === '/scenario/pause')
 		return json(response, 200, (scenarios.pause(), { ok: true }));
 	if (method === 'POST' && path === '/scenario/resume')

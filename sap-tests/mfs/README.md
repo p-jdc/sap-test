@@ -116,6 +116,27 @@ step.
 Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (current or last run),
 `POST /scenario/start {"name":…}`, `POST /scenario/pause`, `/resume`, `/stop`.
 
+## In tests: the `mfs` fixture
+
+```ts
+import { test, expect } from '../../sap-plugin/mfs';
+
+test('crane failure: the waiting HU is stored once the crane runs again', async ({ mfs, page }) => {
+  const result = await mfs.runScenario('crane-down');
+  // result.hus.A is the HU number the scenario used: check in EWM what became of it.
+});
+```
+
+- `runScenario(name | scenario, { timeout, expectPass })` starts the scenario (a file in `scenarios/`, or one written
+  in the test), follows it and returns the run: status, steps, expected results, HU numbers.
+- Each scenario step is a step in the Playwright report. The run is attached to the test.
+- The test fails with the failed step or the unmet expectation. `{ expectPass: false }` returns the failed run
+  instead.
+- A scenario still running when the test ends is stopped.
+- Which Mock PLC: `MFS_EMULATOR_URL` (and `MFS_EMULATOR_TOKEN` when it needs one), the same settings the app uses.
+  With `MFS_MOCK=1` (`bun run test:mfs`), Playwright starts a local one with the simulated EWM. Without either, tests
+  with the fixture are skipped.
+
 ## Next steps
 
 See the plan for the full design (device types, mock setups generated from EWM Customizing for all warehouses,
@@ -125,5 +146,4 @@ app UI, Kubernetes). Concretely, the next steps are:
    EWM Dev system.
 2. EWM as TCP server (the emulator connects out), if that's how the channels are set up.
 3. More device types (lift, sorter, in-line stations) and setups generated from Customizing.
-4. A `mfs` fixture in sap-plugin for SAP tests, running scenarios (`mfs.runScenario(name)`).
-5. Scenarios against a real EWM: HUs created in EWM first, stock loaded from EWM.
+4. Scenarios against a real EWM: HUs created in EWM first, stock loaded from EWM.
