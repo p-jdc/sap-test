@@ -20,7 +20,7 @@ import {
 	type DeviceDef,
 	type LoadedSetup
 } from './setup.mts';
-import type { Fields, Telegram } from './telegram.mts';
+import { encode, type Fields, type Telegram } from './telegram.mts';
 
 /** Results the emulator reports for an HU at the identification point. */
 export const ScanResultSchema = z.enum(['OK', 'NORD', 'CONT', 'WGHT']);
@@ -206,6 +206,15 @@ export class Emulator {
 		const point = at ?? this.setup.points.find((p) => p.role === 'gr')?.id;
 		if (!point || !this.setup.points.some((p) => p.id === point))
 			throw new UserError(`unknown point "${at}"`);
+		// The HU number travels in telegrams. One that does not fit their layout (too long, other
+		// characters) is refused here, not when a device first has to report it.
+		try {
+			encode(this.setup.layout, 'SCAN', {}, { hu });
+		} catch (error) {
+			throw new UserError(
+				`HU number not possible in a telegram: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
 		const existing = this.#hus.get(hu);
 		if (existing && !existing.left)
 			throw new UserError(`HU ${hu} is already in the layout (at ${existing.at ?? 'a device'})`);
@@ -439,10 +448,18 @@ export class Emulator {
 	#send(plcId: string, type: string, fields: Fields) {
 		const plc = this.#plcs.get(plcId);
 		if (!plc) return;
-		if (plc.channel?.open) plc.channel.send(type, fields);
-		else {
+		if (!plc.channel?.open) {
 			plc.outbox.push({ type, fields });
 			this.#event(`${plcId}: EWM not connected, ${type} queued until it connects`);
+			return;
+		}
+		// Sending runs from device timers: a telegram that cannot be built must not end the emulator.
+		try {
+			plc.channel.send(type, fields);
+		} catch (error) {
+			this.#event(
+				`${plcId}: ${type} not sent: ${error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	}
 

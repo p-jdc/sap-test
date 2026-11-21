@@ -225,3 +225,24 @@ test('control API: testers and tests put HUs in and read the state over HTTP', a
 			.status
 	).toBe(404);
 });
+
+test('control API: a request the emulator cannot read is refused and the emulator keeps running', async ({
+	emulator
+}) => {
+	const api = `http://127.0.0.1:${await emulator.listenControl()}`;
+	const post = (body: unknown) =>
+		fetch(`${api}/hus`, { method: 'POST', body: JSON.stringify(body) });
+
+	// Broken percent-encoding in the path.
+	expect((await fetch(`${api}/%`)).status).toBe(400);
+	expect((await fetch(`${api}/hus/%zz/script`, { method: 'POST', body: '{}' })).status).toBe(400);
+	// HU numbers that do not fit a telegram: too long, or not printable ASCII.
+	const tooLong = await post({ hu: '1'.repeat(40) });
+	expect(tooLong.status).toBe(400);
+	expect(await tooLong.json()).toMatchObject({ error: expect.stringContaining('HU number') });
+	expect((await post({ hu: 'HÜ-1' })).status).toBe(400);
+	expect((await fetch(`${api}/hus`, { method: 'POST', body: '{not json' })).status).toBe(400);
+
+	expect(emulator.state().hus).toEqual([]);
+	expect(await (await fetch(`${api}/health`)).json()).toEqual({ ok: true });
+});

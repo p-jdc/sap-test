@@ -3,6 +3,7 @@
 // The UI5 tests use SAP's public demo kit and need internet access; the SID tests use a stand-in
 // page, because a real WebGUI needs a test system.
 import { test, expect, fillSecret, signingIn, type Page } from '../../sap-plugin';
+import { isInsecureHttp } from '../../sap-plugin/secure-url';
 
 const TOOL_PAGE =
 	'https://ui5.sap.com/test-resources/sap/tnt/demokit/toolpageapp/webapp/index.html';
@@ -199,6 +200,35 @@ test('fillSecret: refuses fields that would show the value in screenshots', asyn
 	);
 	await expect(page.locator('#user')).toHaveValue('');
 	expect(await page.evaluate(secretBindings)).toEqual([]);
+});
+
+test('fillSecret: refuses a page loaded over http from another computer', async ({ page }) => {
+	for (const host of ['http://sap.test', 'http://app.localhost'])
+		await page.route(`${host}/**`, (route) =>
+			route.fulfill({ contentType: 'text/html', body: LOGIN_STAND_IN })
+		);
+	await page.goto('http://sap.test/login');
+	await expect(fillSecret(page.locator('#password'), 'pw-123')).rejects.toThrow(
+		'fillSecret: http://sap.test is not https://'
+	);
+	await expect(page.locator('#password')).toHaveValue('');
+	// This computer may use http (a local mock or stand-in).
+	await page.goto('http://app.localhost/login');
+	await fillSecret(page.locator('#password'), 'pw-123');
+	await expect(page.locator('#password')).toHaveValue('pw-123');
+});
+
+test('isInsecureHttp: only http to another computer', () => {
+	const insecure = ['http://sap.example.com', 'http://10.0.0.5:8000', 'http://127.0.0.1.evil.test'];
+	const fine = [
+		'https://sap.example.com',
+		'http://localhost:4999',
+		'http://127.0.0.1',
+		'http://[::1]:1',
+		'about:blank'
+	];
+	expect(insecure.filter((url) => !isInsecureHttp(url))).toEqual([]);
+	expect(fine.filter((url) => isInsecureHttp(url))).toEqual([]);
 });
 
 test('SAPLogin: logs in on a NetWeaver login page', async ({ page }) => {

@@ -82,17 +82,20 @@ async function scenarioRoute(
 	throw new UserError(`no route ${method} ${path}`, 404);
 }
 
-const control = createServer((request, response) => {
+/** Answers one request. Async, so that whatever a request throws ends in an answer, not in the process. */
+async function route(
+	request: Parameters<typeof readBody>[0],
+	response: Parameters<typeof json>[0]
+): Promise<void> {
 	const [first = ''] = requestTarget(request).parts;
-	const handled =
-		first === 'ewm'
-			? ewm
-				? ewmRoute(ewm, request, response)
-				: Promise.reject(new UserError('no fake EWM in this emulator (MFS_FAKE_EWM=1)', 404))
-			: first === 'scenario' || first === 'scenarios'
-				? scenarioRoute(request, response)
-				: emulator.handle(request, response);
-	handled.catch((error: unknown) => fail(response, error));
+	if (first === 'scenario' || first === 'scenarios') return scenarioRoute(request, response);
+	if (first !== 'ewm') return emulator.handle(request, response);
+	if (!ewm) throw new UserError('no fake EWM in this emulator (MFS_FAKE_EWM=1)', 404);
+	return ewmRoute(ewm, request, response);
+}
+
+const control = createServer((request, response) => {
+	route(request, response).catch((error: unknown) => fail(response, error));
 });
 await new Promise<void>((resolve) =>
 	control.listen(port(env.MFS_CONTROL_PORT, 47100), host, () => resolve())

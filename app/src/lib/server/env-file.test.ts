@@ -52,14 +52,40 @@ describe('readTestEnv', () => {
 		});
 	});
 
-	test('the file wins over the process environment, which fills what the file lacks', async () => {
-		const env = await withEnvFile(`SAP_URL=https://file.example.com\n`);
-		vi.stubEnv('SAP_URL', 'https://process.example.com');
-		vi.stubEnv('SAP_USERNAME', 'FROM_PROCESS');
-		expect(await env.readTestEnv(NONE)).toMatchObject({
-			SAP_URL: 'https://file.example.com',
-			SAP_USERNAME: 'FROM_PROCESS'
+	test('reads the file the way the test project does (dotenv)', async () => {
+		const env = await withEnvFile(
+			`export SAP_URL=https://sap.example.com # the test system\nSAP_USERNAME="TEST" # quoted\nSAP_PASSWORD=secret #prod\n`
+		);
+		expect(await env.readTestEnv(NONE)).toEqual({
+			SAP_URL: 'https://sap.example.com',
+			SAP_USERNAME: 'TEST',
+			SAP_PASSWORD: 'secret'
 		});
+	});
+
+	test('the process environment wins over the file, as it does in a run', async () => {
+		const env = await withEnvFile(`SAP_URL=https://file.example.com\nSAP_USERNAME=FROM_FILE\n`);
+		vi.stubEnv('SAP_URL', 'https://process.example.com');
+		expect(await env.readTestEnv(NONE)).toMatchObject({
+			SAP_URL: 'https://process.example.com',
+			SAP_USERNAME: 'FROM_FILE'
+		});
+		const status = await env.envStatus(NONE);
+		expect(status.vars.find((v) => v.name === 'SAP_URL')?.source).toBe('process');
+	});
+});
+
+describe('runSettings', () => {
+	test('masks a password wherever it is set, also one that is not in effect', async () => {
+		const env = await withEnvFile(`SAP_PASSWORD=from-file\n`);
+		vi.stubEnv('SAP_PASSWORD', 'from-shell');
+		expect((await env.runSettings(NONE)).secrets.toSorted()).toEqual(['from-file', 'from-shell']);
+		const { store } = fakeStore({ SAP_PASSWORD: 'from-app' });
+		expect((await env.runSettings(store)).secrets.toSorted()).toEqual([
+			'from-app',
+			'from-file',
+			'from-shell'
+		]);
 	});
 });
 
@@ -292,7 +318,8 @@ describe('systems from sap-tests/systems.json', () => {
 		const { store } = fakeStore({ SF_URL: 'https://other.example.net' });
 		expect(await env.runSettings(store)).toEqual({
 			env: { SF_URL: 'https://other.example.net', SF_USERNAME: '', SF_PASSWORD: '' },
-			secrets: []
+			// Withheld from the run, and masked all the same.
+			secrets: ['sf-pw']
 		});
 	});
 

@@ -11,7 +11,14 @@ import { ui5ControlSelector } from './ui5control';
 import type { UI5ControlSelector } from './ui5control';
 
 export type RecordedStep = {
+	/** The step's number within its document (a page or frame as loaded once). */
 	seq: number;
+	/**
+	 * When the user made the step, in milliseconds. Each document counts its own `seq` from 1, so
+	 * the steps of several documents (a new page after a navigation, an iframe) are put in order
+	 * by this.
+	 */
+	at?: number;
 	action: 'click' | 'fill' | 'press';
 	/** A UI5 control. Missing on WebGUI pages and when UI5 could not describe the element. */
 	selector?: UI5ControlSelector;
@@ -22,6 +29,11 @@ export type RecordedStep = {
 	/** A part of the control that is no control itself (a calendar day): its exact text. */
 	innerText?: string;
 	value?: string;
+	/**
+	 * A password was typed. What was typed never leaves the page: the step has no `value`, and the
+	 * written spec reads the password from an environment variable.
+	 */
+	secret?: boolean;
 	key?: string;
 	/**
 	 * The element is marked disabled (aria-disabled) and the app acted on the click all the same, as
@@ -65,6 +77,9 @@ function recorderScript(binding: string) {
 	window.sapRecorderState = state;
 
 	let seq = 0;
+	// The number and time of a step, taken when the user makes it. Describing its control takes
+	// a moment, so steps are reported out of order; these put them back.
+	const next = () => ({ seq: ++seq, at: performance.timeOrigin + performance.now() });
 	let recordReplay: RecordReplay | undefined;
 	let finder: Finder | undefined;
 
@@ -113,7 +128,7 @@ function recorderScript(binding: string) {
 	};
 	const hintFor = (target: Element) =>
 		[
-			(target.textContent ?? '').trim().slice(0, 60),
+			(target.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
 			`<${target.tagName.toLowerCase()}${target.id ? ` id="${target.id}"` : ''}>`,
 			`in control ${target.closest('[data-sap-ui]')?.id ?? 'none'}`
 		]
@@ -258,7 +273,7 @@ function recorderScript(binding: string) {
 			if (!(target instanceof Element) || !watched(target)) return;
 			const entry = prepared.get(target) ?? prepare(target);
 			const force = target.closest('[aria-disabled="true"]') ? { force: true } : {};
-			const step = { seq: ++seq, action: 'click', hint: hintFor(target), ...force };
+			const step = { ...next(), action: 'click', hint: hintFor(target), ...force };
 			prepared.delete(target);
 			void entry.result.then((described) => report({ ...step, ...described }));
 		},
@@ -271,16 +286,33 @@ function recorderScript(binding: string) {
 	// value themselves (sap.m.MaskInput) are covered too.
 	const isEditable = (target: EventTarget | null): target is Editable =>
 		target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
-	const fields = new WeakMap<Element, { described: Promise<Described>; value: string }>();
+	type Field = { described: Promise<Described>; value: string; secret: boolean };
+	const fields = new WeakMap<Element, Field>();
+	// A password must not end up in a spec file. A field that was a password field once stays one
+	// for the recorder: a "show password" button turns it into a text field.
+	const passwordFields = new WeakSet<Element>();
+	const isSecret = (field: Editable) => {
+		const now =
+			field instanceof HTMLInputElement &&
+			(field.type === 'password' || /password/i.test(field.autocomplete));
+		if (now) passwordFields.add(field);
+		return passwordFields.has(field);
+	};
 	const enter = (field: Editable) => {
-		const known = fields.get(field) ?? { described: describe(field), value: field.value };
+		const known = fields.get(field) ?? {
+			described: describe(field),
+			value: field.value,
+			secret: isSecret(field)
+		};
 		fields.set(field, known);
 		return known;
 	};
 	const recordTyping = (field: Editable) => {
 		const known = fields.get(field);
 		if (!known || known.value === field.value) return;
-		const step = { seq: ++seq, action: 'fill', value: field.value, hint: hintFor(field) };
+		known.secret ||= isSecret(field);
+		const typed = known.secret ? { secret: true } : { value: field.value };
+		const step = { ...next(), action: 'fill', ...typed, hint: hintFor(field) };
 		known.value = field.value;
 		void known.described.then((described) => report({ ...step, ...described }));
 	};
@@ -298,7 +330,11 @@ function recorderScript(binding: string) {
 		(event) => {
 			const field = event.target;
 			if (!isEditable(field) || !watched(field) || fields.has(field)) return;
-			fields.set(field, { described: describe(field), value: field.value === '' ? ' ' : '' });
+			fields.set(field, {
+				described: describe(field),
+				value: field.value === '' ? ' ' : '',
+				secret: isSecret(field)
+			});
 		},
 		true
 	);
@@ -318,7 +354,7 @@ function recorderScript(binding: string) {
 			if (event.key !== 'Enter' || !isEditable(target) || !watched(target)) return;
 			const { described } = enter(target);
 			recordTyping(target);
-			const step = { seq: ++seq, action: 'press', key: 'Enter', hint: hintFor(target) };
+			const step = { ...next(), action: 'press', key: 'Enter', hint: hintFor(target) };
 			void described.then((found) => report({ ...step, ...found }));
 		},
 		true
@@ -367,7 +403,7 @@ export async function installRecorder(
 	return async () => {
 		await Promise.all(arriving);
 		// oxlint-disable-next-line unicorn/no-array-sort -- toSorted is not in the ES2022 library this project compiles against; the copy keeps `steps` untouched
-		return [...steps].sort((a, b) => a.seq - b.seq);
+		return [...steps].sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.seq - b.seq);
 	};
 }
 
@@ -401,7 +437,21 @@ export function stepLocator(page: Page, step: RecordedStep): Locator | undefined
 	return step.innerText ? found.getByText(step.innerText, { exact: true }) : found;
 }
 
-const quote = (text: string) => `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+// A string literal in single quotes. A line break inside it would end the line of code, so line
+// breaks (a multi-line text field) are written as escapes.
+const ESCAPES: Record<string, string> = {
+	'\\': '\\\\',
+	"'": "\\'",
+	'\n': '\\n',
+	'\r': '\\r',
+	'\u2028': '\\u2028',
+	'\u2029': '\\u2029'
+};
+const quote = (text: string) =>
+	`'${text.replace(/[\\'\n\r\u2028\u2029]/g, (character) => ESCAPES[character] ?? character)}'`;
+
+/** The variable a recorded password is read from; whoever cleans up the spec gives it its name. */
+const PASSWORD_VARIABLE = 'process.env.RECORDED_PASSWORD';
 
 // A selector as an object literal: bare keys, single quotes.
 function literal(value: unknown): string {
@@ -437,7 +487,9 @@ function locatorCode(step: RecordedStep): string | undefined {
 
 function stepLines(step: RecordedStep): string[] {
 	const lines: string[] = [];
-	if (step.problem) lines.push(`// FIXME: ${step.problem}${step.hint ? ` (${step.hint})` : ''}`);
+	// One line: a hint is text from the page and may hold line breaks.
+	const hint = step.hint?.replace(/\s+/g, ' ').trim();
+	if (step.problem) lines.push(`// FIXME: ${step.problem}${hint ? ` (${hint})` : ''}`);
 	const locator = locatorCode(step);
 	if (!locator) {
 		lines.push(`// ${step.action} was not recorded`);
@@ -445,7 +497,12 @@ function stepLines(step: RecordedStep): string[] {
 	}
 	if (step.action === 'click')
 		lines.push(`await ${locator}.click(${step.force ? '{ force: true }' : ''});`);
-	if (step.action === 'fill') lines.push(`await ${locator}.fill(${quote(step.value ?? '')});`);
+	if (step.action === 'fill' && step.secret)
+		lines.push(
+			`// FIXME: a password was typed here. It was not recorded: set ${PASSWORD_VARIABLE.replace('process.env.', '')} or name the variable that holds it.`,
+			`await fillSecret(${locator}, ${PASSWORD_VARIABLE}!);`
+		);
+	else if (step.action === 'fill') lines.push(`await ${locator}.fill(${quote(step.value ?? '')});`);
 	if (step.action === 'press') lines.push(`await ${locator}.press(${quote(step.key ?? '')});`);
 	return lines;
 }
@@ -478,7 +535,7 @@ export function renderSpec(
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
 	const body = [start, ...kept.flatMap(stepLines)].join('\n');
-	const names = ['test', 'ui5ControlSelector', 'locateSIDSelector'].filter(
+	const names = ['test', 'fillSecret', 'ui5ControlSelector', 'locateSIDSelector'].filter(
 		(name) => name === 'test' || body.includes(`${name}(`)
 	);
 	return [
