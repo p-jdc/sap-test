@@ -9,6 +9,13 @@ Rules for SAP tests are in sap-tests/CLAUDE.md. This file covers how changes are
 - A new worktree has no installed dependencies. Run `bun run setup` in it before running checks or tests.
 - Never touch a worktree another session created, including locked ones.
 
+## Before a pull request
+
+- Run `/gate` on the committed branch before opening a pull request, and put its final line (`GATE: PASS`, `PASS-WITH-FIXES` or `FAIL`) with any findings left open into the description under `## Gate`. It runs `bun run pregate` and then a review of the branch against main.
+- A change to documentation only needs `bun run pregate` alone.
+- The verdict belongs to the commit it ran on. After further commits, run `bun run pregate` again; run `/gate` again when they change more than the listed findings.
+- If the user asks for a pull request without the gate, say that it has not run and write `Gate: not run` in the description. Never write a verdict that was not produced.
+
 ## After a pull request is merged
 
 Clean up without being asked, as soon as the merge is confirmed:
