@@ -39,7 +39,9 @@
 	// The sign-in page stands alone; elsewhere the signed-in person (sign-in on) is at the foot of
 	// the navigation, which signs them out.
 	const signInPage = $derived(page.url.pathname === '/signin');
-	const me = $derived(signInPage ? null : getMe().current);
+	// Created once, like every page's queries. On the sign-in page it answers 401, which is ignored.
+	const meQuery = getMe();
+	const me = $derived(signInPage ? null : meQuery.current);
 
 	// A session that ended (expired, or removed by an admin) answers 401: sign in again and return.
 	window.fetch = new Proxy(window.fetch, {
