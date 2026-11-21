@@ -58,7 +58,7 @@ Which command proves which claim (from the repo root unless noted):
 - **Unit tests:** `bun run test`, or one file with `cd app && bunx vitest --run <path>`.
 - **The app works in a browser:** `bun run test:e2e`, or the `verify` skill for a flow the e2e tests do not cover. A passing unit test does not prove it.
 - **SAP test code:** `cd sap-tests && bun run test:plugin`, `bun run test:mfs`, `bun run test:api:mock`. These run without an SAP system. A test against a real system proves nothing until it has run against that system: say so when it has not.
-- **Ready for a pull request:** `bun run pregate` passes. CI on the pushed branch adds the e2e tests.
+- **Ready for a pull request:** `/gate` ends in `GATE: PASS` or `PASS-WITH-FIXES` on the commit being pushed (it runs `bun run pregate` and a review; see `CLAUDE.md`). `bun run pregate` alone is enough only for a documentation change. CI on the pushed branch adds the e2e tests.
 - **A regression test works:** name the change you undid and show the test went red.
 - **A worktree:** has no dependencies until `bun run setup`; a failure before that proves nothing.
 - **After a merge that changes `package.json`:** `bun install` in the main checkout's `app` and `sap-tests`, or the running app fails on a missing module.
