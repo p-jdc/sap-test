@@ -8,6 +8,7 @@
 import { test as base, expect, selectors } from '@playwright/test';
 import type { Locator, Page, Response } from '@playwright/test';
 import { ENGINES, ENGINE_NAMES, engineSource } from './engines';
+import { sapLogin } from './login';
 import { UI5_CONTROL_ENGINE, ui5ControlEngine, ui5ControlSelector } from './ui5control';
 import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
@@ -79,33 +80,6 @@ export function getByRoleSIDSelector(role: string, options: ByRoleSIDOptions): s
 	const sub = options.sub || 'usr';
 	const position = options.pos !== undefined ? `[${options.pos}]` : '';
 	return `${ENGINES.sid}=${wnd}/${sub}/${prefix}${options.name ?? ''}${position}`;
-}
-
-async function sapLogin(
-	page: Page,
-	username: string,
-	password: string,
-	url?: string
-): Promise<Response | null> {
-	const response = url ? await page.goto(url) : null;
-	const netweaverUser = page.getByRole('textbox', { name: 'User Required' });
-	const fioriUser = page.getByRole('textbox', { name: 'User', exact: true });
-	await expect(
-		netweaverUser.or(fioriUser).first(),
-		'SAPLogin: no Fiori launchpad or NetWeaver login page found'
-	).toBeVisible({ timeout: 30_000 });
-
-	if (await netweaverUser.isVisible()) {
-		await netweaverUser.fill(username);
-		await page.getByRole('textbox', { name: 'Password Required' }).fill(password);
-		await page.getByRole('button', { name: 'Log On Emphasized' }).click();
-	} else {
-		await fioriUser.fill(username);
-		await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password);
-		await page.getByRole('button', { name: 'Log On' }).click();
-	}
-	await page.waitForLoadState();
-	return response;
 }
 
 /** Adds the SAP methods to one page object. Popups and new tabs are covered by the fixture below. */

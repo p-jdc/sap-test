@@ -22,6 +22,7 @@
 		"test:sap": "cd sap-tests && bun run test",
 		"test:sap:list": "cd sap-tests && bunx playwright test --list",
 		"codegen": "cd sap-tests && bun run codegen",
+		"record": "cd sap-tests && bun run record",
 		"report": "cd sap-tests && bun run report",
 		"pregate": "bun run check && bun run lint && bun run test && bun run test:sap:list",
 		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"

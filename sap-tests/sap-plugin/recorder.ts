@@ -442,8 +442,26 @@ function stepLines(step: RecordedStep): string[] {
 	return lines;
 }
 
+export type SpecOptions = {
+	/** The test's title. */
+	name?: string;
+	/** Start with page.SAPLogin and the credentials from the environment instead of page.goto. */
+	login?: boolean;
+	/** The start page is the configured SAP_URL: read it from the environment as well. */
+	urlFromEnv?: boolean;
+};
+
 /** The recorded steps as a spec. `pluginImport` is the path to sap-plugin from the spec's folder. */
-export function renderSpec(url: string, steps: RecordedStep[], pluginImport: string): string {
+export function renderSpec(
+	url: string,
+	steps: RecordedStep[],
+	pluginImport: string,
+	options: SpecOptions = {}
+): string {
+	const address = options.urlFromEnv ? 'process.env.SAP_URL' : quote(url);
+	const start = options.login
+		? `await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, ${address});`
+		: `await page.goto(${address}${options.urlFromEnv ? '!' : ''});`;
 	// fill() focuses the field itself: the click a person makes to get into it adds nothing.
 	const target = (step: RecordedStep) =>
 		JSON.stringify([step.selector, step.sid, step.frames, step.innerText]);
@@ -451,14 +469,14 @@ export function renderSpec(url: string, steps: RecordedStep[], pluginImport: str
 		const next = steps[index + 1];
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
-	const body = [`await page.goto(${quote(url)});`, ...kept.flatMap(stepLines)].join('\n');
+	const body = [start, ...kept.flatMap(stepLines)].join('\n');
 	const names = ['test', 'ui5ControlSelector', 'locateSIDSelector'].filter(
 		(name) => name === 'test' || body.includes(`${name}(`)
 	);
 	return [
 		`import { ${names.join(', ')} } from ${quote(pluginImport)};`,
 		'',
-		`test('recorded', async ({ page }) => {`,
+		`test(${quote(options.name?.trim() || 'recorded')}, async ({ page }) => {`,
 		...body.split('\n').map((line) => `\t${line}`),
 		'});',
 		''

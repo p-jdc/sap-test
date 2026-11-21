@@ -41,6 +41,40 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 /** Helper functions whose name says what kind of control they find. */
 const HELPER_NOUN: Record<string, string> = { button: 'button', input: 'field', field: 'field' };
 
+/** `sap.m.Button` → `button`. */
+const typeNoun = (controlType: string | undefined) =>
+	controlType ? words(controlType.slice(controlType.lastIndexOf('.') + 1)) : 'element';
+
+const CONTROL_SELECTOR = /(?:locateUI5Control|ui5ControlSelector)\((?<selector>.*)/s;
+const quoted = (key: string) => new RegExp(String.raw`\b${key}\s*:\s*${STRING}`);
+const inObject = (key: string, inner: string) =>
+	new RegExp(String.raw`\b${key}\s*:\s*\{[^}]*?\b${inner}\s*:\s*${STRING}`);
+
+/**
+ * A UI5 control selector (locateUI5Control, as the recorder writes it) in words. The control is
+ * named by what a person sees of it where the selector says so (its label, a text), otherwise by
+ * its text key, the record it shows or its ID. What it sits in (`ancestor`) is left out.
+ */
+function controlTarget(selector: string): string {
+	const own = selector.split(/\b(?:ancestor|sibling|descendant)\s*:/)[0] ?? selector;
+	const text = (pattern: RegExp) => pattern.exec(own)?.groups?.text?.replaceAll(/\\(.)/g, '$1');
+	const noun = typeNoun(text(quoted('controlType')));
+
+	const label = text(inObject('labelFor', 'text'));
+	if (label) return `the ${quote(label)} ${noun}`;
+	const properties = /\bproperties\s*:\s*\{(?<body>.*)/s.exec(own)?.groups?.body ?? '';
+	const shown = [...properties.matchAll(PROPERTY)].map((m) => m.groups?.text).find(Boolean);
+	if (shown) return `the ${quote(shown)} ${noun}`;
+	const key = text(inObject('i18NText', 'key'));
+	if (key) return `the ${quote(words(key))} ${noun}`;
+	const record = text(inObject('bindingPath', 'path'));
+	if (record) return `the ${noun} of ${quote(record)}`;
+	const id = text(quoted('id'));
+	// `container-cart---checkoutView--creditCardNumber` → the credit card number
+	if (id) return `the ${words(id.slice(id.lastIndexOf('--') + 2))}`;
+	return `the ${noun}`;
+}
+
 /**
  * What a locator points at, in words: `the “Save” button`, `“Material”`, `the table`. Undefined
  * when only code identifies the element (CSS, XPath, an SAP screen path, a test id).
@@ -53,6 +87,9 @@ export function targetText(locator: LocatorInfo | undefined): string | undefined
 	}
 	// A variable that holds a locator: `reviewsTile` → the reviews tile.
 	if (IDENTIFIER.test(display)) return `the ${words(display)}`;
+
+	const control = CONTROL_SELECTOR.exec(display)?.groups?.selector;
+	if (control) return controlTarget(control);
 
 	const call = FIRST_ARG.exec(display);
 	if (!call) return undefined;

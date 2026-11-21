@@ -46,6 +46,31 @@ test('create order', async ({ page }) => {
 		expect(t.issues).toEqual([]);
 	});
 
+	test('reads the locators of the UI5 recorder as SAP locators, also inside an iframe', () => {
+		const spec = parseSpec(
+			'fiori/recorded.spec.ts',
+			`import { test, ui5ControlSelector, locateSIDSelector } from '../../sap-plugin';
+test('recorded', async ({ page }) => {
+	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);
+	await page.locateUI5Control({ controlType: 'sap.m.Input', labelFor: { text: 'Sold-To Party' } }).fill('1000');
+	await page.locateUI5Control({ id: 'app--calendar', interaction: 'root' }).getByText('15', { exact: true }).click();
+	await page.frameLocator('iframe[name="application"]').locator(ui5ControlSelector({ controlType: 'sap.m.Button', properties: { text: 'Go' } })).click();
+	await page.frameLocator('iframe[name="application"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();
+});`,
+			helpers
+		);
+		const t = must(spec.tests[0]);
+		expect(t.steps.map((s) => [s.action, s.locator?.kind])).toEqual([
+			['SAPLogin', undefined],
+			['fill', 'ui5'],
+			['click', 'text'],
+			['click', 'ui5'],
+			['click', 'sid-path']
+		]);
+		// No CSS finding for the selector strings; only the calendar day is a standard locator.
+		expect(t.issues.map((i) => i.rule).toSorted()).toEqual(['has-assertion', 'prefer-sap-locator']);
+	});
+
 	test('applies beforeEach steps and describe titles', () => {
 		const spec = parseSpec(
 			'_demo/x.spec.ts',

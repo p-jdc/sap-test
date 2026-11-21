@@ -169,6 +169,36 @@ test('masked fields and a calendar day are recorded and replay', async ({ browse
 	});
 });
 
+test('the written spec: title, login from the environment, no click before a fill', () => {
+	const field = { id: 'app--name', interaction: { idSuffix: 'inner' } };
+	const steps: RecordedStep[] = [
+		{ seq: 1, action: 'click', selector: field },
+		{ seq: 2, action: 'fill', selector: field, value: "O'Brien" },
+		{ seq: 3, action: 'click', sid: 'wnd[0]/tbar[1]/btn[8]', frames: ['iframe[name="app"]'] }
+	];
+	expect(
+		renderSpec('https://sap.example.com/fiori', steps, '../../sap-plugin', {
+			name: 'Create order',
+			login: true,
+			urlFromEnv: true
+		})
+	).toBe(
+		[
+			`import { test, locateSIDSelector } from '../../sap-plugin';`,
+			``,
+			`test('Create order', async ({ page }) => {`,
+			`\tawait page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);`,
+			`\tawait page.locateUI5Control({ id: 'app--name', interaction: { idSuffix: 'inner' } }).fill('O\\'Brien');`,
+			`\tawait page.frameLocator('iframe[name="app"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();`,
+			`});`,
+			``
+		].join('\n')
+	);
+	expect(renderSpec('https://x.test/', [], './sap-plugin')).toContain(
+		`test('recorded', async ({ page }) => {\n\tawait page.goto('https://x.test/');`
+	);
+});
+
 // WebGUI marks each element with an `lsdata` attribute that carries its SID. A real WebGUI needs
 // a test system, so this is a stand-in page, served by the test.
 const WEBGUI_STAND_IN = `<!doctype html><html><body>

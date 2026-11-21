@@ -44,10 +44,13 @@
 
 <ui5-message-strip design="Information" hide-close-button>
 	{#if view.technical}
-		Starts <span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide
-		§4.4); the recorded test runs on stock Playwright. The browser and the recorder window open on
-		the machine that runs this app, so record from a local install. Fiori and WebGUI log in
-		automatically with the credentials from
+		Fiori / UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
+		Playwright: UI5 itself describes each control, so the test names a row by its data and not by
+		its position. WebGUI and Ariba start
+		<span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide §4.4).
+		Either way the recorded test runs on stock Playwright. The browser opens on the machine that
+		runs this app, so record from a local install. Fiori and WebGUI log in automatically with the
+		credentials from
 		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
 		log in by hand.
 	{:else}
@@ -58,7 +61,10 @@
 				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
 				(in Ariba you log in yourself).
 			</li>
-			<li>Do the task as you normally would. Every click and entry is written down.</li>
+			<li>
+				Do the task as you normally would. Every click and entry is written down; for Fiori a red
+				“Recording” mark at the top of the page counts them.
+			</li>
 			<li>Close the browser window when you are done. The test is saved.</li>
 		</ol>
 	{/if}
