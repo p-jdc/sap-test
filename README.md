@@ -158,6 +158,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 | `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
+| `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
