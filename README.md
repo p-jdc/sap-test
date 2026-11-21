@@ -253,6 +253,8 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `TEST_APP_CLIENT_IP_HEADER` | unset | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself |
 | `BETTER_AUTH_SECRET` | generated | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only) |
 | `TEST_APP_SETUP_TOKEN` | random | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered |
+| `TEST_APP_RECOVERY` | unset | `on`: logs a recovery link at start, for when no admin can sign in any more (see below). Unset it again afterwards |
+| `TEST_APP_RECOVERY_TOKEN` | random | The token of the recovery link (at least 24 characters). It works once, also across restarts. Unset, a random one is logged at each start with `TEST_APP_RECOVERY=on` |
 | `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
 
 ### Signing in to the app (passkeys)
@@ -268,6 +270,11 @@ app's database, `<data dir>/app.sqlite` (Bun's built-in SQLite through
 - **First admin.** While nobody is registered, the server logs a one-time link
   (`/signin?setup=…`). Whoever opens it registers a passkey and becomes the admin. On a cluster,
   read it with `kubectl logs`, or set `TEST_APP_SETUP_TOKEN`.
+- **Lost admin access.** If no admin can sign in any more (a lost passkey, a new computer),
+  restart the app with `TEST_APP_RECOVERY=on`. The server logs a link (`/signin?recover=…`)
+  that registers a passkey as a new admin. It works once, for an hour after the start, and the
+  Activity log shows it. Remove the old account under Settings → People, then unset
+  `TEST_APP_RECOVERY`. Only who starts the server and reads its log gets the link.
 - **Everyone else** gets an invite link from an admin (Settings → People). It works once, for 72
   hours, and is not shown again. The invite sets the role: admins also change the settings
   (which hold the SAP passwords) and manage people; members run, record and read results.
