@@ -1,3 +1,4 @@
+import dotenv from 'dotenv';
 import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -8,18 +9,12 @@ import { keychain, type SecretStore } from './secret-store.js';
 import { API_SYSTEM, secretSettings, settingNames, signInSystems } from './systems.js';
 import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
+/**
+ * Reads sap-tests/.env with the parser the test project loads it with (dotenv), so the app sees
+ * each value exactly as a run does: comments after a value, `export`, quotes and `\n` included.
+ */
 function parse(text: string): Record<string, string> {
-	const out: Record<string, string> = {};
-	for (const raw of text.split('\n')) {
-		const line = raw.trim();
-		if (!line || line.startsWith('#')) continue;
-		const eq = line.indexOf('=');
-		if (eq < 1) continue;
-		let value = line.slice(eq + 1).trim();
-		if (/^(['"]).*\1$/.test(value)) value = value.slice(1, -1);
-		out[line.slice(0, eq).trim()] = value;
-	}
-	return out;
+	return dotenv.parse(text);
 }
 
 type Setting = { value: string; source: SettingSource };
@@ -27,6 +22,8 @@ type Setting = { value: string; source: SettingSource };
 type Resolved = {
 	/** The settings in effect. */
 	values: Map<string, Setting>;
+	/** What sap-tests/.env sets, in effect or not. */
+	fromFile: Record<string, string>;
 	/** Credentials that are set outside the app but not used, with where they are set. */
 	withheld: Map<SettingName, SettingSource>;
 };
@@ -66,8 +63,10 @@ function withholdCredentials(
 }
 
 /**
- * Where each setting comes from. The credential store (Settings page) wins over sap-tests/.env,
- * which wins over the app's own environment.
+ * Where each setting comes from. The credential store (Settings page) wins over the app's own
+ * environment, which wins over sap-tests/.env. That is the order a run sees: stored values are
+ * handed to the Playwright process, which otherwise inherits the app's environment, and dotenv
+ * there only fills what is not set yet.
  */
 async function resolveSettings(store: SecretStore): Promise<Resolved> {
 	const file = resolve(TESTS_ROOT, '.env');
@@ -82,14 +81,13 @@ async function resolveSettings(store: SecretStore): Promise<Resolved> {
 		const secret = stored[i];
 		const fromProcess = process.env[name];
 		if (secret) values.set(name, { value: secret, source: 'keychain' });
-		else if (!values.has(name) && fromProcess)
-			values.set(name, { value: fromProcess, source: 'process' });
+		else if (fromProcess) values.set(name, { value: fromProcess, source: 'process' });
 	});
 	const withheld = withholdCredentials(
 		values,
-		(name) => fromFile[name] || process.env[name] || undefined
+		(name) => process.env[name] || fromFile[name] || undefined
 	);
-	return { values, withheld };
+	return { values, fromFile, withheld };
 }
 
 /** Every setting in effect with its value. Values stay server-side; the UI only sees set/unset. */
@@ -121,17 +119,21 @@ function childVars({ values, withheld }: Resolved): Record<string, string> {
 
 /**
  * What a Playwright run needs from the settings: its environment variables (see keychainEnv) and
- * the passwords it can use, from wherever they are set, to mask in everything the run records.
+ * the passwords set anywhere (credential store, environment, .env), to mask in everything the
+ * run records.
  */
 export async function runSettings(
 	store: SecretStore = keychain()
 ): Promise<{ env: Record<string, string>; secrets: string[] }> {
 	const resolved = await resolveSettings(store);
-	const secrets = secretSettings().flatMap((name) => {
-		const value = resolved.values.get(name)?.value;
-		return value ? [value] : [];
-	});
-	return { env: childVars(resolved), secrets };
+	// Every value a password setting has anywhere, not only the one in effect: masking one too
+	// many costs nothing, and a password that is set but shadowed must not show up either.
+	const secrets = secretSettings().flatMap((name) =>
+		[resolved.values.get(name)?.value, process.env[name], resolved.fromFile[name]].filter(
+			(value): value is string => Boolean(value)
+		)
+	);
+	return { env: childVars(resolved), secrets: [...new Set(secrets)] };
 }
 
 /**
