@@ -120,6 +120,8 @@ export interface RunTest {
 	 * (LiveView); `steps` is then empty although the test has steps.
 	 */
 	stepsOmitted?: boolean;
+	/** The steps and the error message of this test were deleted to save space (retention rules). */
+	detailsRemoved?: boolean;
 	attachments: Attachment[];
 }
 

@@ -193,6 +193,12 @@
 	{#if error}
 		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 	{/if}
+	{#if runTest?.detailsRemoved}
+		<ui5-message-strip design="Information" hide-close-button>
+			The selected run is older, so how each step went was removed to save space. The result of the
+			test is kept. Pick a newer run or press “Run this test”.
+		</ui5-message-strip>
+	{/if}
 	{#if run && !runTest}
 		<ui5-message-strip design="Information" hide-close-button>
 			This test was not part of the selected run, so the steps show no results. Pick another run or

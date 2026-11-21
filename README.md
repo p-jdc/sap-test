@@ -237,13 +237,27 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
 | `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
-| `TEST_APP_KEEP_ARTIFACTS` | `50` | Runs that keep their report, screenshots, videos and traces. Older runs lose these files (most of a run's size) after each run but keep their results, steps and log, so the history and the reliability table stay complete. `all` never deletes them |
+| `TEST_APP_KEEP_REPORT_DAYS` | `14` | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again |
+| `TEST_APP_KEEP_STEPS_DAYS` | `30` | Days a run keeps the steps of its tests and its log |
+| `TEST_APP_KEEP_FAILURE_DAYS` | `90` | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows |
+| `TEST_APP_RETENTION` | on | `off` never deletes anything from a run |
 | `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
 | `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
 | `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
 | `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
 | `HOST` | `127.0.0.1` | Address `bun run start` listens on. The app has no login and can start runs and the recorder, so it is local-only unless you change this |
 | `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
+
+**What is kept of a run.** Which test passed or failed, when, and how long it took is kept for good;
+it is the evidence for the pilot criterion. Everything else goes by age and by what came after:
+
+- The newest run is always kept in full.
+- A failure stays in full (trace, video, screenshot, steps, error message, log) while the test has
+  not passed again, then for `TEST_APP_KEEP_REPORT_DAYS` more, and never longer than
+  `TEST_APP_KEEP_FAILURE_DAYS`.
+- Of a series of failures at the same place in the test, only the first and the latest stay in full.
+
+The rules are applied after each run, when the app starts and once a day.
 
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
