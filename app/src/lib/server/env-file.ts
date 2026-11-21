@@ -77,7 +77,8 @@ export async function keychainEnv(
 /** The URL setting of a system and the credentials that belong to it. */
 const SYSTEMS: { url: SettingName; credentials: SettingName[] }[] = [
 	{ url: 'SAP_URL', credentials: ['SAP_USERNAME', 'SAP_PASSWORD'] },
-	{ url: 'ARIBA_URL', credentials: ['ARIBA_USER', 'ARIBA_PASS'] }
+	{ url: 'ARIBA_URL', credentials: ['ARIBA_USER', 'ARIBA_PASS'] },
+	{ url: 'SAP_API_URL', credentials: ['SAP_API_USERNAME', 'SAP_API_PASSWORD'] }
 ];
 
 /**

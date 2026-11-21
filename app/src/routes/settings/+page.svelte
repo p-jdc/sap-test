@@ -37,6 +37,21 @@
 			]
 		},
 		{
+			title: 'SAP services (API)',
+			subtitle:
+				'Optional: only for tests that call SAP services directly. They create and change data, so use a development system',
+			fields: [
+				{
+					name: 'SAP_API_URL',
+					label: 'Web address',
+					hint: 'https://your-dev-system.example.com (no path)'
+				},
+				{ name: 'SAP_API_USERNAME', label: 'User name' },
+				{ name: 'SAP_API_PASSWORD', label: 'Password', secret: true },
+				{ name: 'SAP_CLIENT', label: 'Client', hint: 'Three digits, for example 100' }
+			]
+		},
+		{
 			title: 'Browser',
 			subtitle: 'Optional',
 			technical: true,

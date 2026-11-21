@@ -104,7 +104,7 @@ to the SAP locators:
 
 | Fixture | What it is |
 | --- | --- |
-| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
+| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
 | `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC` |
 | `cleanup` | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test |
 
@@ -113,6 +113,10 @@ the UI and check the result over the API. The bundled tests target `GWSAMPLE_BAS
 service that ships with SAP Gateway in every ABAP system. It is often active in development systems,
 otherwise activate it in `/IWFND/MAINT_SERVICE`; the ABAP Cloud Developer Trial (Docker) works too.
 SAP's public demo system ES5 (sapes5.sapdevcenter.com), which used to host it, has been shut down.
+
+The app's Settings page has a group for these values (`SAP_API_URL`, `SAP_API_USERNAME`,
+`SAP_API_PASSWORD`, `SAP_CLIENT`); saved there, runs started from the app use them. The mock mode
+below is started from the terminal only.
 
 Without a system, `bun run test:api:mock` (in `sap-tests`) runs the same tests against a local
 mock of the services: SAP's Fiori mock server (`@sap-ux/fe-mockserver-core`) serves each metadata
@@ -134,8 +138,8 @@ bun run typecheck        # tests that use a changed or removed field fail here
 Commit the metadata: its diff shows the change to the interface in review. The generated clients
 are large (about 7,000 lines for `GWSAMPLE_BASIC`) and are rebuilt from it, so they stay out of git.
 For a new service, check `basePath` in `options-per-service.json`, add a fixture next to `gwsample`
-in `sap-plugin/odata.ts` and mock data under `odata/mock/data/<directoryName>/`. The app lists `tests/api` under "other" for now. Its Settings
-page does not store the `SAP_API_*` values yet; runs read them from `sap-tests/.env`.
+in `sap-plugin/odata.ts` and mock data under `odata/mock/data/<directoryName>/`. The app lists these tests under
+"SAP services (API)" and shows each request as a step.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One

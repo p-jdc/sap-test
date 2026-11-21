@@ -16,7 +16,7 @@
 	let filter = $state<Surface | 'all'>('all');
 	let error = $state<string | null>(null);
 
-	const SURFACES: Surface[] = ['fiori', 'webgui', 'ariba', 'demo', 'other'];
+	const SURFACES: Surface[] = ['fiori', 'webgui', 'ariba', 'api', 'demo', 'other'];
 	const counts = $derived(
 		(specs.current ?? []).reduce<Partial<Record<Surface, number>>>((acc, f) => {
 			acc[f.surface] = (acc[f.surface] ?? 0) + f.tests.length;

@@ -46,6 +46,66 @@ test('create order', async ({ page }) => {
 		expect(t.issues).toEqual([]);
 	});
 
+	test('reads the methods the SAP plugin adds: UI5 wait, model reads and locateUI5', () => {
+		const spec = parseSpec(
+			'fiori/model.spec.ts',
+			`test('t', async ({ page }) => {
+	await page.waitForUI5();
+	const table = page.getByRoleUI5('Table');
+	const rows = await page.ui5BoundData(table);
+	const name = await page.ui5ModelProperty(page.getByRoleUI5('Input', { label: 'Name' }), 'Name');
+	expect(rows.length).toBeGreaterThan(0);
+	await expect(page.locateUI5('//ToolPage//SideNavigation')).toHaveCount(1);
+});`
+		);
+		const t = must(spec.tests[0]);
+		expect(t.steps.map((s) => [s.kind, s.action, s.locator?.kind])).toEqual([
+			['wait', 'waitForUI5', undefined],
+			['other', 'ui5BoundData', 'other'],
+			['other', 'ui5ModelProperty', 'ui5'],
+			['assert', 'toBeGreaterThan', 'other'],
+			['assert', 'toHaveCount', 'ui5-xpath']
+		]);
+		expect(t.issues.map((i) => [i.rule, i.severity])).toEqual([['prefer-role-ui5', 'info']]);
+	});
+
+	test('reads requests to an SAP service and files such a test under API', () => {
+		const body = `
+	const [first] = await products.requestBuilder().getAll().top(1).execute(sapApi);
+	await products.requestBuilder().create(draft).execute(sapApi);
+	await products.requestBuilder().getByKey(id).execute(sapApi);
+	await products.requestBuilder().update(first).execute(sapApi);
+	await products.requestBuilder().delete(id).execute(sapApi);
+	await gwsample.batch(products.requestBuilder().getAll()).execute(sapApi);
+	await statement.execute(connection);
+	expect(first).toBeDefined();`;
+		const source = `test('t', async ({ sapApi, gwsample }) => {${body}\n});`;
+		const t = must(parseSpec('api/products.spec.ts', source).tests[0]);
+		expect(t.surface).toBe('api');
+		expect(t.steps.map((s) => [s.action, s.value])).toEqual([
+			['odata.getAll', 'products'],
+			['odata.create', 'products'],
+			['odata.getByKey', 'products'],
+			['odata.update', 'products'],
+			['odata.delete', 'products'],
+			['odata.batch', undefined],
+			['execute', undefined],
+			['toBeDefined', undefined]
+		]);
+		expect(t.issues).toEqual([]);
+		// Outside the api folder the requests still say what the test is.
+		expect(must(parseSpec('misc/p.spec.ts', source).tests[0]).surface).toBe('api');
+	});
+
+	test('the plugin self-tests are one surface, whatever locators each test uses', () => {
+		const spec = parseSpec(
+			'_plugin/p.spec.ts',
+			`test('a', async ({ page }) => { await expect(page.getByRoleUI5('Title')).toBeVisible(); });
+test('b', async ({ page }) => { await expect(page.locateSID('wnd[0]')).toBeVisible(); });`
+		);
+		expect(spec.tests.map((t) => t.surface)).toEqual(['other', 'other']);
+	});
+
 	test('applies beforeEach steps and describe titles', () => {
 		const spec = parseSpec(
 			'_demo/x.spec.ts',

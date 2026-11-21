@@ -54,7 +54,7 @@ test('settings page lists the settings without showing values', async ({ page })
 	await page.goto('/settings');
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	// The browser path is for whoever installs the app; it shows with technical details only.
-	await expect(page.locator('[data-setting]')).toHaveCount(6);
+	await expect(page.locator('[data-setting]')).toHaveCount(10);
 	await expect(page.getByText('SAP_PASSWORD')).toBeHidden();
 	await expect(page.locator('[data-setting="SAP_PASSWORD"] ui5-input')).toHaveAttribute(
 		'type',
@@ -67,6 +67,6 @@ test('settings page shows the setting names and the browser path with technical 
 }) => {
 	await technical(page);
 	await page.goto('/settings');
-	await expect(page.locator('[data-setting]')).toHaveCount(7);
+	await expect(page.locator('[data-setting]')).toHaveCount(11);
 	await expect(page.getByText('SAP_PASSWORD')).toBeVisible();
 });
