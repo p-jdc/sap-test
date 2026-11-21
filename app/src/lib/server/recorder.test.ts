@@ -1,6 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { RecorderState } from './recorder.js';
 import { copySystems } from '../../test/systems.js';
@@ -15,6 +22,9 @@ async function recorderWith(envFile: string) {
 }
 
 const SAP = `SAP_URL=https://sap.example.com/fiori\nSAP_USERNAME=U\nSAP_PASSWORD=P\n`;
+
+/** This repository's wrapper around the fork's CLI, which the stand-in test projects get a copy of. */
+const CODEGEN_WRAPPER = resolve(import.meta.dirname, '../../../../sap-tests/recorder/codegen.cjs');
 
 beforeEach(() => {
 	vi.unstubAllEnvs();
@@ -98,6 +108,7 @@ async function installedRecorder(mode: 'save' | 'empty' | 'hang') {
 	const pkg = join(made.dir, 'recorder/node_modules/@playwright/test');
 	mkdirSync(pkg, { recursive: true });
 	writeFileSync(join(pkg, 'cli.js'), FAKE_RECORDER);
+	copyFileSync(CODEGEN_WRAPPER, join(made.dir, 'recorder/codegen.cjs'));
 	mkdirSync(join(made.dir, 'sap-plugin'), { recursive: true });
 	writeFileSync(join(made.dir, 'sap-plugin/record.mjs'), FAKE_UI5_RECORDER);
 	vi.stubEnv('FAKE_RECORDER', mode);
@@ -147,11 +158,12 @@ describe('startRecording', () => {
 			'playwright-test',
 			'-o',
 			'tests/webgui/create-order.spec.ts',
+			'--save-storage',
+			'.auth/webgui.json',
+			// Added by recorder/codegen.cjs inside the recorder process, not on its command line.
 			'--sap-login',
 			'U',
-			'P',
-			'--save-storage',
-			'.auth/webgui.json'
+			'P'
 		]);
 		expect(existsSync(join(dir, '.auth'))).toBe(true);
 	});
@@ -281,7 +293,7 @@ describe('recorderInvocation', () => {
 		expect(invocation.env).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: '' });
 	});
 
-	test('WebGUI and Ariba still record with the Playwright-SAP recorder', async () => {
+	test('WebGUI and Ariba record with the Playwright-SAP recorder, the password not on its command line', async () => {
 		const { dir, recorder } = await recorderWith(SAP);
 		const fork = join(dir, 'recorder', 'node_modules', '@playwright', 'test');
 		const webgui = recorder.recorderInvocation(
@@ -291,17 +303,16 @@ describe('recorderInvocation', () => {
 			env
 		);
 		expect(webgui.args).toEqual([
-			join(fork, 'cli.js'),
+			join(dir, 'recorder', 'codegen.cjs'),
 			'codegen',
 			env.SAP_URL,
 			'--target',
 			'playwright-test',
 			'-o',
 			'tests/webgui/x.spec.ts',
-			'--sap-login',
-			'U',
-			'P'
+			'--sap-login-from-env'
 		]);
+		expect(webgui.env).toEqual({ SAP_USERNAME: 'U', SAP_PASSWORD: 'P' });
 		expect(webgui.needs.path).toBe(fork);
 		const ariba = recorder.recorderInvocation(
 			{ surface: 'ariba', name: 'x' },
@@ -309,7 +320,8 @@ describe('recorderInvocation', () => {
 			'https://ariba.example.com',
 			env
 		);
-		expect(ariba.args).not.toContain('--sap-login');
+		expect(ariba.args).not.toContain('--sap-login-from-env');
+		expect(ariba.env).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: '' });
 	});
 });
 

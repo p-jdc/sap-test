@@ -91,9 +91,12 @@ export function playwrightCommand(args: string[]): { cmd: string; args: string[]
  */
 export const RECORDER_PACKAGE = resolve(TESTS_ROOT, 'recorder/node_modules/@playwright/test');
 
-/** `node <sap-tests>/recorder/node_modules/@playwright/test/cli.js <args>` */
+/**
+ * `node <sap-tests>/recorder/codegen.cjs <args>`: the fork's CLI behind a wrapper that takes the SAP
+ * login from the environment (`--sap-login-from-env`), so the password is not on the command line.
+ */
 export function recorderCommand(args: string[]): { cmd: string; args: string[] } {
-	return { cmd: realNode(), args: [resolve(RECORDER_PACKAGE, 'cli.js'), ...args] };
+	return { cmd: realNode(), args: [resolve(TESTS_ROOT, 'recorder/codegen.cjs'), ...args] };
 }
 
 /**
