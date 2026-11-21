@@ -33,6 +33,13 @@ createServer((request, response) => {
 		response.end('ok');
 		return;
 	}
+	// SAP Gateway hands out a CSRF token on request, and the SDK asks for one before every write.
+	// The mock server core has no such endpoint (it would try to read the request as a write).
+	if (request.method === 'HEAD' && request.headers['x-csrf-token']?.toLowerCase() === 'fetch') {
+		response.setHeader('x-csrf-token', 'mock-token');
+		response.end();
+		return;
+	}
 	router(request, response, () => {
 		response.statusCode = 404;
 		response.end();

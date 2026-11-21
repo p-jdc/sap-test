@@ -12,14 +12,12 @@ concurrency:
 permissions:
   contents: read
 
-# Pinned to 24.04 from when sap-tests ran on the Playwright-SAP fork (Playwright 1.53), which cannot
-# install browsers on newer Ubuntu releases. The tests now run on stock Playwright and the fork is
-# used for recording only (sap-tests/recorder, not installed in CI), so the pin can go once a run on
-# ubuntu-latest has been tried.
+# The Playwright-SAP fork (Playwright 1.53, sap-tests/recorder) cannot install browsers on newer
+# Ubuntu releases. It is used for recording only and is not installed here, so CI needs no pin.
 jobs:
   sap-tests:
     name: sap-tests (types, lint, format, spec discovery, plugin tests, API tests on mock)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
@@ -60,7 +58,7 @@ jobs:
 
   app:
     name: app (check, lint, unit, e2e)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
