@@ -118,9 +118,12 @@
 								id={field.name}
 								type={field.secret ? 'Password' : 'Text'}
 								value={draft}
-								placeholder={source ? 'Enter a new value to replace it' : (field.hint ?? 'Not set')}
+								placeholder={source ? 'Enter a new value to replace it' : (field.hint ?? '')}
 								disabled={locked || undefined}
 								oninput={(e: Event) => (drafts[field.name] = (e.target as HTMLInputElement).value)}
+								onkeydown={(e: KeyboardEvent) => {
+									if (e.key === 'Enter' && draft && busy === null) void save(field.name);
+								}}
 							></ui5-input>
 							<ui5-tag design={source ? 'Positive' : 'Neutral'} hide-state-icon>
 								{source ? SOURCE_LABEL[source] : 'Not set'}
@@ -148,12 +151,11 @@
 		{/each}
 	</div>
 {:else}
-	<ui5-busy-indicator active size="L" style="width: 100%; margin-top: 4rem"></ui5-busy-indicator>
+	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
 {/if}
 
 <style>
 	.groups {
-		margin-top: 1rem;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
@@ -167,6 +169,10 @@
 	}
 	.field ui5-input {
 		width: 100%;
+	}
+	/* A tag that fills its grid cell looks like a button. */
+	.field ui5-tag {
+		justify-self: start;
 	}
 	.what {
 		display: flex;

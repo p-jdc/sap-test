@@ -9,7 +9,12 @@
 
 <span class="dots" aria-label="Run history, oldest to newest">
 	{#each shown as h (h.runId)}
-		<a href={runHref(h.runId)} class="dot {h.status}" title="{h.runId}: {h.status}"></a>
+		<a
+			href={runHref(h.runId)}
+			class="dot {h.status}"
+			title="{h.runId}: {h.status}"
+			aria-label="Run {h.runId}: {h.status}"
+		></a>
 	{/each}
 </span>
 

@@ -146,6 +146,10 @@ lookups.
   it exits 0 without loading any test. The app therefore starts the fork's CLI with the first real
   `node` on PATH (`PLAYWRIGHT_NODE` overrides), which is why Node 22 is still required. Re-check after
   the fork upgrade (guide §6); with a newer base the whole repo may run on Bun alone.
+- `sap-tests/package.json` deliberately has no `"type": "module"`. As ES modules the specs go through
+  the fork's loader thread, and on newer Node (seen on 26) its source maps arrive after the spec has
+  run, so Playwright reports the transpiled line numbers. `file:line` runs then find no tests and the
+  flow overlay matches the wrong steps. Loaded as CommonJS the source maps are set in-process.
 - The recorder passes the SAP password to `codegen --sap-login` as a command-line argument (the
   fork has no other way), so other users on the same machine can see it in the process list while
   a recording runs. Record on a machine you do not share. For Fiori/WebGUI the start URL must be on

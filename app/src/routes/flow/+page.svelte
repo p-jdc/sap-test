@@ -151,8 +151,8 @@
 			<ui5-tag hide-state-icon design="Information">generated title</ui5-tag>
 		{/if}
 		<span class="spacer"></span>
-		<ui5-label show-colon>Run</ui5-label>
-		<ui5-select onchange={pickRun} style="min-width: 260px">
+		<ui5-label for="run-picker" show-colon>Run</ui5-label>
+		<ui5-select id="run-picker" onchange={pickRun} style="min-width: 260px">
 			{#each runs.current?.runs ?? [] as r (r.id)}
 				<ui5-option data-id={r.id} selected={r.id === runId || undefined}>
 					{r.id === active ? '● live · ' : ''}{when(r.startedAt)} · {r.status}
@@ -306,7 +306,8 @@
 <style>
 	.layout {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 420px;
+		/* The flow is one 300px column; the source next to it is what needs the width. */
+		grid-template-columns: minmax(360px, 1fr) minmax(420px, 1fr);
 		gap: 1rem;
 		height: calc(100vh - 11rem);
 		min-height: 480px;
@@ -316,6 +317,8 @@
 		border-radius: 0.75rem;
 		overflow: hidden;
 		background: var(--sapGroup_ContentBackground, #fff);
+		/* Svelte Flow brings its own light and dark colours; keep its canvas on the theme's surface. */
+		--xy-background-color: var(--sapGroup_ContentBackground);
 	}
 	.side {
 		display: flex;
@@ -331,6 +334,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+	/* The error must not push the step details and the source out of the panel. */
+	.side pre.log {
+		max-height: 11rem;
+	}
+	.side ui5-message-strip {
+		margin-bottom: 0;
 	}
 	dl {
 		display: grid;
@@ -356,6 +366,7 @@
 		overflow: auto;
 		font-family: var(--sapFontFamilyMono, ui-monospace, monospace);
 		font-size: 0.75rem;
+		tab-size: 2;
 		gap: 0 !important;
 		padding: 0.5rem 0 !important;
 	}
@@ -376,11 +387,14 @@
 	}
 	@media (max-width: 1000px) {
 		.layout {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
 			height: auto;
 		}
 		.canvas {
 			height: 70vh;
+		}
+		.code {
+			max-height: 60vh;
 		}
 	}
 </style>

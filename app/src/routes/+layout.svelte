@@ -17,7 +17,16 @@
 		{ href: '/settings', link: resolve('/settings'), text: 'Settings', icon: 'action-settings' }
 	];
 
-	let collapsed = $state(false);
+	// The navigation starts as an icon rail where it would otherwise take most of the window, and
+	// follows the window across that width until the user toggles it.
+	const narrow = matchMedia('(max-width: 900px)');
+	let collapsed = $state(narrow.matches);
+	$effect(() => {
+		const onChange = () => (collapsed = narrow.matches);
+		narrow.addEventListener('change', onChange);
+		return () => narrow.removeEventListener('change', onChange);
+	});
+
 	const current = $derived(
 		NAV.toReversed().find((n) =>
 			n.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(n.href)
@@ -31,7 +40,7 @@
 </script>
 
 <svelte:head>
-	<title>SAP Test Lab</title>
+	<title>{NAV.find((n) => n.href === current)?.text ?? 'Dashboard'} · SAP Test Lab</title>
 </svelte:head>
 
 <div class="shell">

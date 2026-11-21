@@ -15,10 +15,23 @@
 	let filter = $state<Surface | 'all'>('all');
 	let error = $state<string | null>(null);
 
-	const FILTERS: (Surface | 'all')[] = ['all', 'fiori', 'webgui', 'ariba', 'demo', 'other'];
+	const SURFACES: Surface[] = ['fiori', 'webgui', 'ariba', 'demo', 'other'];
+	const counts = $derived(
+		(specs.current ?? []).reduce<Partial<Record<Surface, number>>>((acc, f) => {
+			acc[f.surface] = (acc[f.surface] ?? 0) + f.tests.length;
+			return acc;
+		}, {})
+	);
+	const total = $derived(Object.values(counts).reduce((a, b) => a + b, 0));
+	// Only surfaces that have tests get a filter; the selected one stays even when it empties.
+	const filters = $derived<(Surface | 'all')[]>([
+		'all',
+		...SURFACES.filter((s) => counts[s] || s === filter)
+	]);
 	const files = $derived(
 		(specs.current ?? []).filter((f) => filter === 'all' || f.surface === filter)
 	);
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 	const lastStatus = $derived(
 		new Map((stab.current?.rows ?? []).map((r) => [r.key, r.lastStatus]))
 	);
@@ -26,7 +39,7 @@
 
 	function onFilter(e: CustomEvent<{ selectedItems: HTMLElement[] }>) {
 		const value = e.detail.selectedItems[0]?.dataset.value;
-		filter = FILTERS.find((f) => f === value) ?? 'all';
+		filter = SURFACES.find((f) => f === value) ?? 'all';
 	}
 
 	async function run(specFiles: string[]) {
@@ -36,13 +49,15 @@
 
 <div class="page-head">
 	<ui5-title level="H2">Tests & Flows</ui5-title>
-	<ui5-segmented-button onselection-change={onFilter}>
-		{#each FILTERS as f (f)}
-			<ui5-segmented-button-item data-value={f} selected={filter === f || undefined}>
-				{f === 'all' ? 'All' : SURFACE_LABEL[f]}
-			</ui5-segmented-button-item>
-		{/each}
-	</ui5-segmented-button>
+	{#if filters.length > 2}
+		<ui5-segmented-button onselection-change={onFilter} accessible-name="Filter by surface">
+			{#each filters as f (f)}
+				<ui5-segmented-button-item data-value={f} selected={filter === f || undefined}>
+					{f === 'all' ? 'All' : SURFACE_LABEL[f]} ({f === 'all' ? total : (counts[f] ?? 0)})
+				</ui5-segmented-button-item>
+			{/each}
+		</ui5-segmented-button>
+	{/if}
 	<span class="spacer"></span>
 	<ui5-button
 		icon="refresh"
@@ -56,7 +71,9 @@
 	<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 {/if}
 
-{#if specs.current && files.length === 0}
+{#if !specs.current}
+	<ui5-busy-indicator active size="L" class="page-busy"></ui5-busy-indicator>
+{:else if files.length === 0}
 	<ui5-illustrated-message name="NoData" title-text="No tests here">
 		<span slot="subtitle">Record a flow or add a spec under sap-tests/tests.</span>
 	</ui5-illustrated-message>
@@ -90,13 +107,14 @@
 				Line {issue.line}: {issue.message}
 			</ui5-message-strip>
 		{/each}
-		<ui5-table>
+		<ui5-table overflow-mode="Popin">
 			<ui5-table-header-row slot="headerRow">
+				<!-- Fixed widths for the short columns, so the title gets the rest and every file's table lines up. -->
 				<ui5-table-header-cell min-width="260px">Test</ui5-table-header-cell>
-				<ui5-table-header-cell>Steps</ui5-table-header-cell>
-				<ui5-table-header-cell min-width="180px">Rule findings</ui5-table-header-cell>
-				<ui5-table-header-cell>Last result</ui5-table-header-cell>
-				<ui5-table-header-cell min-width="200px"></ui5-table-header-cell>
+				<ui5-table-header-cell width="5rem">Steps</ui5-table-header-cell>
+				<ui5-table-header-cell width="13rem">Rule findings</ui5-table-header-cell>
+				<ui5-table-header-cell width="8rem">Last result</ui5-table-header-cell>
+				<ui5-table-header-cell width="12rem">Actions</ui5-table-header-cell>
 			</ui5-table-header-row>
 			{#each file.tests as test, i (test.key + i)}
 				{@const errors = test.issues.filter((i) => i.severity === 'error').length}
@@ -114,9 +132,11 @@
 					<ui5-table-cell>{test.steps.length}</ui5-table-cell>
 					<ui5-table-cell>
 						<div class="row">
-							{#if errors}<ui5-tag design="Negative">{errors} error</ui5-tag>{/if}
-							{#if warnings}<ui5-tag design="Critical">{warnings} warning</ui5-tag>{/if}
-							{#if infos}<ui5-tag design="Information">{infos} hint</ui5-tag>{/if}
+							{#if errors}<ui5-tag design="Negative">{plural(errors, 'error')}</ui5-tag>{/if}
+							{#if warnings}
+								<ui5-tag design="Critical">{plural(warnings, 'warning')}</ui5-tag>
+							{/if}
+							{#if infos}<ui5-tag design="Information">{plural(infos, 'hint')}</ui5-tag>{/if}
 							{#if !test.issues.length}<ui5-tag design="Positive">clean</ui5-tag>{/if}
 						</div>
 					</ui5-table-cell>
@@ -150,6 +170,15 @@
 		align-items: center;
 		gap: 0.5rem;
 		width: 100%;
+		min-width: 0;
+	}
+	.file-head ui5-title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.file-head ui5-button {
+		flex: none;
 	}
 	.spacer {
 		flex: 1;
