@@ -6,7 +6,7 @@ import { playwrightNode, RECORDER_PACKAGE } from './node-cli.js';
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
-import { API_SYSTEM, secretSettings, settingNames, signInSystems } from './systems.js';
+import { API_SYSTEM, readSystems, secretSettings, settingNames, signInSystems } from './systems.js';
 import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
 /**
@@ -62,6 +62,49 @@ function withholdCredentials(
 	return withheld;
 }
 
+/** Under this name the credential store notes the address a stored user or password was saved for. */
+const savedFor = (name: SettingName) => `${name}@address`;
+
+function originOf(url: string | undefined): string | undefined {
+	try {
+		return url ? new URL(url).origin : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * A user or password saved in the app belongs to the address its system had when it was saved.
+ * The app clears them when its own address setting moves to another host (changeSetting), but
+ * the address can also change outside the app, in sap-tests/.env or the environment. So each
+ * stored credential carries a note of its address, and one whose system now points at another
+ * host is withheld like a credential from .env. A credential stored before this note existed is
+ * bound to the address in effect the first time it is read.
+ */
+async function withholdMoved(
+	values: Map<string, Setting>,
+	withheld: Map<SettingName, SettingSource>,
+	store: SecretStore
+): Promise<void> {
+	for (const system of credentialGroups()) {
+		const origin = originOf(values.get(system.url)?.value);
+		if (!origin) continue;
+		for (const name of system.credentials) {
+			if (values.get(name)?.source !== 'keychain') continue;
+			// One system at a time, two small reads each.
+			// oxlint-disable-next-line no-await-in-loop
+			const saved = await store.get(savedFor(name));
+			if (!saved) {
+				// oxlint-disable-next-line no-await-in-loop
+				await store.set(savedFor(name), origin).catch(() => null);
+			} else if (saved !== origin) {
+				withheld.set(name, 'keychain');
+				values.delete(name);
+			}
+		}
+	}
+}
+
 /**
  * Where each setting comes from. The credential store (Settings page) wins over the app's own
  * environment, which wins over sap-tests/.env. That is the order a run sees: stored values are
@@ -87,6 +130,7 @@ async function resolveSettings(store: SecretStore): Promise<Resolved> {
 		values,
 		(name) => process.env[name] || fromFile[name] || undefined
 	);
+	await withholdMoved(values, withheld, store);
 	return { values, fromFile, withheld };
 }
 
@@ -146,16 +190,30 @@ export async function changeSetting(
 	value: string | null,
 	store: SecretStore = keychain()
 ): Promise<{ cleared: SettingName[] }> {
-	const system = credentialGroups().find((s) => s.url === name);
+	const groups = credentialGroups();
+	const system = groups.find((s) => s.url === name);
 	const before = system ? (await resolveSettings(store)).values.get(name)?.value : undefined;
 	if (value === null) await store.delete(name);
 	else await store.set(name, value);
+	// A user or password is noted with the address it is saved for (withholdMoved).
+	const owner = groups.find((s) => s.credentials.includes(name));
+	if (owner) {
+		const origin =
+			value === null
+				? undefined
+				: originOf((await resolveSettings(store)).values.get(owner.url)?.value);
+		if (origin) await store.set(savedFor(name), origin);
+		else await store.delete(savedFor(name));
+	}
 	if (!system || !before) return { cleared: [] };
-	const after = (await resolveSettings(store)).values;
-	const url = after.get(name)?.value;
+	const after = await resolveSettings(store);
+	const url = after.values.get(name)?.value;
 	if (url && sameOrigin(before, url)) return { cleared: [] };
-	const cleared = system.credentials.filter((c) => after.get(c)?.source === 'keychain');
-	await Promise.all(cleared.map((c) => store.delete(c)));
+	// Stored credentials of the old address, in use or already withheld.
+	const cleared = system.credentials.filter(
+		(c) => after.values.get(c)?.source === 'keychain' || after.withheld.get(c) === 'keychain'
+	);
+	await Promise.all(cleared.flatMap((c) => [store.delete(c), store.delete(savedFor(c))]));
 	return { cleared };
 }
 
@@ -171,6 +229,11 @@ function packageVersion(packageDir: string): string | undefined {
 	}
 }
 
+function systemsStatus(): Pick<EnvStatus, 'systems' | 'systemsError'> {
+	const { systems, error } = readSystems();
+	return error ? { systems, systemsError: error } : { systems };
+}
+
 export async function envStatus(store: SecretStore = keychain()): Promise<EnvStatus> {
 	const [{ values, withheld }, keychainAvailable] = await Promise.all([
 		resolveSettings(store),
@@ -183,7 +246,7 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 		testsDir: TESTS_ROOT,
 		envFile: existsSync(resolve(TESTS_ROOT, '.env')),
 		keychain: keychainAvailable,
-		systems: signInSystems(),
+		...systemsStatus(),
 		vars: settingNames().map((name) => {
 			const source = values.get(name)?.source;
 			const entry: EnvStatus['vars'][number] = { name, set: source !== undefined, source };

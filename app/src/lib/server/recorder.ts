@@ -13,6 +13,7 @@ import {
 	ui5RecorderCommand
 } from './node-cli.js';
 import { TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
+import { systemsProblem } from './systems.js';
 
 export type RecorderState = {
 	status: 'idle' | 'recording' | 'saved' | 'error';
@@ -32,7 +33,6 @@ export type RecordInput = {
 	surface: 'fiori' | 'webgui' | 'ariba';
 	name: string;
 	url?: string;
-	saveStorage?: boolean;
 	/**
 	 * Fiori only: record a page that needs no SAP login, such as a demo app. Any start page is
 	 * allowed, because the recorder then gets no credentials it could type into it.
@@ -77,15 +77,14 @@ export type Invocation = {
  * the environment: on the command line every user of the machine could read the password.
  */
 export function recorderInvocation(
-	input: Pick<RecordInput, 'surface' | 'name' | 'saveStorage' | 'noLogin'>,
+	input: Pick<RecordInput, 'surface' | 'name' | 'noLogin'>,
 	file: string,
 	url: string,
 	env: Record<string, string>
 ): Invocation {
-	const storage = input.saveStorage ? ['--save-storage', `.auth/${input.surface}.json`] : [];
 	if (input.surface === 'fiori') {
 		const login = input.noLogin ? [] : ['--login'];
-		const flags = ['--name', input.name.trim(), ...login, ...storage];
+		const flags = ['--name', input.name.trim(), ...login];
 		if (url === env.SAP_URL) flags.push('--url-from-env');
 		return {
 			...ui5RecorderCommand([url, 'tests/' + file, ...flags]),
@@ -109,8 +108,7 @@ export function recorderInvocation(
 			'playwright-test',
 			'-o',
 			'tests/' + file,
-			...login,
-			...storage
+			...login
 		]),
 		// Blank for Ariba, so a password in this app's own environment does not reach its recorder.
 		env:
@@ -131,6 +129,8 @@ export function recorderInvocation(
 export async function startRecording(
 	input: RecordInput
 ): Promise<{ ok: true; file: string } | { ok: false; error: string }> {
+	const broken = systemsProblem();
+	if (broken) return { ok: false, error: broken };
 	const env = await readTestEnv();
 	// Checked after the await: nothing below yields, so two requests cannot both start a recording.
 	if (state.status === 'recording') return { ok: false, error: 'A recording is already running.' };
@@ -185,7 +185,6 @@ export async function startRecording(
 	// Checked last, so a wrong name, URL or missing credentials are reported first.
 	if (!existsSync(invocation.needs.path)) return { ok: false, error: invocation.needs.hint };
 	mkdirSync(dirname(full), { recursive: true });
-	if (input.saveStorage) mkdirSync(resolve(TESTS_ROOT, '.auth'), { recursive: true });
 
 	// The fork's recorder is the one part that still needs the tested Node; say so where a hang
 	// would show.
@@ -204,6 +203,13 @@ export async function startRecording(
 		env: childEnv(invocation.env),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
+	// A recording must not outlive the app: its browser would stay open with nobody to save it, and
+	// the recorder process holds the SAP password in its environment.
+	const recorder = proc;
+	const stopWithApp = () => {
+		recorder.kill('SIGTERM');
+	};
+	process.once('exit', stopWithApp);
 	const password = env.SAP_PASSWORD;
 	const onLine = (line: string) => {
 		if (!line) return;
@@ -225,6 +231,7 @@ export async function startRecording(
 		state = { ...state, status: 'error', log: [...state.log, e.message] };
 	});
 	proc.on('close', (code) => {
+		process.off('exit', stopWithApp);
 		proc = null;
 		for (const lines of outputs) lines.flush();
 		const saved = existsSync(full);
@@ -241,6 +248,28 @@ export async function startRecording(
 	return { ok: true, file };
 }
 
-export function stopRecording() {
-	proc?.kill('SIGTERM');
+/** How long a recorder gets to save and close its browser before it is ended. */
+const STOP_GRACE_MS = 10_000;
+
+/**
+ * Asks the recorder to save and stop. One that does not exit in time is ended, so the page never
+ * stays on "recording" with a browser nobody can close.
+ */
+export function stopRecording(graceMs = STOP_GRACE_MS) {
+	const stopping = proc;
+	if (!stopping) return;
+	stopping.kill('SIGTERM');
+	const timer = setTimeout(() => {
+		if (proc !== stopping) return;
+		state = {
+			...state,
+			log: [...state.log, 'The recorder did not stop when asked and was ended.'].slice(-200)
+		};
+		stopping.kill('SIGKILL');
+	}, graceMs);
+	// The timer alone must not keep the app alive.
+	timer.unref();
+	stopping.once('close', () => {
+		clearTimeout(timer);
+	});
 }
