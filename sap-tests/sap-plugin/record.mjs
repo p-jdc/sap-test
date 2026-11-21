@@ -11,7 +11,8 @@
 // the selector engines.
 import { chromium, selectors } from '@playwright/test';
 import { buildSync } from 'esbuild';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -29,6 +30,18 @@ const load = (file) => {
 		packages: 'external'
 	});
 	return import(`${pathToFileURL(outfile).href}?${Date.now()}`);
+};
+
+// The project's formatter. The spec is written one step per line, which is far wider than the
+// format check allows, so a recording would fail the gate until someone formatted it.
+const formatter = resolve(here, '../node_modules/oxfmt/bin/oxfmt');
+const format = (file) => {
+	if (!existsSync(formatter)) return 'oxfmt is not installed';
+	const { status, error, stderr } = spawnSync(process.execPath, [formatter, file], {
+		cwd: resolve(here, '..'),
+		encoding: 'utf8'
+	});
+	return status === 0 ? null : (error?.message ?? stderr.trim()) || `oxfmt exited with ${status}`;
 };
 
 const positional = [];
@@ -99,6 +112,8 @@ const finish = () => {
 			file,
 			renderSpec(url, recorded, plugin.startsWith('.') ? plugin : `./${plugin}`, options)
 		);
+		const unformatted = format(file);
+		if (unformatted) console.error(`Saved the test unformatted: ${unformatted}`);
 		console.log(`Saved ${recorded.length} steps to ${output}`);
 		process.exit(0);
 	})();

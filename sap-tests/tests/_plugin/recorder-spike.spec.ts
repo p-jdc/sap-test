@@ -13,6 +13,13 @@ import {
 import type { RecordedStep } from '../../sap-plugin/recorder';
 import type { Locator, Page } from '../../sap-plugin';
 import type { Browser, BrowserContext, Frame, TestInfo } from '@playwright/test';
+import { chromium } from '@playwright/test';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 const CART = 'https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html';
 const byId = (page: Page, id: string) => page.locator(`[id="container-cart---${id}"]`);
@@ -299,4 +306,64 @@ test('inside an iframe: a UI5 app is recorded and replays', async ({ browser }, 
 	await replay(browser, framed, steps, async (page) => {
 		await expect(page.frameLocator('iframe').getByText(/ - HT-\d+/)).toBeVisible();
 	});
+});
+
+const freePort = () =>
+	new Promise<number>((done) => {
+		const server = createServer().listen(0, '127.0.0.1', () => {
+			const address = server.address();
+			server.close(() => done(typeof address === 'object' && address ? address.port : 0));
+		});
+	});
+
+// The command itself, as the app and `bun run record` start it: a step is recorded, the process is
+// asked to stop, and the file it leaves must pass the project's format check as it is.
+test('the recorder command writes the spec in the project format', async () => {
+	const root = dirname(test.info().config.configFile!);
+	const folder = mkdtempSync(join(tmpdir(), 'sap-record-'));
+	const output = join(folder, 'cli.spec.ts');
+	const port = await freePort();
+	const recorder = spawn(process.execPath, ['sap-plugin/record.mjs', CART, output], {
+		cwd: root,
+		env: { ...process.env, SAP_RECORD_HEADLESS: '1', SAP_RECORD_DEBUG_PORT: String(port) },
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+	let said = '';
+	for (const stream of [recorder.stdout, recorder.stderr])
+		stream.on('data', (chunk: Buffer) => (said += chunk.toString()));
+	try {
+		let page: Page | undefined;
+		await expect(async () => {
+			const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+			// The browser also holds an empty tab of its own; the recorder's is the one on the demo.
+			page = browser
+				.contexts()
+				.flatMap((context) => context.pages())
+				.find((candidate) => candidate.url().startsWith(CART));
+			expect(page).toBeDefined();
+		}).toPass();
+		// A hidden browser window is small, and the demo then hides its search field.
+		await page!.setViewportSize({ width: 1280, height: 800 });
+		const app = withSapMethods(page!);
+		await ui5Started(app);
+		await app.getByRole('searchbox').fill('Screen clean');
+		await app.getByRole('searchbox').press('Enter');
+		await recorderIdle(app);
+		recorder.kill('SIGTERM');
+		const [code] = await once(recorder, 'exit');
+		expect(code, said).toBe(0);
+
+		const spec = readFileSync(output, 'utf8');
+		expect(spec).toContain(`.fill('Screen clean')`);
+		const check = spawnSync(
+			process.execPath,
+			[join(root, 'node_modules/oxfmt/bin/oxfmt'), '--check', output],
+			{ cwd: root, encoding: 'utf8' }
+		);
+		expect(check.stdout + check.stderr).toContain('All matched files use the correct format');
+		expect(check.status).toBe(0);
+	} finally {
+		recorder.kill('SIGKILL');
+		rmSync(folder, { recursive: true, force: true });
+	}
 });
