@@ -2,3 +2,5 @@ node_modules/
 .claude/mcp/node_modules/
 .DS_Store
 .claude/worktrees/
+# Scratch files of the Playwright test MCP server (page snapshots, console logs)
+.playwright-mcp/

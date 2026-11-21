@@ -59,6 +59,13 @@ Die meisten SAP-Belege lassen sich nicht löschen, nur stornieren. `undo` in `cl
 - Liegt der Fehler in der Anwendung: melden, den Test nicht ändern.
 - SAP-Locators beibehalten. Nicht auf Standard-Locators ausweichen.
 
+## KI-Rollen (Planner, Generator, Healer)
+
+- Die drei Rollen liegen in .claude/agents/playwright-test-*.md (aus `playwright init-agents` erzeugt und um diese Regeln ergänzt). Sie arbeiten über den MCP-Server playwright-test aus .mcp.json.
+- Pläne der Rolle Planner liegen in specs/. Eine Person prüft den Plan, bevor daraus Code entsteht.
+- Startpunkt der Rollen ist tests/_agents/seed.spec.ts (leere Seite) oder tests/_agents/seed-sap.spec.ts (an SAP angemeldet). Beide importieren aus sap-plugin, damit die SAP-Locators im Browser der Rollen funktionieren.
+- Die Rolle Healer führt eigene Korrekturen nicht zusammen. Jeder von der KI geschriebene oder reparierte Test wird von einer Person geprüft; dabei kontrollieren, dass keine Prüfung entfernt oder gelockert wurde.
+
 ## Kennzeichnung
 
 - Neue Tests erhalten den Kommentar "// KI-generiert, geprüft von: <Name>".
