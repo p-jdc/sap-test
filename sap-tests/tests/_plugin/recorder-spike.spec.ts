@@ -344,6 +344,31 @@ test('a bar in a chart is recorded by the values it stands for and replays', asy
 	});
 });
 
+test('a point of a line chart is recorded by its values and replays', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, { url: CHART }, async (page) => {
+		await ui5Started(page);
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		await clickLikeAPerson(page, page.locator('[id$="--select-arrow"]'));
+		await clickLikeAPerson(page, page.getByRole('option', { name: 'Line', exact: true }));
+		await page.waitForUI5();
+		await expect(page.locator('.v-datapoint').first()).toBeVisible();
+		await clickLikeAPerson(page, page.locator('.v-datapoint').nth(2));
+		await expect.poll(() => selectedInChart(page)).toHaveLength(1);
+	});
+
+	expect(needingALook(steps)).toEqual([]);
+	const point = steps.at(-1)?.chartPoint;
+	expect(point).toBeDefined();
+
+	await replay(browser, { url: CHART }, steps, async (page) => {
+		await expect
+			.poll(() => selectedInChart(page))
+			.toEqual([`${point?.['Item Category']} / ${point?.measureNames}`]);
+	});
+});
+
 const freePort = () =>
 	new Promise<number>((done) => {
 		const server = createServer().listen(0, '127.0.0.1', () => {
