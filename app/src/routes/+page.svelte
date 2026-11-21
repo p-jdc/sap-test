@@ -82,10 +82,19 @@
 								: 'Playwright not installed'}
 					/>
 					<StatusTag
+						status={env.current.node.warning ? 'failed' : 'passed'}
+						label="Node {env.current.node.version ?? 'unknown'}"
+					/>
+					<StatusTag
 						status={env.current.envFile ? 'passed' : 'interrupted'}
 						label={env.current.envFile ? '.env found' : 'no .env'}
 					/>
 				</div>
+				{#if env.current.node.warning}
+					<ui5-message-strip design="Critical" hide-close-button>
+						{env.current.node.warning}
+					</ui5-message-strip>
+				{/if}
 				<div class="row">
 					{#each env.current.vars.filter((v) => v.name !== 'CHROMIUM_PATH') as v (v.name)}
 						<ui5-tag
