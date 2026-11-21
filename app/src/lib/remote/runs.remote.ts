@@ -9,11 +9,15 @@ import {
 	testSteps,
 	watchRun
 } from '#lib/server/runner.js';
-import { listRuns, PILOT_STREAK, readRunState, stability } from '#lib/server/runs-store.js';
+import { PILOT_STREAK, readRunState, runsPage, stability } from '#lib/server/runs-store.js';
 
 const runId = z.string().regex(/^[0-9]{8}-[0-9]{6}-[a-z0-9]{4}$/);
 
-export const getRuns = query(() => ({ runs: listRuns(), active: activeRunId() }));
+/** The newest runs (one page), the number of all runs and the run in progress. */
+export const getRuns = query(() => ({ ...runsPage(), active: activeRunId() }));
+
+/** The page of runs after the run `before`, for "show older results". */
+export const getOlderRuns = query(runId, (before) => runsPage(before).runs);
 
 export const getRun = query(runId, (id) => getLiveState(id) ?? readRunState(id));
 

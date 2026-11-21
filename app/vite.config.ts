@@ -35,7 +35,9 @@ export default defineConfig({
 					)
 			},
 
-			adapter: adapter(),
+			// Brotli and gzip copies of the client files, made at build time and served when the
+			// browser accepts them: the first page load is 1.3 MB of JavaScript otherwise.
+			adapter: adapter({ precompress: true }),
 			experimental: { remoteFunctions: true }
 		})
 	],
