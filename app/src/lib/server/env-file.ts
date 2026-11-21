@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { playwrightNode } from './node-cli.js';
+import { playwrightNode, RECORDER_PACKAGE } from './node-cli.js';
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
@@ -103,26 +103,26 @@ export async function changeSetting(
 	return { cleared };
 }
 
-const PackageSchema = z.object({ name: z.string().optional(), version: z.string().optional() });
+const PackageSchema = z.object({ version: z.string().optional() });
+
+function packageVersion(packageDir: string): string | undefined {
+	try {
+		return PackageSchema.parse(
+			JSON.parse(readFileSync(resolve(packageDir, 'package.json'), 'utf8'))
+		).version;
+	} catch {
+		return undefined;
+	}
+}
 
 export async function envStatus(store: SecretStore = keychain()): Promise<EnvStatus> {
 	const [resolved, keychainAvailable] = await Promise.all([
 		resolveSettings(store),
 		store.available()
 	]);
-	let playwrightVersion: string | undefined;
-	let playwrightSap = false;
-	try {
-		const pkg = PackageSchema.parse(
-			JSON.parse(
-				readFileSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test/package.json'), 'utf8')
-			)
-		);
-		playwrightVersion = pkg.version;
-		playwrightSap = pkg.name === '@playwright-sap/test';
-	} catch {
-		// not installed yet – shown as missing in the UI
-	}
+	// Not installed yet reads as undefined and is shown as missing in the UI.
+	const playwrightVersion = packageVersion(resolve(TESTS_ROOT, 'node_modules/@playwright/test'));
+	const recorderVersion = packageVersion(RECORDER_PACKAGE);
 	return {
 		testsDir: TESTS_ROOT,
 		envFile: existsSync(resolve(TESTS_ROOT, '.env')),
@@ -132,7 +132,8 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 			return { name, set: source !== undefined, source };
 		}),
 		playwrightVersion,
-		playwrightSap,
+		sapPlugin: existsSync(resolve(TESTS_ROOT, 'sap-plugin/index.ts')),
+		recorderVersion,
 		node: playwrightNode()
 	};
 }

@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
 
 // Optional escape hatch for machines where `npx playwright install` cannot download
-// the 1.53 browser build (CI sandboxes, locked-down laptops).
+// the browser build (CI sandboxes, locked-down laptops).
 const executablePath = process.env.CHROMIUM_PATH || undefined;
 
 export default defineConfig({

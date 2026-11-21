@@ -78,7 +78,7 @@ describe('envStatus', () => {
 		const env = await withEnvFile(null);
 		expect(await env.envStatus(NONE)).toMatchObject({
 			envFile: false,
-			playwrightSap: false,
+			sapPlugin: false,
 			keychain: false
 		});
 	});

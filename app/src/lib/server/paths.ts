@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 
-/** The Playwright-SAP project this app drives. Override with SAP_TESTS_DIR. */
+/** The SAP test project (stock Playwright with sap-plugin) this app drives. Override with SAP_TESTS_DIR. */
 export const TESTS_ROOT = resolve(
 	process.env.SAP_TESTS_DIR || resolve(process.cwd(), '../sap-tests')
 );

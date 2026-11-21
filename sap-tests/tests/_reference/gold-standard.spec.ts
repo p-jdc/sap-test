@@ -1,5 +1,5 @@
 // Reference test (guide §5.3): replace with the cleanest pilot test once it has been hand-reviewed.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../sap-plugin';
 import { button, input } from '../../helpers/fiori';
 import { requireEnv } from '../../helpers/env';
 

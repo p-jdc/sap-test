@@ -1,6 +1,6 @@
 // KI-generiert, geprüft von: <Name>
 // Covers SAP's public Fiori elements demo app "Manage Products" (list report / object page, mock server); needs internet access.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../sap-plugin';
 import { button, title, typeInto } from '../../../helpers/fiori';
 
 const MANAGE_PRODUCTS_URL =

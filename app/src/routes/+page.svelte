@@ -147,12 +147,16 @@
 				{#if view.technical}
 					<div class="row">
 						<StatusTag
-							status={env.current.playwrightSap ? 'passed' : 'failed'}
-							label={env.current.playwrightSap
-								? `Playwright-SAP ${env.current.playwrightVersion}`
-								: env.current.playwrightVersion
-									? `Plain Playwright ${env.current.playwrightVersion}`
-									: 'Playwright not installed'}
+							status={env.current.playwrightVersion && env.current.sapPlugin ? 'passed' : 'failed'}
+							label={env.current.playwrightVersion
+								? `Playwright ${env.current.playwrightVersion}${env.current.sapPlugin ? ' with SAP plugin' : ', SAP plugin missing'}`
+								: 'Playwright not installed'}
+						/>
+						<StatusTag
+							status={env.current.recorderVersion ? 'passed' : 'interrupted'}
+							label={env.current.recorderVersion
+								? `Recorder: Playwright-SAP ${env.current.recorderVersion}`
+								: 'Recorder not installed'}
 						/>
 						<StatusTag
 							status={env.current.node.warning ? 'interrupted' : 'passed'}

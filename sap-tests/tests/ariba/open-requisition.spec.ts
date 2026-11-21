@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../sap-plugin';
 import { requireEnv } from '../../helpers/env';
 
 test('open requisition (Ariba)', async ({ page }) => {

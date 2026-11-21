@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../sap-plugin';
 import { button, input } from '../../helpers/fiori';
 import { requireEnv } from '../../helpers/env';
 

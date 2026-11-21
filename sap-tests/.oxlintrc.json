@@ -16,7 +16,14 @@
 		"node": true,
 		"browser": true
 	},
-	"ignorePatterns": ["**/node_modules", "test-results", "playwright-report", "blob-report"],
+	// sap-plugin/vendor holds unmodified third-party source (see its README).
+	"ignorePatterns": [
+		"**/node_modules",
+		"test-results",
+		"playwright-report",
+		"blob-report",
+		"sap-plugin/vendor"
+	],
 	"rules": {
 		"typescript/no-floating-promises": ["error", { "checkThenables": true }],
 		"typescript/await-thenable": "error",

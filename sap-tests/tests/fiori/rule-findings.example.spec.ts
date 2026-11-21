@@ -1,6 +1,6 @@
 // Example of what the Test-App's rule check flags (guide §5.2). test.fixme keeps it from running.
 // Delete once the team knows the rules.
-import { test } from '@playwright/test';
+import { test } from '../../sap-plugin';
 
 test.fixme('example: rule findings', async ({ page }) => {
 	await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, process.env.SAP_URL);

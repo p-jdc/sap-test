@@ -4,7 +4,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { TESTS_ROOT } from './paths.js';
 
 /**
- * Playwright (and the Playwright-SAP fork) must run on Node. When the app runs under `bun --bun`,
+ * Playwright (and the Playwright-SAP recorder) must run on Node. When the app runs under `bun --bun`,
  * Bun prepends a `node` shim directory (…/bun-node-*) to PATH, so a plain `npx playwright` would run
  * under Bun and silently exit. Resolve a real node instead, and strip the shim from the child's PATH.
  */
@@ -35,13 +35,13 @@ export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv 
 	return { ...process.env, PATH, ...extra };
 }
 
-/** The Node major the Playwright-SAP fork is run and tested on (README, CI). */
+/** The Node major CI runs on, and the only one the Playwright-SAP recorder is tested on (README). */
 export const REQUIRED_NODE_MAJOR = 22;
 
 /**
  * Why `version` (the output of `node --version`) is not the tested Node for Playwright, or null
- * when it is. A caution, not a hard failure: since sap-tests loads as CommonJS, test lines are right
- * on Node 26 too, but CI runs only 22, and on 26 the fork's browser install hung while extracting.
+ * when it is. A caution, not a hard failure: the tests run on stock Playwright, which works on newer
+ * Node too, but CI runs only 22, and on 26 the recorder's browser install hung while extracting.
  */
 export function nodeWarning(version: string | null, path: string): string | null {
 	const fix = `Set PLAYWRIGHT_NODE to a Node ${REQUIRED_NODE_MAJOR} binary and restart the app.`;
@@ -50,7 +50,7 @@ export function nodeWarning(version: string | null, path: string): string | null
 	const major = Number(/^v?(\d+)\./.exec(version)?.[1]);
 	if (major === REQUIRED_NODE_MAJOR) return null;
 	return (
-		`Playwright runs on Node ${version} (${path}). Playwright-SAP is only tested on Node ${REQUIRED_NODE_MAJOR}; ` +
+		`Playwright runs on Node ${version} (${path}). The Playwright-SAP recorder is only tested on Node ${REQUIRED_NODE_MAJOR}; ` +
 		`on other versions its browser install has been seen to hang. ${fix}`
 	);
 }
@@ -77,10 +77,21 @@ export function playwrightNode(): PlaywrightNode {
 	return checked;
 }
 
-/** `node <sap-tests>/node_modules/@playwright/test/cli.js <args>` */
+/** `node <sap-tests>/node_modules/@playwright/test/cli.js <args>`: stock Playwright, runs the tests. */
 export function playwrightCommand(args: string[]): { cmd: string; args: string[] } {
 	return {
 		cmd: realNode(),
 		args: [resolve(TESTS_ROOT, 'node_modules/@playwright/test/cli.js'), ...args]
 	};
+}
+
+/**
+ * Where the Playwright-SAP fork is installed. It is used for recording only: its codegen writes
+ * SAP locators (getByRoleUI5, locateSID), which sap-tests/sap-plugin runs on stock Playwright.
+ */
+export const RECORDER_PACKAGE = resolve(TESTS_ROOT, 'recorder/node_modules/@playwright/test');
+
+/** `node <sap-tests>/recorder/node_modules/@playwright/test/cli.js <args>` */
+export function recorderCommand(args: string[]): { cmd: string; args: string[] } {
+	return { cmd: realNode(), args: [resolve(RECORDER_PACKAGE, 'cli.js'), ...args] };
 }

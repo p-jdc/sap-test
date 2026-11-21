@@ -13,13 +13,13 @@ test('home page speaks plain language until technical details are switched on', 
 	await page.goto('/');
 	await expect(page.getByText('Getting started')).toBeVisible();
 	await expect(page.getByText(/Reliability: \d+ of \d+ tests/)).toBeVisible();
-	await expect(page.getByText(/Playwright-SAP \d/)).toBeHidden();
+	await expect(page.getByText(/Playwright \d/)).toBeHidden();
 
 	await page.locator('ui5-switch[accessible-name="Technical details"]').click();
-	await expect(page.getByText(/Playwright-SAP \d+\.\d+\.\d+/)).toBeVisible();
+	await expect(page.getByText(/Playwright \d+\.\d+\.\d+ with SAP plugin/)).toBeVisible();
 	// The choice survives a reload.
 	await page.reload();
-	await expect(page.getByText(/Playwright-SAP \d+\.\d+\.\d+/)).toBeVisible();
+	await expect(page.getByText(/Playwright \d+\.\d+\.\d+ with SAP plugin/)).toBeVisible();
 });
 
 test('tests page lists the demo spec and opens its flow', async ({ page }) => {

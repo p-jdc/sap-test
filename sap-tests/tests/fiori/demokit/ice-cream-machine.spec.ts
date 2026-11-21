@@ -1,6 +1,6 @@
 // KI-generiert, geprüft von: <Name>
 // Covers SAP's public UI5 demo kit app "Ice Cream Machine" (sap.suite.ui.commons); needs internet access.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../sap-plugin';
 import { button, iconButton, tile, typeInto } from '../../../helpers/fiori';
 
 const APP_URL =
