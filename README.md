@@ -122,7 +122,7 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4). Technical details: optionally saves the session (§7.4) |
+| Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line. Technical details: optionally saves the session (§7.4) |
 | Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere. Technical details: ports, life telegrams, acknowledgements |
 | Settings | SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
@@ -364,10 +364,14 @@ lookups.
   Playwright's loader thread, and on newer Node (seen on 26 with the fork) its source maps arrive after the spec has
   run, so Playwright reports the transpiled line numbers. `file:line` runs then find no tests and the
   flow overlay matches the wrong steps. Loaded as CommonJS the source maps are set in-process.
-- The recorder passes the SAP password to `codegen --sap-login` as a command-line argument (the
-  fork has no other way), so other users on the same machine can see it in the process list while
-  a recording runs. Record on a machine you do not share. For Fiori/WebGUI the start URL must be on
-  the same host as `SAP_URL`, so the credentials are never typed into another site.
+- The Playwright-SAP recorder takes the SAP login only as `codegen --sap-login <user> <password>`,
+  and a command line can be read by every user of the machine. So it runs behind
+  `sap-tests/recorder/codegen.cjs`: with `--sap-login-from-env` it reads `SAP_USERNAME` and
+  `SAP_PASSWORD` from its environment (from the terminal: `sap-tests/.env`) and adds the login to
+  its own copy of the arguments, which the process list does not show. From the terminal:
+  `bun run codegen <url> --sap-login-from-env`; do not pass `--sap-login` yourself. For Fiori/WebGUI
+  the start URL must be on the same host as `SAP_URL`, so the credentials are never typed into
+  another site.
 - A run that was still going when the app stopped is shown as interrupted; the app also stops the
   Playwright process when it exits.
 - Tests generated in a loop over literal values are listed one per value. Where the values are not

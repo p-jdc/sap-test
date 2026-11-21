@@ -12,7 +12,7 @@
 		"postinstall": "bun run odata:generate",
 		"odata:fetch": "node odata/fetch-metadata.mjs",
 		"odata:generate": "generate-odata-client -i odata/metadata -s odata/metadata -o odata/clients --clearOutputDir",
-		"codegen": "node recorder/node_modules/@playwright/test/cli.js codegen",
+		"codegen": "node recorder/codegen.cjs codegen",
 		"record": "node sap-plugin/record.mjs",
 		"typecheck": "tsc --noEmit",
 		"lint": "oxlint --type-aware --deny-warnings",

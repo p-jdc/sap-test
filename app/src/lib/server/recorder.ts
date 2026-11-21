@@ -73,7 +73,8 @@ export type Invocation = {
  * writes a spec that starts with page.SAPLogin. WebGUI and Ariba still record with the
  * Playwright-SAP fork in sap-tests/recorder (guide §4.4: `codegen <url> --sap-login <user>
  * <password>`; plain codegen for Ariba), because the UI5 recorder's WebGUI support has not been
- * tried on a real system.
+ * tried on a real system. The fork runs behind recorder/codegen.cjs, which hands it the login from
+ * the environment: on the command line every user of the machine could read the password.
  */
 export function recorderInvocation(
 	input: Pick<RecordInput, 'surface' | 'name' | 'saveStorage' | 'noLogin'>,
@@ -99,10 +100,7 @@ export function recorderInvocation(
 			}
 		};
 	}
-	const login =
-		input.surface === 'webgui'
-			? ['--sap-login', env.SAP_USERNAME ?? '', env.SAP_PASSWORD ?? '']
-			: [];
+	const login = input.surface === 'webgui' ? ['--sap-login-from-env'] : [];
 	return {
 		...recorderCommand([
 			'codegen',
@@ -114,7 +112,11 @@ export function recorderInvocation(
 			...login,
 			...storage
 		]),
-		env: {},
+		// Blank for Ariba, so a password in this app's own environment does not reach its recorder.
+		env:
+			input.surface === 'webgui'
+				? { SAP_USERNAME: env.SAP_USERNAME ?? '', SAP_PASSWORD: env.SAP_PASSWORD ?? '' }
+				: { SAP_USERNAME: '', SAP_PASSWORD: '' },
 		needs: {
 			path: RECORDER_PACKAGE,
 			hint: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
@@ -197,9 +199,8 @@ export async function startRecording(
 	const password = env.SAP_PASSWORD;
 	const onLine = (line: string) => {
 		if (!line) return;
-		// Never echo the password back: the recorder process holds it (the fork as an argument, the
-		// UI5 recorder in its environment). Masked per whole
-		// line, so a password split between two output chunks is still caught.
+		// Never echo the password back: the recorder process holds it in its environment. Masked per
+		// whole line, so a password split between two output chunks is still caught.
 		state.log.push(password ? line.replaceAll(password, '***') : line);
 		state.log = state.log.slice(-200);
 	};
