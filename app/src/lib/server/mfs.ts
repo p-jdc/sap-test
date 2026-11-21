@@ -2,7 +2,7 @@
 // its own service on the cluster later, and reached only through its HTTP control API. The browser never talks to
 // the emulator or its PLC ports; the page goes through the remote functions in mfs.remote.ts.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import {
@@ -27,6 +27,7 @@ export const SETUP_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const READY = 'MFS_READY ';
 const START_TIMEOUT_MS = 15_000;
 const KEEP = 400;
+const SETUP_HINT = 'Run "bun run setup" in the repo root, then start the Mock PLC again.';
 
 type Running = {
 	proc: ChildProcess;
@@ -69,6 +70,30 @@ export function mfsStatus(): MfsStatus {
 	return { running: true, external: false, setup, mode, speed, startedAt };
 }
 
+/**
+ * The packages the Mock PLC's source files import: bare specifiers, without `node:` built-ins and relative paths.
+ * Read from the files themselves, so the check below follows the code when its dependencies change.
+ */
+export function importedPackages(sourceDir: string): string[] {
+	const names = new Set<string>();
+	for (const file of readdirSync(sourceDir).filter((name) => /\.m?ts$/.test(name))) {
+		const source = readFileSync(resolve(sourceDir, file), 'utf8');
+		for (const [, specifier = ''] of source.matchAll(/\b(?:from|import)\s+'([^'.][^']*)'/g)) {
+			if (specifier.startsWith('node:')) continue;
+			const parts = specifier.split('/');
+			names.add(specifier.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? specifier));
+		}
+	}
+	return [...names].toSorted();
+}
+
+/** Those of `packages` that are not installed in `root`/node_modules. */
+export function missingPackages(root: string, packages: string[]): string[] {
+	return packages.filter(
+		(name) => !existsSync(resolve(root, 'node_modules', name, 'package.json'))
+	);
+}
+
 /** Bun runs the emulator's TypeScript directly; the app itself runs on Bun, so it is always there. */
 function bunBinary(): string {
 	return process.versions.bun ? process.execPath : 'bun';
@@ -84,6 +109,12 @@ export async function startEmulator(input: StartInput): Promise<void> {
 	if (externalUrl()) throw new Error('The emulator is managed elsewhere (MFS_EMULATOR_URL).');
 	if (running) throw new Error('The emulator is already running.');
 	if (!listSetups().includes(input.setup)) throw new Error(`There is no setup "${input.setup}".`);
+	// Checked before starting: a missing package otherwise surfaces as Bun's resolver error.
+	const missing = missingPackages(TESTS_ROOT, importedPackages(MFS_DIR));
+	if (missing.length > 0)
+		throw new Error(
+			`The Mock PLC needs ${missing.join(', ')} in ${TESTS_ROOT}, which ${missing.length === 1 ? 'is' : 'are'} not installed. ${SETUP_HINT}`
+		);
 	lastError = undefined;
 	const demo = input.mode === 'demo';
 	const proc = spawn(bunBinary(), [resolve(MFS_DIR, 'server.mts')], {
@@ -128,9 +159,9 @@ export async function startEmulator(input: StartInput): Promise<void> {
 		});
 		proc.once('exit', (code) => {
 			clearTimeout(timer);
-			failed(
-				new Error(`The emulator stopped while starting (exit code ${code}):\n${output.join('\n')}`)
-			);
+			const text = output.join('\n');
+			const hint = /Cannot find (package|module)/.test(text) ? `\n${SETUP_HINT}` : '';
+			failed(new Error(`The emulator stopped while starting (exit code ${code}):\n${text}${hint}`));
 		});
 	}).catch((error: unknown) => {
 		lastError = error instanceof Error ? error.message : String(error);
