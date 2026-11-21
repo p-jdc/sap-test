@@ -7,6 +7,7 @@
 		"test:api:mock": "SAP_API_MOCK=1 playwright test tests/api",
 		"test:plugin": "playwright test tests/_plugin",
 		"test:demokit": "playwright test tests/fiori/demokit",
+		"test:mfs": "playwright test tests/_mfs",
 		"report": "playwright show-report",
 		"postinstall": "bun run odata:generate",
 		"odata:fetch": "node odata/fetch-metadata.mjs",
@@ -16,7 +17,9 @@
 		"typecheck": "tsc --noEmit",
 		"lint": "oxlint --type-aware --deny-warnings",
 		"format": "oxfmt",
-		"format:check": "oxfmt --check"
+		"format:check": "oxfmt --check",
+		"mfs:demo": "node mfs/demo.mts",
+		"mfs:server": "node mfs/server.mts"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.63.0",
@@ -33,6 +36,7 @@
 		"oxlint": "1.94.0",
 		"oxlint-tsgolint": "7.0.2007",
 		"typescript": "^5.9.3",
-		"xpath": "0.0.34"
+		"xpath": "0.0.34",
+		"zod": "4.6.7"
 	}
 }

@@ -1,0 +1,207 @@
+{
+	"name": "sap-example",
+	"description": "SAP's MFS training example: automatic high rack with 3 aisles and stacker cranes, a transfer car, an identification point with clearing, goods issue and a pick point. Source: SAP Learning, 'Integrating a Material Flow System'.",
+	"telegramLayout": "demo",
+	"ewm": "EWM1",
+	"plcs": [
+		{
+			"id": "CONS",
+			"description": "Transfer car and pre-storage conveyors"
+		},
+		{
+			"id": "SRM1",
+			"description": "Stacker crane aisle 1"
+		},
+		{
+			"id": "SRM2",
+			"description": "Stacker crane aisle 2"
+		},
+		{
+			"id": "SRM3",
+			"description": "Stacker crane aisle 3"
+		}
+	],
+	"points": [
+		{
+			"id": "GR-IN",
+			"role": "gr"
+		},
+		{
+			"id": "IP",
+			"role": "id-point"
+		},
+		{
+			"id": "CLEAR",
+			"role": "clearing"
+		},
+		{
+			"id": "A1-IN",
+			"role": "infeed"
+		},
+		{
+			"id": "A1-OUT",
+			"role": "outfeed"
+		},
+		{
+			"id": "A2-IN",
+			"role": "infeed"
+		},
+		{
+			"id": "A2-OUT",
+			"role": "outfeed"
+		},
+		{
+			"id": "A3-IN",
+			"role": "infeed"
+		},
+		{
+			"id": "A3-OUT",
+			"role": "outfeed"
+		},
+		{
+			"id": "GI",
+			"role": "gi"
+		},
+		{
+			"id": "PP",
+			"role": "pick-point"
+		}
+	],
+	"devices": [
+		{
+			"id": "CV-GR",
+			"type": "conveyor",
+			"plc": "CONS",
+			"from": "GR-IN",
+			"to": "IP",
+			"travelMs": 4000,
+			"capacity": 5,
+			"automatic": true
+		},
+		{
+			"id": "IP",
+			"type": "id-point",
+			"plc": "CONS",
+			"point": "IP",
+			"checks": ["contour", "weight"]
+		},
+		{
+			"id": "CV-CLR",
+			"type": "conveyor",
+			"plc": "CONS",
+			"from": "IP",
+			"to": "CLEAR",
+			"travelMs": 3000,
+			"capacity": 3
+		},
+		{
+			"id": "TCAR",
+			"type": "transfer-car",
+			"plc": "CONS",
+			"stops": ["IP", "A1-IN", "A1-OUT", "A2-IN", "A2-OUT", "A3-IN", "A3-OUT", "GI", "PP"],
+			"msPerStop": 1500
+		},
+		{
+			"id": "SRM1",
+			"type": "stacker-crane",
+			"plc": "SRM1",
+			"aisle": "A1",
+			"infeed": "A1-IN",
+			"outfeed": "A1-OUT",
+			"stacks": 10,
+			"levels": 5,
+			"travelMs": 6000
+		},
+		{
+			"id": "SRM2",
+			"type": "stacker-crane",
+			"plc": "SRM2",
+			"aisle": "A2",
+			"infeed": "A2-IN",
+			"outfeed": "A2-OUT",
+			"stacks": 10,
+			"levels": 5,
+			"travelMs": 6000
+		},
+		{
+			"id": "SRM3",
+			"type": "stacker-crane",
+			"plc": "SRM3",
+			"aisle": "A3",
+			"infeed": "A3-IN",
+			"outfeed": "A3-OUT",
+			"stacks": 10,
+			"levels": 5,
+			"travelMs": 6000
+		}
+	],
+	"view": {
+		"width": 940,
+		"height": 470,
+		"points": {
+			"A1-IN": {
+				"x": 95,
+				"y": 175
+			},
+			"A1-OUT": {
+				"x": 185,
+				"y": 175
+			},
+			"A2-IN": {
+				"x": 425,
+				"y": 175
+			},
+			"A2-OUT": {
+				"x": 515,
+				"y": 175
+			},
+			"A3-IN": {
+				"x": 755,
+				"y": 175
+			},
+			"A3-OUT": {
+				"x": 845,
+				"y": 175
+			},
+			"IP": {
+				"x": 140,
+				"y": 320
+			},
+			"GR-IN": {
+				"x": 140,
+				"y": 430
+			},
+			"CLEAR": {
+				"x": 280,
+				"y": 430
+			},
+			"GI": {
+				"x": 560,
+				"y": 330
+			},
+			"PP": {
+				"x": 800,
+				"y": 330
+			}
+		},
+		"racks": {
+			"SRM1": {
+				"x": 60,
+				"y": 40
+			},
+			"SRM2": {
+				"x": 390,
+				"y": 40
+			},
+			"SRM3": {
+				"x": 720,
+				"y": 40
+			}
+		},
+		"rails": {
+			"TCAR": {
+				"y": 250
+			}
+		}
+	}
+}

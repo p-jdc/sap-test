@@ -5,7 +5,8 @@
 		"moduleResolution": "Bundler",
 		"strict": true,
 		"noEmit": true,
+		"allowImportingTsExtensions": true,
 		"types": ["node"]
 	},
-	"include": ["tests", "setup", "helpers", "playwright.config.ts"]
+	"include": ["tests", "setup", "helpers", "mfs", "playwright.config.ts"]
 }
