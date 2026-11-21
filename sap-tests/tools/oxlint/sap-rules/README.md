@@ -4,10 +4,10 @@ The rules from `sap-tests/CLAUDE.md` that a machine can decide, as an oxlint JS 
 loaded by `sap-tests/.oxlintrc.json`. Written here, and linted and type-checked like the rest of
 the project.
 
-| Rule | Flags |
-| --- | --- |
-| `sap/no-secret-fill` | `fill`, `type` or `pressSequentially` on a locator that names a password field (Password, Passwort, Kennwort, pwd), or with a value named like a password. These write the value into the report and the Test-App's run data; `fillSecret` does not |
-| `sap/no-literal-secret` | A password written into the code as the second argument of `fillSecret` or `SAPLogin` |
+| Rule                    | Flags                                                                                                                                                                                                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sap/no-secret-fill`    | `fill`, `type` or `pressSequentially` on a locator that names a password field (Password, Passwort, Kennwort, pwd), or with a value named like a password. These write the value into the report and the Test-App's run data; `fillSecret` does not |
+| `sap/no-literal-secret` | A password written into the code as the second argument of `fillSecret` or `SAPLogin`                                                                                                                                                               |
 
 Two more rules from `CLAUDE.md` use rules oxlint already has, configured in `.oxlintrc.json`:
 `waitForTimeout` (`no-restricted-properties`) and `test`/`expect` imported from `@playwright/test`
