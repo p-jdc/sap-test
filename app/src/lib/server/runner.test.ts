@@ -164,6 +164,15 @@ describe('startRun', () => {
 		expect(runner.activeRunId()).toBeNull();
 	});
 
+	test('refuses to start while systems.json is broken, and says what is wrong with it', async () => {
+		const runner = await freshRunner('pass');
+		writeFileSync(join(testsRoot, 'systems.json'), '{ "systems": [');
+		const result = await runner.startRun({});
+		expect(result.ok).toBe(false);
+		expect(JSON.stringify(result)).toMatch(/systems\.json: not valid JSON/);
+		expect(runner.activeRunId()).toBeNull();
+	});
+
 	test('a run that passes ends as passed, with its output and a stored state', async () => {
 		const runner = await freshRunner('pass');
 		const id = await started(runner);

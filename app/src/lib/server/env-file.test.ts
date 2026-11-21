@@ -201,12 +201,54 @@ describe('settings in the credential store', () => {
 		expect(await env.changeSetting('SAP_API_URL', 'https://other.example.com', store)).toEqual({
 			cleared: ['SAP_API_USERNAME', 'SAP_API_PASSWORD']
 		});
+		// The SAP password stays, with the note of the address it belongs to.
 		expect([...values.keys()].toSorted()).toEqual([
 			'SAP_API_URL',
 			'SAP_CLIENT',
 			'SAP_PASSWORD',
+			'SAP_PASSWORD@address',
 			'SAP_URL'
 		]);
+	});
+
+	test('a stored user and password are not used once the address moved to another host outside the app', async () => {
+		// The address comes from .env; user and password were saved in the app for it.
+		const first = await withEnvFile(`SAP_URL=https://sap.example.com/fiori\n`);
+		const { store, values } = fakeStore();
+		await first.changeSetting('SAP_USERNAME', 'U', store);
+		await first.changeSetting('SAP_PASSWORD', 'P', store);
+		expect(values.get('SAP_PASSWORD@address')).toBe('https://sap.example.com');
+		expect(await first.keychainEnv(store)).toEqual({ SAP_USERNAME: 'U', SAP_PASSWORD: 'P' });
+
+		// Someone points .env at another host: the stored password must not go there.
+		const moved = await withEnvFile(`SAP_URL=https://other.example.net/fiori\n`);
+		expect(await moved.keychainEnv(store)).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: '' });
+		expect((await moved.runSettings(store)).env).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: '' });
+		const status = await moved.envStatus(store);
+		expect(status.vars.find((v) => v.name === 'SAP_PASSWORD')).toEqual({
+			name: 'SAP_PASSWORD',
+			set: false,
+			source: undefined,
+			withheld: 'keychain'
+		});
+
+		// Saved again, it belongs to the new address. Another path on the same host changes nothing.
+		await moved.changeSetting('SAP_PASSWORD', 'P2', store);
+		expect(await moved.keychainEnv(store)).toEqual({ SAP_USERNAME: '', SAP_PASSWORD: 'P2' });
+		const samePath = await withEnvFile(`SAP_URL=https://other.example.net/sap/bc/gui\n`);
+		expect((await samePath.keychainEnv(store)).SAP_PASSWORD).toBe('P2');
+	});
+
+	test('a password stored before addresses were noted is bound to the address it is first used with', async () => {
+		const env = await withEnvFile(`SAP_URL=https://sap.example.com\n`);
+		const { store, values } = fakeStore({ SAP_PASSWORD: 'P' });
+		expect((await env.keychainEnv(store)).SAP_PASSWORD).toBe('P');
+		expect(values.get('SAP_PASSWORD@address')).toBe('https://sap.example.com');
+		const moved = await withEnvFile(`SAP_URL=https://other.example.net\n`);
+		expect((await moved.keychainEnv(store)).SAP_PASSWORD).toBe('');
+		// Removing it removes the note too.
+		await moved.changeSetting('SAP_PASSWORD', null, store);
+		expect(values.size).toBe(0);
 	});
 
 	test('removing a stored URL that hid a different .env URL also removes the credentials', async () => {
@@ -323,21 +365,42 @@ describe('systems from sap-tests/systems.json', () => {
 		});
 	});
 
-	test('a table that gives one setting to two systems is refused', async () => {
+	test('a broken table is reported with the file name, and the pages still get their status', async () => {
 		const twice = JSON.stringify({
 			systems: ['a', 'b'].map((id) => ({
 				id,
 				title: id,
 				signIn: { method: 'ias' },
-				env: { url: 'X_URL', user: 'X_USER', password: 'X_PASS' }
+				env: { url: 'X_URL', user: 'X_USER', password: 'X_PASS' },
+				tests: [id]
 			}))
 		});
-		const env = await withEnvFile(null, twice);
-		await expect(env.envStatus(NONE)).rejects.toThrow('the setting X_URL is used twice');
+		const cases: [string, RegExp][] = [
+			[twice, /systems\.json: the setting X_URL is used twice/],
+			[successFactors.replace('"ias"', '"sso"'), /systems\.json: .*signIn\.method/s],
+			[successFactors.replace('SF_PASSWORD', 'NODE_OPTIONS'), /NODE_OPTIONS.*not a setting/],
+			['{ "systems": [', /systems\.json: not valid JSON/]
+		];
+		for (const [table, message] of cases) {
+			// oxlint-disable-next-line no-await-in-loop -- each case loads the module afresh
+			const env = await withEnvFile(null, table);
+			// oxlint-disable-next-line no-await-in-loop
+			const status = await env.envStatus(NONE);
+			expect(status.systemsError).toMatch(message);
+			expect(status.systems).toEqual([]);
+			// The settings of no system are still there.
+			expect(status.vars.map((v) => v.name)).toContain('SAP_API_URL');
+		}
 	});
 
-	test('an unknown sign-in method is refused with the file name', async () => {
-		const env = await withEnvFile(null, successFactors.replace('"ias"', '"sso"'));
-		await expect(env.envStatus(NONE)).rejects.toThrow(/systems\.json: .*signIn\.method/s);
+	test('the app accepts exactly what the test project accepts', async () => {
+		// Rules the app once did not have: a system needs test folders and an id of its own.
+		const noTests = successFactors.replace(',"tests":["successfactors"]', '');
+		expect((await (await withEnvFile(null, noTests)).envStatus(NONE)).systemsError).toMatch(
+			/tests needs at least one folder/
+		);
+		const good = await (await withEnvFile(null, successFactors)).envStatus(NONE);
+		expect(good.systemsError).toBeUndefined();
+		expect(good.systems.map((system) => system.id)).toEqual(['successfactors']);
 	});
 });

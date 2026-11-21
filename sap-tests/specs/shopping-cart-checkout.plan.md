@@ -2,7 +2,7 @@
 
 ## Application Overview
 
-Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand, and corrected after scenario 1.1 was written and run (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
+Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand, and corrected after scenarios 1.1 and 1.2 were written and run (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
 
 **Address:** `https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html?sap-ui-theme=sap_horizon_dark` (no login; needs internet access). The checkout is at `#/checkout`, the confirmation at `#/ordercompleted`.
 
@@ -35,7 +35,7 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 
 **Open point for scenario 3:** the error states were read from the controls (`getValueState()`, `getValueStateText()`) with a script in the page. The message text was not found in the page while the field had no focus, and how a test should assert the error state (focus the field and check the message popup, or check the input's `aria-invalid`) was not tried. The generator has to work that out on the running app.
 
-**Not explored:** submitting an order paid by Cash on Delivery (scenario 2 was explored up to the order summary; the submit steps are taken from scenario 1), the Bank Transfer path beyond its step 3, the "Note" fields, the edit buttons on the order summary, and "No" in the two dialogs.
+**Not explored:** the Bank Transfer path beyond its step 3, the "Note" fields, the edit buttons on the order summary, and "No" in the two dialogs.
 
 ## Test Scenarios
 
@@ -92,7 +92,7 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 12. Fill Input, placeholder "Enter your phone number" with "+49 6227 000000", then press Tab
 13. Fill Input, placeholder "Enter your email address" with "alex.example@example.com", then press Tab - expect: Button, text "Step 4" is visible
 14. Click Button, text "Step 4" - expect: WizardStep, title "Invoice Address" is visible
-15. Tick the CheckBox (the only one in the app; its label is "Use Different Address for Delivery")
+15. Tick the CheckBox (the only one in the app; its label is "Use Different Address for Delivery") with a click; `check()` fails on it with "Clicking the checkbox did not change its state" - expect: The CheckBox is checked
 16. Fill Input, placeholder "Enter your street name and house number" (visible only) with "Musterstrasse 1", then press Tab
 17. Fill Input, placeholder "Enter your city" (visible only) with "Walldorf", then press Tab
 18. Fill Input, placeholder "Enter your zip code" (visible only) with "69190", then press Tab
