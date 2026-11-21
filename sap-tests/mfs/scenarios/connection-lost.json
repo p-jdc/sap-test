@@ -1,0 +1,24 @@
+{
+	"title": "Connection lost during a task",
+	"description": "The PLC of the transfer car and conveyors drops its connection while it carries an HU. EWM must connect again, and the task must be neither lost nor confirmed twice.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [
+		{ "enter": "A" },
+		{
+			"title": "Wait until the transfer car takes A to aisle 1",
+			"wait": { "event": "HU {A} IP → A1-IN" }
+		},
+		{ "faults": "CONS", "disconnect": true },
+		{ "wait": { "event": "CONS: EWM connected" } },
+		{ "wait": { "hu": "A", "at": "bin" } }
+	],
+	"expect": [
+		{ "hu": "A", "at": "bin", "ewm": "stored" },
+		{ "event": "CONS: EWM disconnected" },
+		{
+			"telegram": { "type": "WTCO", "from": "CONS", "fields": { "hu": "{A}", "result": "OK" } },
+			"count": 1
+		}
+	]
+}

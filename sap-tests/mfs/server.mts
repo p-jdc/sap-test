@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { Emulator } from './emulator.mts';
 import { FakeEwm } from './fake-ewm.mts';
 import { fail, json, readBody, requestTarget, UserError } from './http.mts';
+import { ScenarioRunner } from './scenario.mts';
 import { loadSetup } from './setup.mts';
 
 const env = process.env;
@@ -20,11 +21,12 @@ const host = env.MFS_HOST || '127.0.0.1';
 const port = (value: string | undefined, fallback: number) =>
 	value === undefined || value === '' ? fallback : Number(value);
 const setup = loadSetup(env.MFS_SETUP || 'sap-example');
+const speed = Number(env.MFS_SPEED || 1);
 const emulator = new Emulator({
 	setup,
 	host,
 	basePort: port(env.MFS_BASE_PORT, 47101),
-	speed: Number(env.MFS_SPEED || 1)
+	speed
 });
 const plcs = await emulator.start();
 const ewm = env.MFS_FAKE_EWM === '1' ? new FakeEwm({ setup }) : undefined;
@@ -57,13 +59,39 @@ async function ewmRoute(
 	throw new UserError(`no route ${method} ${path}`, 404);
 }
 
+const scenarios = new ScenarioRunner({ emulator, ewm, speed });
+const StartScenarioBody = z.object({ name: z.string().min(1) });
+
+/** Scenarios: list the ones this Mock PLC can run, start one, and pause, resume or stop the run. */
+async function scenarioRoute(
+	request: Parameters<typeof readBody>[0],
+	response: Parameters<typeof json>[0]
+) {
+	const { method, path } = requestTarget(request);
+	if (method === 'GET' && path === '/scenarios') return json(response, 200, scenarios.available());
+	if (method === 'GET' && path === '/scenario')
+		return json(response, 200, scenarios.state() ?? null);
+	if (method === 'POST' && path === '/scenario/start')
+		return json(response, 201, scenarios.start((await readBody(request, StartScenarioBody)).name));
+	if (method === 'POST' && path === '/scenario/pause')
+		return json(response, 200, (scenarios.pause(), { ok: true }));
+	if (method === 'POST' && path === '/scenario/resume')
+		return json(response, 200, (scenarios.resume(), { ok: true }));
+	if (method === 'POST' && path === '/scenario/stop')
+		return json(response, 200, (scenarios.stop(), { ok: true }));
+	throw new UserError(`no route ${method} ${path}`, 404);
+}
+
 const control = createServer((request, response) => {
-	const isEwm = requestTarget(request).parts[0] === 'ewm';
-	const handled = isEwm
-		? ewm
-			? ewmRoute(ewm, request, response)
-			: Promise.reject(new UserError('no fake EWM in this emulator (MFS_FAKE_EWM=1)', 404))
-		: emulator.handle(request, response);
+	const [first = ''] = requestTarget(request).parts;
+	const handled =
+		first === 'ewm'
+			? ewm
+				? ewmRoute(ewm, request, response)
+				: Promise.reject(new UserError('no fake EWM in this emulator (MFS_FAKE_EWM=1)', 404))
+			: first === 'scenario' || first === 'scenarios'
+				? scenarioRoute(request, response)
+				: emulator.handle(request, response);
 	handled.catch((error: unknown) => fail(response, error));
 });
 await new Promise<void>((resolve) =>
@@ -76,7 +104,7 @@ console.log(`PLC emulator, setup ${setup.name}${ewm ? ', with the fake EWM' : ''
 for (const [plc, plcPort] of Object.entries(plcs))
 	console.log(`  PLC ${plc.padEnd(4)} on port ${plcPort}`);
 console.log(
-	`  control API on http://${host}:${controlPort} (GET /health, /setup, /state, /log, /events)`
+	`  control API on http://${host}:${controlPort} (GET /health, /setup, /state, /log, /events, /scenarios, /scenario)`
 );
 console.log(`MFS_READY ${JSON.stringify({ control: controlPort, plcs, fakeEwm: Boolean(ewm) })}`);
 emulator.onEvent((event) =>

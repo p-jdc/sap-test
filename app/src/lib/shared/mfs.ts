@@ -117,6 +117,37 @@ export const EwmStateSchema = z.object({
 	)
 });
 
+/** A scenario as listed for choosing: from the scenario files, or from the running Mock PLC. */
+export const MfsScenarioInfoSchema = z.object({
+	name: z.string(),
+	title: z.string(),
+	description: z.string(),
+	setup: z.string(),
+	modes: z.array(z.enum(['demo', 'ewm'])),
+	/** Reference errors against the running setup (only when listed by the Mock PLC). */
+	problems: z.array(z.string()).optional()
+});
+
+export const MfsScenarioRunSchema = z.object({
+	scenario: z.string(),
+	title: z.string(),
+	status: z.enum(['running', 'paused', 'passed', 'failed', 'stopped']),
+	steps: z.array(
+		z.object({
+			title: z.string(),
+			status: z.enum(['pending', 'running', 'done', 'failed', 'skipped']),
+			detail: z.string().optional()
+		})
+	),
+	checks: z.array(z.object({ title: z.string(), ok: z.boolean(), detail: z.string().optional() })),
+	hus: z.record(z.string(), z.string()),
+	startedAt: z.string(),
+	finishedAt: z.string().optional(),
+	error: z.string().optional()
+});
+
+export type MfsScenarioInfo = z.infer<typeof MfsScenarioInfoSchema>;
+export type MfsScenarioRun = z.infer<typeof MfsScenarioRunSchema>;
 export type MfsSetup = z.infer<typeof MfsSetupSchema>;
 export type MfsState = z.infer<typeof MfsStateSchema>;
 export type MfsTelegram = z.infer<typeof MfsTelegramSchema>;
@@ -144,6 +175,9 @@ export type MfsSnapshot = {
 	setup?: MfsSetup;
 	state?: MfsState;
 	ewm?: EwmState;
+	/** The scenarios the running Mock PLC can run, and the current or last scenario run. */
+	scenarios?: MfsScenarioInfo[];
+	run?: MfsScenarioRun | null;
 	telegrams: MfsTelegram[];
 	events: MfsEvent[];
 };

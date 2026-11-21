@@ -223,6 +223,27 @@ export class Emulator {
 		return state;
 	}
 
+	/**
+	 * Empties the warehouse: forgets every HU, cancels moves in progress, brings every device back up and clears
+	 * all faults. For demo scenarios, which start from a known state; a real EWM would still hold its stock.
+	 */
+	reset(): void {
+		for (const timer of this.#timers) clearTimeout(timer);
+		this.#timers.clear();
+		this.#hus.clear();
+		for (const device of this.#devices.values()) {
+			device.queue = [];
+			device.active = 0;
+			if (device.status === 'DOWN') this.setDeviceStatus(device.def.id, 'UP');
+		}
+		for (const plc of this.#plcs.values()) {
+			delete plc.faults.dropAcks;
+			delete plc.faults.stopLife;
+			plc.outbox = [];
+		}
+		this.#event('Reset: the warehouse is empty, all devices are up');
+	}
+
 	script(hu: string, script: HuScript): HuState {
 		const state = this.#hus.get(hu);
 		if (!state) throw new UserError(`unknown HU ${hu}`, 404);

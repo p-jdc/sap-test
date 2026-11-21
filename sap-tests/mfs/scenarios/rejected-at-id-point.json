@@ -1,0 +1,19 @@
+{
+	"title": "Rejected at the identification point",
+	"description": "One HU sticks out (contour error), the label of another cannot be read. EWM must send both to clearing instead of into the rack.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [
+		{ "enter": "A", "idPoint": "CONT" },
+		{ "enter": "B", "idPoint": "NORD" },
+		{ "wait": { "hu": "A", "at": "CLEAR" } },
+		{ "wait": { "hu": "B", "at": "CLEAR" } }
+	],
+	"expect": [
+		{ "hu": "A", "at": "CLEAR", "ewm": "in-clearing" },
+		{ "hu": "B", "at": "CLEAR" },
+		{ "telegram": { "type": "SCAN", "fields": { "hu": "{A}", "result": "CONT" } } },
+		{ "telegram": { "type": "SCAN", "fields": { "hu": "", "result": "NORD" } } },
+		{ "telegram": { "type": "WT", "to": "SRM1" }, "count": 0 }
+	]
+}

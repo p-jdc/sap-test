@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import type { MfsSnapshot } from '#lib/shared/mfs.js';
 import {
 	importedPackages,
+	listScenarios,
 	listSetups,
 	mfsAction,
 	mfsStatus,
@@ -37,6 +38,8 @@ const allConnected = (s: MfsSnapshot) =>
 const stored = (hu: string) => (s: MfsSnapshot) =>
 	s.ewm?.hus.some((record) => record.hu === hu && record.status === 'stored') ?? false;
 const stopped = (s: MfsSnapshot) => !s.status.running;
+const runEnded = (s: MfsSnapshot) =>
+	s.run?.status === 'passed' || s.run?.status === 'failed' || s.run?.status === 'stopped';
 
 afterEach(async () => {
 	if (stopEmulator()) await waitFor(stopped);
@@ -97,6 +100,41 @@ describe('Mock PLC', () => {
 		expect(stopEmulator()).toBe(true);
 		const end = await waitFor(stopped);
 		expect(end.status.error).toBeUndefined();
+	});
+
+	test('lists the scenario files with their setup and modes', () => {
+		expect(listScenarios()).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: 'putaway', setup: 'sap-example', modes: ['demo'] }),
+				expect.objectContaining({
+					name: 'crane-down',
+					title: 'Stacker crane fails with a task waiting'
+				})
+			])
+		);
+	});
+
+	test('starts with a scenario, which runs on the Mock PLC and passes', async () => {
+		await startEmulator({
+			setup: 'sap-example',
+			mode: 'demo',
+			speed: 20,
+			scenario: 'bin-occupied'
+		});
+
+		const end = await waitFor(runEnded, 30_000);
+		// The whole run on failure: which step or check went wrong.
+		expect(end.run).toMatchObject({ status: 'passed' });
+		expect(end.run?.error).toBeUndefined();
+		expect(end.run?.checks.every((check) => check.ok)).toBe(true);
+		expect(end.scenarios?.map((s) => s.name)).toContain('connection-lost');
+	});
+
+	test('a scenario that does not exist is reported, and the Mock PLC keeps running', async () => {
+		await expect(
+			startEmulator({ setup: 'sap-example', mode: 'demo', speed: 20, scenario: 'nope' })
+		).rejects.toThrow(/running, but the scenario did not start: there is no scenario "nope"/);
+		expect(mfsStatus().running).toBe(true);
 	});
 
 	test('refuses a setup that does not exist', async () => {
