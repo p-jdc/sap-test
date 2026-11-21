@@ -24,7 +24,7 @@
 		"codegen": "cd sap-tests && bun run codegen",
 		"record": "cd sap-tests && bun run record",
 		"report": "cd sap-tests && bun run report",
-		"pregate": "bun run check && bun run lint && bun run test && bun run test:sap:list",
+		"pregate": "bun scripts/pregate.ts",
 		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"
 	}
 }
