@@ -19,6 +19,15 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Ein Geschäftsablauf je Test. Nach jedem datenverändernden Schritt prüfen.
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.
 
+## API-Tests (OData)
+
+- Tests, die SAP-Services aufrufen, importieren `test` und `expect` aus '../../sap-plugin/odata'. Die SAP-Locators bleiben verfügbar.
+- Aufrufe nur über die typisierten Clients der Fixtures (z. B. `gwsample`) mit `.execute(sapApi)`. Keine selbst gebauten OData-URLs mit fetch.
+- Erzeugte Daten sofort nach dem Anlegen mit `cleanup(label, undo)` zum Löschen anmelden.
+- Testdaten bevorzugt über die API anlegen und prüfen, den Geschäftsablauf selbst in der UI.
+- Die Clients unter odata/clients nie von Hand ändern und nicht einchecken. Sie werden bei jedem `bun install` (oder mit `bun run odata:generate`) aus odata/metadata erzeugt.
+- Neue API-Tests müssen auch gegen den lokalen Mock laufen (`bun run test:api:mock`). Fehlende Testdaten unter odata/mock/data ergänzen.
+
 ## Beim Reparieren eines fehlgeschlagenen Tests
 
 - Zuerst den Trace öffnen und die Ursache nennen, dann Code ändern.

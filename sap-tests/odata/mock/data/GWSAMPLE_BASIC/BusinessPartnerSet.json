@@ -1,0 +1,32 @@
+[
+	{
+		"BusinessPartnerID": "0100000000",
+		"CompanyName": "Mock Supplies Ltd",
+		"EmailAddress": "supplies@example.com",
+		"CurrencyCode": "EUR",
+		"BusinessPartnerRole": "02",
+		"Address": {
+			"City": "Walldorf",
+			"PostalCode": "69190",
+			"Street": "Mockstrasse",
+			"Building": "1",
+			"Country": "DE",
+			"AddressType": "02"
+		}
+	},
+	{
+		"BusinessPartnerID": "0100000001",
+		"CompanyName": "Mock Customer Inc",
+		"EmailAddress": "orders@example.com",
+		"CurrencyCode": "EUR",
+		"BusinessPartnerRole": "01",
+		"Address": {
+			"City": "Berlin",
+			"PostalCode": "10115",
+			"Street": "Beispielweg",
+			"Building": "7",
+			"Country": "DE",
+			"AddressType": "02"
+		}
+	}
+]

@@ -8,7 +8,9 @@ shows them as step flows, streams runs live, and tracks the pilot's exit criteri
 sap-test/
 ├── app/          SvelteKit 3 + Bun + UI5 Web Components – the Test-App
 └── sap-tests/    SAP test project (guide §4), driven by the app
-    ├── sap-plugin/   SAP locators for stock Playwright (ported from Playwright-SAP)
+    ├── sap-plugin/   SAP locators for stock Playwright (ported from Playwright-SAP),
+    │                 plus OData fixtures (sap-plugin/odata.ts)
+    ├── odata/        Service metadata and the typed OData clients generated from it
     └── recorder/     Playwright-SAP fork, used for recording only
 ```
 
@@ -91,6 +93,49 @@ to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference a
 
 The root is deliberately not a workspace: `sap-tests/recorder` holds the fork aliased as
 `@playwright/test`, and separate dependency trees keep it from colliding with stock Playwright.
+
+### OData API tests
+
+`sap-tests/tests/api` calls SAP OData services directly, without a browser, through typed clients
+from the [SAP Cloud SDK for JavaScript](https://sap.github.io/cloud-sdk/) (OData V2). The clients
+are generated from the service metadata in `sap-tests/odata/metadata` into `sap-tests/odata/clients`
+after every `bun install`. They are not committed. Specs import `test` from `sap-plugin/odata`, which adds three fixtures
+to the SAP locators:
+
+| Fixture | What it is |
+| --- | --- |
+| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
+| `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC` |
+| `cleanup` | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test |
+
+Because the fixtures extend the SAP locators, one test can create data over the API, run the flow in
+the UI and check the result over the API. The bundled tests target `GWSAMPLE_BASIC`, the sample
+service that ships with SAP Gateway in every ABAP system. It is often active in development systems,
+otherwise activate it in `/IWFND/MAINT_SERVICE`; the ABAP Cloud Developer Trial (Docker) works too.
+SAP's public demo system ES5 (sapes5.sapdevcenter.com), which used to host it, has been shut down.
+
+Without a system, `bun run test:api:mock` (in `sap-tests`) runs the same tests against a local
+mock of the services: SAP's Fiori mock server (`@sap-ux/fe-mockserver-core`) serves each metadata
+file at its `basePath`, with the fixed data in `odata/mock/data/<service>/<EntitySet>.json`. Writes
+stay in memory until the run ends. Playwright starts the mock and points `SAP_API_*` at it, whatever
+`.env` says. CI runs this on every pull request. The mock checks requests against the metadata, not
+against SAP's business logic, so a pass on the mock does not replace a run on a real system.
+
+To add or update a service:
+
+```bash
+cd sap-tests
+# new service: put its $metadata into odata/metadata/<NAME>.edmx
+bun run odata:fetch      # refreshes every odata/metadata/*.edmx from SAP_API_URL
+bun run odata:generate   # regenerates odata/clients (also writes odata/metadata/options-per-service.json)
+bun run typecheck        # tests that use a changed or removed field fail here
+```
+
+Commit the metadata: its diff shows the change to the interface in review. The generated clients
+are large (about 7,000 lines for `GWSAMPLE_BASIC`) and are rebuilt from it, so they stay out of git.
+For a new service, check `basePath` in `options-per-service.json`, add a fixture next to `gwsample`
+in `sap-plugin/odata.ts` and mock data under `odata/mock/data/<directoryName>/`. The app lists `tests/api` under "other" for now. Its Settings
+page does not store the `SAP_API_*` values yet; runs read them from `sap-tests/.env`.
 
 The `_demo` tests run offline against an inline page, so the app has something to show before an SAP
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One

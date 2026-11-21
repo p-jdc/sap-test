@@ -1,0 +1,32 @@
+[
+	{
+		"SalesOrderID": "0500000000",
+		"ItemPosition": "0000000010",
+		"ProductID": "MK-1000",
+		"CurrencyCode": "EUR",
+		"NetAmount": "956.00",
+		"DeliveryDate": "2026-12-01T00:00:00Z",
+		"Quantity": "1",
+		"QuantityUnit": "EA"
+	},
+	{
+		"SalesOrderID": "0500000000",
+		"ItemPosition": "0000000020",
+		"ProductID": "MK-1001",
+		"CurrencyCode": "EUR",
+		"NetAmount": "1127.81",
+		"DeliveryDate": "2026-12-01T00:00:00Z",
+		"Quantity": "1",
+		"QuantityUnit": "EA"
+	},
+	{
+		"SalesOrderID": "0500000001",
+		"ItemPosition": "0000000010",
+		"ProductID": "MK-2000",
+		"CurrencyCode": "EUR",
+		"NetAmount": "230.00",
+		"DeliveryDate": "2026-12-08T00:00:00Z",
+		"Quantity": "1",
+		"QuantityUnit": "EA"
+	}
+]
