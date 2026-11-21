@@ -138,15 +138,21 @@ function readOldRun(dir: string): RunState | null {
 	if (!meta) return null;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- written by this app
 	const results = (readOldFile(dir, 'results.json') as OldResult[] | null) ?? [];
-	const tests = results.map(({ failedAt, ...t }): RunTest => {
-		const [file, line] = failedAt?.split(':') ?? [];
-		return {
-			...t,
-			testId: t.key,
+	const tests = results.map((r): RunTest => {
+		const [file, line] = r.failedAt?.split(':') ?? [];
+		const test: RunTest = {
+			testId: r.key,
+			key: r.key,
+			file: r.file,
+			title: r.title,
 			line: 0,
 			steps: [],
-			...(failedAt ? { error: { message: '', file, line: Number(line) || undefined } } : {})
+			attachments: []
 		};
+		if (r.status) test.status = r.status;
+		if (r.setup) test.setup = true;
+		if (r.failedAt) test.error = { message: '', file, line: Number(line) || undefined };
+		return test;
 	});
 	return { ...meta, tests };
 }
