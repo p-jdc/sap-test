@@ -799,14 +799,16 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 	walk(sf.statements, [], [], false);
 
 	const fileIssues: Issue[] = [];
-	const marker = /KI-generiert,\s*geprüft von:\s*(.*)/.exec(source);
+	// The name must be on the marker's own line: an empty name is not filled by the next line.
+	const marker = /KI-generiert,\s*geprüft von:[ \t]*(.*)/.exec(source);
 	const reviewer = marker?.[1]?.trim() ?? '';
 	if (marker && (!reviewer || /<name>/i.test(reviewer))) {
 		const line = source.slice(0, marker.index).split('\n').length;
 		fileIssues.push({
 			rule: 'ai-review',
 			severity: 'warning',
-			message: 'AI-generated test without a named reviewer.',
+			message:
+				'AI-generated test without a named reviewer. Whoever reviewed it puts their name in the comment at the top of the file.',
 			line
 		});
 	}
