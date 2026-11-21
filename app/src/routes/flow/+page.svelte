@@ -35,7 +35,11 @@
 		page.url.searchParams.get('run') ?? active ?? runs.current?.runs[0]?.id ?? null
 	);
 	const live = $derived(runId && runId === active);
-	const runQuery = $derived(runId ? (live ? watchRunLive(runId) : getRun(runId)) : undefined);
+	// A key is `<spec file>::<title>`. The live view carries the steps of that file's tests only.
+	const file = $derived(key.split('::')[0] ?? '');
+	const runQuery = $derived(
+		runId ? (live ? watchRunLive({ id: runId, file }) : getRun(runId)) : undefined
+	);
 	const run = $derived(runQuery?.current ?? null);
 	// Also resolves a test with a generated title, whose key differs between spec and run.
 	const flow = $derived(

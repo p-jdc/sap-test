@@ -115,7 +115,23 @@ export interface RunTest {
 	setup?: boolean;
 	error?: { message: string; line?: number; file?: string };
 	steps: RunStep[];
+	/**
+	 * Set in a live snapshot for a test whose steps were left out to keep the snapshot small
+	 * (LiveView); `steps` is then empty although the test has steps.
+	 */
+	stepsOmitted?: boolean;
 	attachments: Attachment[];
+}
+
+/**
+ * What a page watching a running run needs besides the test list. A snapshot goes out to every
+ * open page several times a second, so it carries the steps of the tests that are running and of
+ * the tests in `file`, and the log only when asked for.
+ */
+export interface LiveView {
+	/** Spec file whose tests keep their steps after they finished (the flow page shows one of them). */
+	file?: string;
+	log?: boolean;
 }
 
 export type RunStatus = 'running' | 'passed' | 'failed' | 'interrupted' | 'error';

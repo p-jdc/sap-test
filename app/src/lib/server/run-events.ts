@@ -1,6 +1,6 @@
 import { relative } from 'node:path';
 import { SETUP_DIR, TESTS_DIR, toPosix, within } from './paths.js';
-import type { Attachment, RunState, RunTest, TestStatus } from '#lib/shared/types.js';
+import type { Attachment, LiveView, RunState, RunTest, TestStatus } from '#lib/shared/types.js';
 
 /** Marks a reporter event line in the Playwright process's stdout. */
 export const PREFIX = '@@pwlive@@';
@@ -150,4 +150,22 @@ export function recount(state: RunState) {
 		else if (t.status && t.status !== 'interrupted') s.failed++;
 	}
 	state.stats = s;
+}
+
+/**
+ * A copy of a running run's state for one watching page, reduced to what its view needs: finished
+ * tests outside `view.file` come without their steps (marked `stepsOmitted`), and the log is
+ * left out unless asked for. Every snapshot is complete for its view, so a page can show the
+ * newest one without having seen the ones before.
+ */
+export function liveSnapshot(state: RunState, view: LiveView): RunState {
+	return structuredClone({
+		...state,
+		log: view.log ? state.log : [],
+		tests: state.tests.map((t) =>
+			t.running || t.steps.length === 0 || (view.file !== undefined && t.file === view.file)
+				? t
+				: { ...t, steps: [], stepsOmitted: true }
+		)
+	});
 }

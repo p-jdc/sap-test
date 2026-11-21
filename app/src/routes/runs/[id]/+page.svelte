@@ -15,6 +15,7 @@
 	import {
 		getRun,
 		getRuns,
+		getRunTestSteps,
 		getStability,
 		stopTestRun,
 		watchRunLive
@@ -24,7 +25,7 @@
 	const id = $derived(page.params.id ?? '');
 	const runs = getRuns();
 	const isLive = $derived(runs.current?.active === id);
-	const query = $derived(isLive ? watchRunLive(id) : getRun(id));
+	const query = $derived(isLive ? watchRunLive({ id, log: true }) : getRun(id));
 	const run = $derived(query.current);
 	/** The tests of a sign-in that failed did not run (Playwright skips them). */
 	const signInFailed = $derived(run?.tests.some((t) => t.setup && t.status === 'failed') ?? false);
@@ -52,8 +53,26 @@
 	);
 	const done = $derived(run ? run.tests.filter((t) => t.status).length : 0);
 
+	// A live snapshot leaves out the steps of finished tests; they are fetched once per test (and
+	// again after a retry). Until they arrive, the steps last seen while the test ran are shown, so
+	// the timeline does not blink.
+	const seen: Record<string, RunStep[] | undefined> = {};
+	const fetched: Record<string, ReturnType<typeof getRunTestSteps> | undefined> = {};
+	function stepsOf(t: RunTest): RunStep[] {
+		if (!t.stepsOmitted) {
+			seen[t.testId] = t.steps;
+			return t.steps;
+		}
+		const retry = t.retry ?? 0;
+		const steps = (fetched[`${t.testId}:${retry}`] ??= getRunTestSteps({
+			id,
+			testId: t.testId,
+			retry
+		}));
+		return steps.current ?? seen[t.testId] ?? [];
+	}
 	function topSteps(t: RunTest): RunStep[] {
-		return t.steps.filter((s) => !s.parentId);
+		return stepsOf(t).filter((s) => !s.parentId);
 	}
 	function bars(t: RunTest) {
 		const steps = topSteps(t);
@@ -167,7 +186,7 @@
 	</div>
 
 	{#each run.tests as t (t.testId)}
-		{@const b = bars(t)}
+		{@const b = view.technical ? bars(t) : []}
 		{@const tr = traceUrl(t)}
 		<ui5-panel
 			collapsed={t.status === 'passed' || t.status === 'skipped' || undefined}
@@ -248,7 +267,7 @@
 						<pre class="log">{t.error.message}</pre>
 					</details>
 				{/if}
-				{#if b.length && view.technical}
+				{#if b.length}
 					<div class="timeline" aria-label="Step timeline">
 						{#each b as bar (bar.s.stepId)}
 							<div class="tl-row">

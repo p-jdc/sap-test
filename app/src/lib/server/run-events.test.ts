@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { must } from '../../test/must.js';
 import { SETUP_DIR, TESTS_DIR, TESTS_ROOT } from './paths.js';
-import { applyEvent, type ReporterEvent } from './run-events.js';
+import { applyEvent, liveSnapshot, type ReporterEvent } from './run-events.js';
 import type { RunState, TestStatus } from '#lib/shared/types.js';
 
 const DIR = '/data/runs/r1';
@@ -173,5 +173,70 @@ describe('applyEvent', () => {
 		});
 		applyEvent(state, DIR, { type: 'end', status: 'interrupted', duration: 1 });
 		expect(state.status).toBe('interrupted');
+	});
+});
+
+const step = (testId: string, stepId: string): ReporterEvent => ({
+	type: 'stepBegin',
+	testId,
+	stepId,
+	title: 'Click',
+	category: 'pw:api',
+	startTime: ''
+});
+
+const shape = (state: RunState) =>
+	state.tests.map((t) => [t.testId, t.steps.length, t.stepsOmitted ?? false]);
+
+/** Test a finished with one step, test b running with one step, test c not started. */
+function midRun(): RunState {
+	const state = started(['a', 'b', 'c']);
+	state.log = ['line 1', 'line 2'];
+	for (const id of ['a', 'b']) {
+		applyEvent(state, DIR, { type: 'testBegin', testId: id, retry: 0, startTime: '' });
+		applyEvent(state, DIR, step(id, 's-' + id));
+	}
+	applyEvent(state, DIR, end('a', 'passed'));
+	return state;
+}
+
+describe('liveSnapshot', () => {
+	test('leaves out the steps of finished tests and the log', () => {
+		const snapshot = liveSnapshot(midRun(), {});
+		expect(shape(snapshot)).toEqual([
+			['a', 0, true],
+			['b', 1, false],
+			['c', 0, false]
+		]);
+		expect(snapshot.log).toEqual([]);
+		// Everything else about a finished test stays.
+		expect(snapshot.tests[0]).toMatchObject({ status: 'passed', running: false });
+		expect(snapshot.stats).toMatchObject({ total: 3, passed: 1 });
+	});
+
+	test('keeps the steps of the tests in the watched file, and the log when asked for', () => {
+		const snapshot = liveSnapshot(midRun(), { file: 'fiori/a.spec.ts', log: true });
+		expect(shape(snapshot)).toEqual([
+			['a', 1, false],
+			['b', 1, false],
+			['c', 0, false]
+		]);
+		expect(snapshot.log).toEqual(['line 1', 'line 2']);
+		expect(shape(liveSnapshot(midRun(), { file: 'fiori/other.spec.ts' }))[0]).toEqual([
+			'a',
+			0,
+			true
+		]);
+	});
+
+	test('is a copy: later events do not change it, and it does not change the state', () => {
+		const state = midRun();
+		const snapshot = liveSnapshot(state, { log: true });
+		applyEvent(state, DIR, step('b', 's-late'));
+		state.log.push('line 3');
+		expect(must(snapshot.tests[1]).steps).toHaveLength(1);
+		expect(snapshot.log).toHaveLength(2);
+		expect(must(state.tests[0]).steps).toHaveLength(1);
+		expect(must(state.tests[0]).stepsOmitted).toBeUndefined();
 	});
 });
