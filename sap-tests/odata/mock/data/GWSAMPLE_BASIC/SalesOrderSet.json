@@ -1,0 +1,22 @@
+[
+	{
+		"SalesOrderID": "0500000000",
+		"CustomerID": "0100000001",
+		"CustomerName": "Mock Customer Inc",
+		"CurrencyCode": "EUR",
+		"GrossAmount": "2479.73",
+		"NetAmount": "2083.81",
+		"TaxAmount": "395.92",
+		"LifecycleStatus": "N"
+	},
+	{
+		"SalesOrderID": "0500000001",
+		"CustomerID": "0100000001",
+		"CustomerName": "Mock Customer Inc",
+		"CurrencyCode": "EUR",
+		"GrossAmount": "273.70",
+		"NetAmount": "230.00",
+		"TaxAmount": "43.70",
+		"LifecycleStatus": "N"
+	}
+]

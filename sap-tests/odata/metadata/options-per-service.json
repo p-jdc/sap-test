@@ -1,0 +1,7 @@
+{
+  "odata/metadata/GWSAMPLE_BASIC.edmx": {
+    "packageName": "gwsample_basic",
+    "directoryName": "GWSAMPLE_BASIC",
+    "basePath": "/sap/opu/odata/IWBEP/GWSAMPLE_BASIC"
+  }
+}

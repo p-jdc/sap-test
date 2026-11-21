@@ -5,3 +5,5 @@ node_modules/
 test-results/
 playwright-report/
 blob-report/
+# Generated from odata/metadata by `bun run odata:generate`, which runs after every install
+odata/clients/

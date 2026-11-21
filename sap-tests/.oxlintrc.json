@@ -22,7 +22,8 @@
 		"test-results",
 		"playwright-report",
 		"blob-report",
-		"sap-plugin/vendor"
+		"sap-plugin/vendor",
+		"odata/clients"
 	],
 	"rules": {
 		"typescript/no-floating-promises": ["error", { "checkThenables": true }],

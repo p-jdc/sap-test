@@ -1,0 +1,38 @@
+[
+	{
+		"ProductID": "MK-1000",
+		"TypeCode": "PR",
+		"Category": "Notebooks",
+		"Name": "Mock Notebook 15",
+		"SupplierID": "0100000000",
+		"SupplierName": "Mock Supplies Ltd",
+		"TaxTarifCode": 1,
+		"MeasureUnit": "EA",
+		"CurrencyCode": "EUR",
+		"Price": "956.00"
+	},
+	{
+		"ProductID": "MK-1001",
+		"TypeCode": "PR",
+		"Category": "Notebooks",
+		"Name": "Mock Notebook 17",
+		"SupplierID": "0100000000",
+		"SupplierName": "Mock Supplies Ltd",
+		"TaxTarifCode": 1,
+		"MeasureUnit": "EA",
+		"CurrencyCode": "EUR",
+		"Price": "1249.00"
+	},
+	{
+		"ProductID": "MK-2000",
+		"TypeCode": "PR",
+		"Category": "Flat Screen Monitors",
+		"Name": "Mock Screen 24",
+		"SupplierID": "0100000000",
+		"SupplierName": "Mock Supplies Ltd",
+		"TaxTarifCode": 1,
+		"MeasureUnit": "EA",
+		"CurrencyCode": "EUR",
+		"Price": "230.00"
+	}
+]
