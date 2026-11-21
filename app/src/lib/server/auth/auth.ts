@@ -20,6 +20,8 @@ import * as schema from '../db/schema.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
 import { DATA_DIR } from '../paths.js';
+import { configuredHosts } from '../host-check.js';
+import { foreignOrigin, localAuthHosts } from './policy.js';
 import { openStore, type Role, type Store } from './store.js';
 
 const SECRET_FILE = join(DATA_DIR, 'auth-secret');
@@ -123,9 +125,9 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 		// registration below uses up its right synchronously instead (afterVerification).
 		database: drizzleAdapter(db, { provider: 'sqlite', schema }),
 		secret: secret(),
-		// Required off this computer (policy.ts). On a laptop it is taken from each request, which the
-		// host check (host-check.ts) has already vetted.
-		baseURL: appUrl?.origin,
+		// Required off this computer (policy.ts). On a laptop it is taken from each request whose host
+		// is one the host check (host-check.ts) also accepts there.
+		baseURL: appUrl?.origin ?? { allowedHosts: localAuthHosts(configuredHosts()) },
 		basePath: '/api/auth',
 		// A working day; using the app moves it on once an hour.
 		session: { expiresIn: 60 * 60 * 12, updateAge: 60 * 60 },
@@ -138,9 +140,12 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 			...(clientIpHeader ? { ipAddress: { ipAddressHeaders: [clientIpHeader] } } : {})
 		},
 		hooks: {
-			// The admin plugin stops admins from blocking or removing themselves; this keeps the last
-			// admin from giving up the role.
+			// On a laptop, only the app's own origin, not another local port (foreignOrigin). The admin
+			// plugin stops admins from blocking or removing themselves; this also keeps the last admin
+			// from giving up the role.
 			before: createAuthMiddleware((ctx) => {
+				if (!appUrl && ctx.request && foreignOrigin(ctx.request.url, ctx.request.headers))
+					return Promise.reject(new APIError('FORBIDDEN', { message: 'Invalid origin' }));
 				if (ctx.path !== '/admin/set-role') return Promise.resolve();
 				const body: unknown = ctx.body;
 				const fields = typeof body === 'object' && body ? body : {};

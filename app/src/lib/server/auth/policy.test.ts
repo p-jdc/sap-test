@@ -2,8 +2,10 @@ import { describe, expect, test } from 'vitest';
 import {
 	authMode,
 	exposureProblem,
+	foreignOrigin,
 	isPublicPath,
 	listensLocally,
+	localAuthHosts,
 	safeRedirect,
 	signedOutResponse
 } from './policy.js';
@@ -36,6 +38,33 @@ describe('exposureProblem', () => {
 			'BETTER_AUTH_URL'
 		);
 		expect(exposureProblem('passkey', '127.0.0.1', '')).toBeNull();
+	});
+});
+
+describe('sign-in on a laptop', () => {
+	test("this computer's names and the configured ones, each with and without a port", () => {
+		expect(localAuthHosts(['sap-lab'])).toEqual([
+			'localhost',
+			'localhost:*',
+			'127.0.0.1',
+			'127.0.0.1:*',
+			'[::1]',
+			'[::1]:*',
+			'sap-lab',
+			'sap-lab:*'
+		]);
+	});
+
+	test('cookies are used only from the origin of the request, not another local port', () => {
+		const url = 'http://localhost:5173/api/auth/sign-out';
+		expect(
+			foreignOrigin(url, new Headers({ cookie: 'a=1', origin: 'http://localhost:5173' }))
+		).toBe(false);
+		expect(
+			foreignOrigin(url, new Headers({ cookie: 'a=1', origin: 'http://localhost:9999' }))
+		).toBe(true);
+		expect(foreignOrigin(url, new Headers({ origin: 'http://localhost:9999' }))).toBe(false);
+		expect(foreignOrigin(url, new Headers({ cookie: 'a=1' }))).toBe(false);
 	});
 });
 
