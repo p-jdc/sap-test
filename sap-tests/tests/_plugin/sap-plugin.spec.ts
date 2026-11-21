@@ -296,7 +296,7 @@ test('fillSecret: a UI5 password input takes the value as if typed', async ({ pa
 	await fillSecret(page.getByPlaceholder('Password stand-in'), 'Ui5-Secret');
 	// Leaving the field fires UI5's change event, as clicking "Log On" does.
 	await page.getByRoleUI5('Title', { text: 'Customer Overview' }, { exact: true }).click();
-	expect(await page.evaluate(() => Reflect.get(window, 'seen'))).toEqual({
+	expect(await page.evaluate(() => ('seen' in window ? window.seen : undefined))).toEqual({
 		liveChange: 'Ui5-Secret',
 		change: 'Ui5-Secret'
 	});

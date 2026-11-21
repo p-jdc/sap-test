@@ -27,6 +27,7 @@
 		"playwright-report",
 		"blob-report",
 		"sap-plugin/vendor",
+		"tools/oxlint",
 		"odata/clients",
 		"odata/metadata/options-per-service.json",
 		"recorder/node_modules"

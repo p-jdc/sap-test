@@ -44,10 +44,9 @@ function parseRegistration(context: string | null | undefined): Registration | n
 		return null;
 	}
 	if (typeof value !== 'object' || value === null) return null;
-	const field = (key: string): unknown => Reflect.get(value, key);
-	const invite = field('invite');
-	const setup = field('setup');
-	const name = field('name');
+	const invite: unknown = 'invite' in value ? value.invite : null;
+	const setup: unknown = 'setup' in value ? value.setup : null;
+	const name: unknown = 'name' in value ? value.name : null;
 	if (typeof invite === 'string' && invite) return { invite };
 	if (typeof setup === 'string' && setup && typeof name === 'string') return { setup, name };
 	return null;
@@ -130,9 +129,9 @@ function createAuth(db: AppDatabase, store: Store, setup: { token: string | null
 			before: createAuthMiddleware((ctx) => {
 				if (ctx.path !== '/admin/set-role') return Promise.resolve();
 				const body: unknown = ctx.body;
-				const userId: unknown =
-					typeof body === 'object' && body ? Reflect.get(body, 'userId') : null;
-				const role: unknown = typeof body === 'object' && body ? Reflect.get(body, 'role') : null;
+				const fields = typeof body === 'object' && body ? body : {};
+				const userId: unknown = 'userId' in fields ? fields.userId : null;
+				const role: unknown = 'role' in fields ? fields.role : null;
 				const target = store.people().find((p) => p.id === userId);
 				if (target?.role === 'admin' && role !== 'admin' && store.adminCount() <= 1)
 					return Promise.reject(
@@ -229,6 +228,7 @@ export function signIn() {
 			setup.token = fixed && fixed.length >= 24 ? fixed : randomBytes(24).toString('base64url');
 			const base = process.env.BETTER_AUTH_URL?.replace(/\/$/, '') ?? '';
 			console.log(
+				// oxlint-disable-next-line secure-coding/no-sensitive-data-exposure -- the one-time setup link is meant for whoever starts the app; it ends with the first registration
 				`Sign-in is on and nobody is registered yet. Open ${base}/signin?setup=${setup.token} on this app to register the first admin.`
 			);
 		}

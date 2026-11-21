@@ -259,6 +259,7 @@ test('WebGUI stand-in: clicks and typing are recorded by SID and replay', async 
 
 // Two pages of one flow. Each page is a document of its own and numbers its steps from 1.
 const sidButton = (n: number) =>
+	// oxlint-disable-next-line secure-coding/no-xpath-injection -- HTML of a stand-in page; the rule takes the SID path for XPath
 	`<span lsdata='{"SID":"wnd[0]/usr/btn[${n}]"}'><button>Button ${n}</button></span>`;
 const twoPages: Flow = {
 	url: 'https://webgui.test/first',
@@ -429,8 +430,8 @@ const CHART = 'https://ui5.sap.com/test-resources/sap/viz/demokit/chartdemo/inde
 const selectedInChart = (page: Page) =>
 	page.evaluate(() =>
 		[...document.querySelectorAll('.v-datapoint-selected')].map((shape) => {
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- D3's record on the shape
-			const values = Reflect.get(shape, '__data__') as Record<string, unknown>;
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion, no-underscore-dangle -- D3's record on the shape, under D3's name
+			const values = ('__data__' in shape ? shape.__data__ : {}) as Record<string, unknown>;
 			return `${String(values['Item Category'])} / ${String(values.measureNames)}`;
 		})
 	);

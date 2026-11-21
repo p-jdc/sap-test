@@ -46,6 +46,7 @@
 	// A session that ended (expired, or removed by an admin) answers 401: sign in again and return.
 	window.fetch = new Proxy(window.fetch, {
 		apply: async (target, thisArg, args: Parameters<typeof fetch>) => {
+			// oxlint-disable-next-line anti-slop/no-reflect-apply -- an apply trap passes the call on as it came
 			const response = await Reflect.apply(target, thisArg, args);
 			if (response.status === 401 && location.pathname !== '/signin')
 				location.replace(

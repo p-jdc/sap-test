@@ -9,6 +9,7 @@ export type UI5ControlSelector = {
 	controlType?: string;
 	viewName?: string;
 	viewId?: string;
+	// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- the properties of any UI5 control: which ones and of what type is up to the control
 	properties?: Record<string, unknown>;
 	bindingPath?: { path?: string; propertyPath?: string; modelName?: string };
 	i18NText?: { propertyName: string; key: string; modelName?: string };
@@ -51,7 +52,7 @@ type Ui5Require = {
 export function ui5ControlEngine() {
 	return {
 		queryAll(root: Node, body: string): Element[] {
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- UI5's loader is a global of the page; ui5.ts declares it without these two modules
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-chained-type-assertions -- UI5's loader is a global of the page; ui5.ts declares it without these two modules
 			const require = (window as unknown as { sap?: { ui?: { require?: Ui5Require } } }).sap?.ui
 				?.require;
 			if (!require) throw new Error('SAP UI5 not found in page');
@@ -92,11 +93,14 @@ export function ui5ChartPointEngine() {
 	return {
 		queryAll(root: Element | Document, body: string): Element[] {
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the selector is written by ui5ChartPointSelector
-			const wanted = Object.entries(JSON.parse(body) as Record<string, unknown>);
+			const wanted = Object.entries(JSON.parse(body) as Record<string, string>);
 			return [...root.querySelectorAll('.v-datapoint')].filter((shape) => {
-				const record: unknown = Reflect.get(shape, '__data__');
+				// D3 keeps the record a shape stands for on a property of its own on the element.
+				// oxlint-disable-next-line no-underscore-dangle -- D3's name
+				const record: unknown = '__data__' in shape ? shape.__data__ : undefined;
 				if (typeof record !== 'object' || record === null) return false;
-				return wanted.every(([name, value]) => String(Reflect.get(record, name)) === String(value));
+				const values = new Map<string, unknown>(Object.entries(record));
+				return wanted.every(([name, value]) => String(values.get(name)) === value);
 			});
 		}
 	};

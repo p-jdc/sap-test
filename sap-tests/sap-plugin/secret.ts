@@ -45,7 +45,7 @@ export async function fillSecret(field: Locator, secret: string): Promise<void> 
 			if (element.disabled || element.readOnly) {
 				throw new Error('fillSecret: the password field is not editable');
 			}
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the binding exposed above
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-reflect-get -- the binding exposed above, a global whose name is made up at run time
 			const read = Reflect.get(window, bindingName) as () => Promise<string>;
 			const value = await read();
 			element.focus();
