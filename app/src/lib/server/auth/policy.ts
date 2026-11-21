@@ -45,6 +45,26 @@ export function exposureProblem(
 	return null;
 }
 
+/**
+ * The hosts Better Auth answers to on a laptop, where BETTER_AUTH_URL is not set: this computer's
+ * names and the extra names of TEST_APP_ALLOWED_HOSTS (host-check.ts), each on any port. Its links
+ * and trusted origins come from the request's host when it is one of these. Passkeys still need
+ * `localhost`, their relying party there.
+ */
+export function localAuthHosts(allowed: readonly string[] = []): string[] {
+	return ['localhost', '127.0.0.1', '[::1]', ...allowed].flatMap((name) => [name, `${name}:*`]);
+}
+
+/**
+ * Whether a request carries the app's cookies from a page of another origin. On a laptop every
+ * port of `localhost` is an allowed host (localAuthHosts), so Better Auth trusts them all, while a
+ * browser sends the app's cookies to any of them: only the app's own origin may use them.
+ */
+export function foreignOrigin(requestUrl: string, headers: Headers): boolean {
+	const origin = headers.get('origin');
+	return headers.has('cookie') && origin !== null && origin !== new URL(requestUrl).origin;
+}
+
 /** Paths that answer without a session: the sign-in page and what it calls. */
 const PUBLIC = ['/signin', '/api/auth/', '/api/signin-state'];
 
