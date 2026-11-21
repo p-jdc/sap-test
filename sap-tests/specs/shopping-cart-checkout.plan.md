@@ -2,7 +2,7 @@
 
 ## Application Overview
 
-Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand, and corrected after scenarios 1.1 and 1.2 were written and run (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
+Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart demo), from an empty cart to the order confirmation. Explored on 2026-11-21 through the Playwright test MCP server, by hand, and corrected after the three scenarios were written and run (not by the planner agent, whose MCP server was not connected in that session). The app runs on mock data: submitting an order changes nothing real, and every test starts with an empty cart.
 
 **Address:** `https://ui5.sap.com/test-resources/sap/m/demokit/cart/webapp/index.html?sap-ui-theme=sap_horizon_dark` (no login; needs internet access). The checkout is at `#/checkout`, the confirmation at `#/ordercompleted`.
 
@@ -33,7 +33,7 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 - The total stays "Total: 1.249,00 EUR" for every payment and delivery type; the fees named in the texts are not added.
 - The order number on the confirmation was 20171941 in the one run that was submitted. Whether it is the same in every run was not checked; assert the text "Your order number:", not the number.
 
-**Open point for scenario 3:** the error states were read from the controls (`getValueState()`, `getValueStateText()`) with a script in the page. The message text was not found in the page while the field had no focus, and how a test should assert the error state (focus the field and check the message popup, or check the input's `aria-invalid`) was not tried. The generator has to work that out on the running app.
+**Asserting an error state (scenario 3).** A field's error state and message are properties of the control, so they are asserted with the SAP locator itself: `page.getByRoleUI5('Input', { placeholder: '…', valueState: 'Error', valueStateText: '…' })` is visible. The message text is not in the page while the field has no focus.
 
 **Not explored:** the Bank Transfer path beyond its step 3, the "Note" fields, the edit buttons on the order summary, and "No" in the two dialogs.
 
@@ -117,9 +117,9 @@ Complete checkout of SAP's public UI5 demo kit app "Shopping Cart" (sap.m cart d
 4. Open the cart with the existing openCart helper (ToggleButton, icon "sap-icon://cart", visible only, wait until exactly one is left) - expect: Title, text "Shopping Cart" (exact) is visible
 5. Click Button, text "Add to Cart" - expect: ObjectListItem, intro "1 x" is visible - expect: Text, text "Total: 1.249,00 EUR" is visible
 6. Click Button, text "Proceed" - expect: Page, title "Checkout" is visible - expect: WizardStep, title "Items" is visible
-7. Click Button, text "Step 2", then Button, text "Step 3" - expect: WizardStep, title "Credit Card Details" is visible - expect: There is no Button, text "Step 4"
+7. Click Button, text "Step 2", then Button, text "Step 3" - expect: WizardStep, title "Credit Card Details" is visible - expect: There is no Button, text "Step 4" - expect: The card holder input is not in error state
 8. Fill Input, placeholder "Enter card holder name" with "Al", then press Tab - expect: The control has valueState "Error" and valueStateText "Enter a value with at least 3 characters"
-9. Fill MaskInput, placeholder "Enter card number" with "1234", then press Tab - expect: The field shows "1234-****-****-____" and is in error state with the message "Enter a valid value"
+9. Fill MaskInput, placeholder "Enter card number" with "1234", then press Tab - expect: The field shows `1234-____-____-____` and is in error state with the message "Enter a valid value"
 10. Fill MaskInput, placeholder "Enter the 3-digits security number" with "1", then press Tab - expect: The field is in error state with the message "Enter a valid value" - expect: There is no Button, text "Step 4"
 11. Correct the three fields: "Alex Example", "1234567890123456", "123", each followed by Tab; fill the DatePicker with "12/2030" and press Tab - expect: Button, text "Step 4" is visible
 12. Clear Input, placeholder "Enter card holder name" (fill with "") and press Tab - expect: Button, text "Step 4" is gone
