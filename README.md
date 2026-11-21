@@ -128,7 +128,11 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements |
 | Settings | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
-Run data (state, logs, HTML report, traces) lives in `app/.data/runs/<id>/`.
+The run history (each run and the result and steps of each test) is kept in the app's database,
+`app/.data/app.sqlite`, next to sign-in. The log, HTML report, screenshots, videos and traces of a
+run stay files in `app/.data/runs/<id>/`. Runs kept in files by an earlier version
+(`state.json`, `meta.json`) move into the database at the first start, and those files are
+deleted (the retention rules delete steps and error messages in the database only).
 
 ## Setup
 
@@ -237,7 +241,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
-| `TEST_APP_DATA_DIR` | `./.data` | Run history and artifacts |
+| `TEST_APP_DATA_DIR` | `./.data` | The database (`app.sqlite`: run history and sign-in) and each run's files |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
 | `TEST_APP_KEEP_REPORT_DAYS` | `14` | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again |
 | `TEST_APP_KEEP_STEPS_DAYS` | `30` | Days a run keeps the steps of its tests and its log |
@@ -342,7 +346,9 @@ in the three files name tools of that Playwright version.
 cd app
 bun run check      # svelte-check
 bun run test       # Vitest, two projects (like the reference app):
-                   #   server – Node: spec parser, guide rules, run overlay
+                   #   server – on Bun, like the app (Bun's SQLite): spec parser, guide rules,
+                   #            run overlay, run history. Never touches this computer's
+                   #            credential store (src/test/server-setup.ts)
                    #   client – real Chromium via @vitest/browser-playwright + vitest-browser-svelte:
                    #            StatusTag, HistoryDots, StepNode inside a real SvelteFlow
 bun run test:unit  # same, in watch mode

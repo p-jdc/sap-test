@@ -15,6 +15,13 @@
 			"when": 1795297465462,
 			"tag": "0001_admin_recovery",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1795301909780,
+			"tag": "0002_run_history",
+			"breakpoints": true
 		}
 	]
 }

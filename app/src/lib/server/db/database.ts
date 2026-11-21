@@ -13,9 +13,9 @@ const FILE = join(DATA_DIR, 'app.sqlite');
 /** Next to package.json, where the app runs from (also in a container image). */
 const MIGRATIONS = resolve(process.cwd(), 'drizzle');
 
-export function openDatabase() {
+function openDatabase() {
 	mkdirSync(DATA_DIR, { recursive: true });
-	// Holds the session tokens: this user only. SQLite gives its -wal and -shm files the same.
+	// Holds the session tokens and the run history: this user only. SQLite gives its -wal and -shm files the same.
 	if (!existsSync(FILE)) writeFileSync(FILE, '', { mode: 0o600 });
 	chmodSync(FILE, 0o600);
 	const client = new Database(FILE, { create: true });
@@ -26,3 +26,11 @@ export function openDatabase() {
 }
 
 export type AppDatabase = ReturnType<typeof openDatabase>;
+
+let opened: AppDatabase | undefined;
+
+/** The app's database, opened on first use. Sign-in and the run history share it. */
+export function database(): AppDatabase {
+	opened ??= openDatabase();
+	return opened;
+}

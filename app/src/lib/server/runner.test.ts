@@ -124,7 +124,7 @@ async function freshRunner(
 		import('./runs-store.js'),
 		import('./paths.js')
 	]);
-	return { ...runner, ...store, RUNS_DIR: paths.RUNS_DIR };
+	return { ...runner, ...store, RUNS_DIR: paths.RUNS_DIR, DATA_DIR: paths.DATA_DIR };
 }
 
 type Runner = Awaited<ReturnType<typeof freshRunner>>;
@@ -196,14 +196,9 @@ describe('startRun', () => {
 		expect(state.log.join('\n')).not.toContain('@@pwlive@@');
 		expect(readFileSync(join(runner.RUNS_DIR, id, 'output.log'), 'utf8')).toContain('hello ä');
 
-		// The results alone, for the reliability table.
-		expect(JSON.parse(readFileSync(join(runner.RUNS_DIR, id, 'results.json'), 'utf8'))).toEqual([
-			{
-				key: 'a.spec.ts::creates an order',
-				file: 'a.spec.ts',
-				title: 'creates an order',
-				status: 'passed'
-			}
+		// Stored for the reliability table.
+		expect(runner.stability()).toMatchObject([
+			{ key: 'a.spec.ts::creates an order', streak: 1, lastStatus: 'passed' }
 		]);
 
 		expect(runner.activeRunId()).toBeNull();
@@ -247,9 +242,12 @@ describe('startRun', () => {
 		expect(must(result.steps[0]).title).toBe('Fill "***"');
 		expect(result.error?.message).toBe('Expected "***" to be gone');
 		expect(state.log).toContain('typed ***');
-		const stored = ['state.json', 'meta.json', 'output.log'].map((f) =>
-			readFileSync(join(runner.RUNS_DIR, id, f), 'utf8')
-		);
+		// The log, and the database with its write-ahead log.
+		const stored = [
+			join(runner.RUNS_DIR, id, 'output.log'),
+			...['app.sqlite', 'app.sqlite-wal'].map((f) => join(runner.DATA_DIR, f))
+		].map((f) => readFileSync(f, 'latin1'));
+		expect(stored.join('\n')).toContain('typed ***');
 		expect([JSON.stringify(state), ...stored].join('\n')).not.toContain('pw-from-env');
 	});
 

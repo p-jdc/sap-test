@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runSettings } from './env-file.js';
 import { lineSplitter } from './lines.js';
@@ -21,7 +21,7 @@ import {
 	pruneRuns,
 	readRunState,
 	rememberFinished,
-	writeResults
+	saveRun
 } from './runs-store.js';
 import type { LiveView, RunState, RunStatus, RunStep } from '#lib/shared/types.js';
 
@@ -43,16 +43,6 @@ function newId() {
 		`${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-` +
 		Math.random().toString(36).slice(2, 6)
 	);
-}
-
-function persist(live: Live) {
-	const { log, ...rest } = live.state;
-	void log;
-	writeFileSync(join(live.dir, 'state.json'), JSON.stringify(rest));
-	const { tests, hasReport, ...meta } = rest;
-	void hasReport;
-	writeFileSync(join(live.dir, 'meta.json'), JSON.stringify(meta));
-	if (rest.finishedAt) writeResults(live.dir, tests);
 }
 
 export type StartRunInput = {
@@ -136,7 +126,7 @@ export async function startRun(
 	};
 	active = live;
 	markLive(id);
-	persist(live);
+	saveRun(live.state);
 
 	const logFile = join(dir, 'output.log');
 	const onLine = (raw: string) => {
@@ -211,7 +201,7 @@ function finish(live: Live, code: number | null, forced?: RunStatus) {
 	}
 	recount(state);
 	state.hasReport = existsSync(join(live.dir, 'report/index.html'));
-	persist(live);
+	saveRun(state);
 	rememberFinished(state.id);
 	pruneRuns();
 	applyRetention();

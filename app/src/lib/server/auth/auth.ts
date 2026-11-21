@@ -15,7 +15,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { getRequestEvent } from '$app/server';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { openDatabase, type AppDatabase } from '../db/database.js';
+import { database, type AppDatabase } from '../db/database.js';
 import * as schema from '../db/schema.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
@@ -281,7 +281,7 @@ function openRecovery(store: Store, base: string) {
  */
 export function signIn() {
 	ready ??= Promise.resolve().then(() => {
-		const db = openDatabase();
+		const db = database();
 		const setup = { token: null as string | null };
 		const store = openStore(db);
 		const { auth } = createAuth(db, store, setup);

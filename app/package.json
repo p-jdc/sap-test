@@ -17,14 +17,14 @@
 		"lint": "bun run lint:light && eslint .",
 		"format": "oxfmt && prettier --write \"**/*.svelte\"",
 		"start": "export HOST=\"${HOST:-127.0.0.1}\"; if [ -f cert/cert.pem ] && [ -f cert/key.pem ]; then export HTTP_2=true TLS_CERT_FILE=cert/cert.pem TLS_KEY_FILE=cert/key.pem; fi; bun build/index.js",
-		"test:unit": "vitest",
-		"test": "vitest --run",
+		"test:unit": "bunx --bun vitest",
+		"test": "bunx --bun vitest --run",
 		"test:e2e": "playwright test",
 		"lint:light": "oxlint --type-aware --deny-warnings && oxfmt --check && prettier --check \"**/*.svelte\" && knip",
 		"format:check": "oxfmt --check && prettier --check \"**/*.svelte\"",
 		"knip": "knip",
 		"setup:cert": "bun scripts/setup-cert.ts",
-		"test:coverage": "vitest --run --coverage"
+		"test:coverage": "bunx --bun vitest --run --coverage"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
