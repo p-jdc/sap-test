@@ -172,6 +172,34 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
 
+### AI test agents (guide §5.4, §6.4)
+
+Playwright's own test agents are set up for Claude Code and adapted to the SAP rules in
+`sap-tests/CLAUDE.md`. They were generated with `playwright init-agents --loop=claude` in `sap-tests`
+and then moved to the repo root, where Claude Code sessions start:
+
+| File | Role |
+| --- | --- |
+| `.claude/agents/playwright-test-planner.md` | Explores the running application and writes a test plan to `sap-tests/specs/`. No code |
+| `.claude/agents/playwright-test-generator.md` | Turns a plan into a test under `sap-tests/tests/`, with SAP locators, and runs it |
+| `.claude/agents/playwright-test-healer.md` | Finds the cause of a failing test and repairs the test, or reports an application error. Never removes or loosens a check |
+
+They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
+started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
+from a seed test: `sap-tests/tests/_agents/seed.spec.ts` (empty page) or `seed-sap.spec.ts` (logged
+in with the values from `sap-tests/.env`; values saved on the Settings page are not read). The seeds
+import from `sap-plugin`, which is what makes `page.getByRoleUI5` and the other SAP locators work in
+the agents' browser.
+
+Ask for a role by name in Claude Code, for example "use the planner agent to plan the checkout of
+<address>". A person reviews every plan and every generated or repaired test; such tests carry
+`// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there, and the app lists
+them as not reviewed. What the agents see on screen is sent to the AI provider, so use them on test
+systems with synthetic data only (guide §9).
+
+After a Playwright upgrade, run `init-agents` again in a scratch folder and compare: the tool lists
+in the three files name tools of that Playwright version.
+
 ## Development
 
 ```bash
