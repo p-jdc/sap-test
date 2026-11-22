@@ -673,10 +673,15 @@ test('checks: a value, a text and a button are recorded without the clicks reach
 		await ui5Started(page);
 		await page.getByRole('searchbox').fill('Screen clean');
 		await page.getByRole('searchbox').press('Enter');
+		await page.waitForUI5();
+		const searched = page.url();
 		await checkLikeAPerson(page, page.getByRole('searchbox'));
 		await checkLikeAPerson(page, product(page));
-		// Checking the cart button does not open the cart, and checking the product does not open it.
+		// Checking the cart button does not open the cart, and checking the product does not open it:
+		// once UI5 has come to rest, the app is still where it was.
 		await checkLikeAPerson(page, cartButton(page));
+		await page.waitForUI5();
+		expect(page.url()).toBe(searched);
 		await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeHidden();
 		await expect(page.getByText('Your shopping cart is empty')).toBeHidden();
 		// Escape leaves the check mode without a step; the next click is a click again.
@@ -710,6 +715,63 @@ test('checks: a value, a text and a button are recorded without the clicks reach
 	await replay(browser, cartDemo, steps, async (page) => {
 		await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeVisible();
 	});
+});
+
+// A launchpad with a title of its own (a SID, so it is recorded) whose app frame comes later.
+const lateShell: Flow = {
+	url: 'https://shell.test/',
+	prepare: async (context) => {
+		await webgui.prepare?.(context);
+		await context.route('https://shell.test/', (route) =>
+			route.fulfill(
+				html(`<!doctype html><html><body>
+<h1 lsdata='{"SID":"wnd[0]/titl/txtTITLE"}'>Shell</h1></body></html>`)
+			)
+		);
+	}
+};
+const openApp = (page: Page) =>
+	page.evaluate(() => {
+		const frame = document.createElement('iframe');
+		frame.name = 'application';
+		frame.src = 'https://webgui.test/';
+		frame.style.cssText = 'width:1000px;height:400px';
+		document.body.append(frame);
+	});
+
+test('checks across frames: a frame loaded after Check, and typing in another frame', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, lateShell, async (page) => {
+		// Check is pressed before the app's frame exists.
+		await checkButton(page).click();
+		await openApp(page);
+		const app = page.frameLocator('iframe');
+		await app.getByRole('button', { name: 'Run' }).waitFor();
+		// The new document asked the recorder outside for the mode of its page.
+		await page
+			.frame({ name: 'application' })!
+			.waitForFunction(() => window.sapRecorderState?.checking);
+		await app.getByRole('button', { name: 'Run' }).click();
+		// That click was a check: the button was not pressed.
+		await expect(app.getByRole('button', { name: 'Run' })).toBeVisible();
+		await expect(checkButton(page)).toBeVisible();
+
+		// Typed in the frame, then a check in the top frame while the cursor is still in the field.
+		await app.getByLabel('Order').click();
+		await app.getByLabel('Order').pressSequentially('4711');
+		await checkButton(page).click();
+		await page.getByText('Shell').click();
+	});
+
+	expect(steps.map((step) => [step.action, step.sid, step.check])).toEqual([
+		['expect', 'wnd[0]/tbar[1]/btn[8]', 'text'],
+		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['expect', 'wnd[0]/titl/txtTITLE', 'text']
+	]);
+	expect(steps[0]?.value).toBe('Run');
+	expect(steps[2]?.value).toBe('4711');
 });
 
 const CHECK_BOX =

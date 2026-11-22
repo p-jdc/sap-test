@@ -122,7 +122,7 @@ function recorderScript(binding: string) {
 		action: string;
 		selector?: unknown;
 	};
-	type Report = (step: PageStep) => Promise<void>;
+	type Report = (step: PageStep | { action: 'mode' }) => Promise<unknown>;
 	type Editable = HTMLInputElement | HTMLTextAreaElement;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-chained-type-assertions -- the binding and UI5's loader are globals this file cannot declare: the name of the first is a parameter, and ui5.ts declares the second without the callback form
 	const win = window as unknown as {
@@ -461,7 +461,9 @@ function recorderScript(binding: string) {
 	// value themselves (sap.m.MaskInput) are covered too.
 	const isEditable = (target: EventTarget | null): target is Editable =>
 		target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
-	type Field = { described: Promise<Described>; value: string; secret: boolean };
+	// `typedAt`: the time of the last key, which is when the fill happened. The field is often left
+	// much later (or, in check mode, not at all before a check in another frame).
+	type Field = { described: Promise<Described>; value: string; secret: boolean; typedAt?: number };
 	const fields = new WeakMap<Element, Field>();
 	// A password must not end up in a spec file. A field that was a password field once stays one
 	// for the recorder: a "show password" button turns it into a text field.
@@ -537,8 +539,10 @@ function recorderScript(binding: string) {
 		if (!known || known.value === field.value) return;
 		known.secret ||= isSecret(field);
 		const typed = known.secret ? { secret: true } : { value: field.value };
-		const step = { ...next(), action: 'fill', ...typed, hint: hintFor(field) };
+		const typedAt = known.typedAt === undefined ? {} : { at: known.typedAt };
+		const step = { ...next(), ...typedAt, action: 'fill', ...typed, hint: hintFor(field) };
 		known.value = field.value;
+		known.typedAt = undefined;
 		// Typed by hand: the picker's change that follows is this value, already recorded.
 		const picker = pickerOf(field);
 		if (picker) armed.delete(picker);
@@ -563,11 +567,18 @@ function recorderScript(binding: string) {
 		'input',
 		(event) => {
 			const field = event.target;
-			if (!isEditable(field) || !watched(field) || fields.has(field)) return;
+			if (!isEditable(field) || !watched(field)) return;
+			const typedAt = performance.timeOrigin + performance.now();
+			const known = fields.get(field);
+			if (known) {
+				known.typedAt = typedAt;
+				return;
+			}
 			fields.set(field, {
 				described: describe(field),
 				value: field.value === '' ? ' ' : '',
-				secret: isSecret(field)
+				secret: isSecret(field),
+				typedAt
 			});
 		},
 		true
@@ -609,11 +620,16 @@ function recorderScript(binding: string) {
 		if (!on) overlay.remove();
 		showBadge();
 	};
-	// The mode is the same in every frame of the page: the recorder outside passes it on.
+	// The mode is the same in every frame of the page: the recorder outside passes it on, and a
+	// document that loads later (an iframe of a launchpad, a page after a round trip) asks for it.
 	const checkEverywhere = (on: boolean) => {
 		state.setChecking?.(on);
 		void win[binding]({ action: 'checking', checked: on });
 	};
+	void win[binding]({ action: 'mode' }).then((on) => {
+		if (on === true && !state.checking) state.setChecking?.(true);
+		return on;
+	});
 	const TICKABLE =
 		'input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]';
 	const isTickable = (element: Element) => element.matches(TICKABLE);
@@ -754,8 +770,11 @@ function recorderScript(binding: string) {
 
 /* oxlint-enable unicorn/consistent-function-scoping */
 
-/** What a frame reports when the Check button turns the check mode on or off. */
-type CheckingMode = { action: 'checking'; checked: boolean };
+/**
+ * What a frame reports when the Check button turns the check mode on or off, and what a new
+ * document asks to learn the mode of its page.
+ */
+type CheckingMode = { action: 'checking'; checked: boolean } | { action: 'mode' };
 
 const isSelector = (value: unknown): value is UI5ControlSelector =>
 	typeof value === 'object' && value !== null && Object.keys(value).length > 0;
@@ -785,15 +804,18 @@ export async function installRecorder(
 ): Promise<() => Promise<RecordedStep[]>> {
 	const steps: RecordedStep[] = [];
 	const arriving: Promise<unknown>[] = [];
+	const checking = new WeakMap<Page, boolean>();
 	await context.exposeBinding(BINDING, ({ frame }, raw: RecordedStep | CheckingMode) => {
+		if (raw.action === 'mode') return checking.get(frame.page()) ?? false;
 		if (raw.action === 'checking') {
 			// The Check button was pressed, or a check was recorded: the same mode in every frame.
+			checking.set(frame.page(), raw.checked);
 			for (const other of frame.page().frames())
 				if (other !== frame)
 					void other
 						.evaluate((on) => window.sapRecorderState?.setChecking?.(on), raw.checked)
 						.catch(() => undefined);
-			return;
+			return raw.checked;
 		}
 		const step = { ...raw, selector: isSelector(raw.selector) ? raw.selector : undefined };
 		arriving.push(
@@ -801,6 +823,7 @@ export async function installRecorder(
 				.catch(() => [])
 				.then((frames) => steps.push(frames.length ? { ...step, frames } : step))
 		);
+		return false;
 	});
 	await context.addInitScript(recorderScript, BINDING);
 	return async () => {
