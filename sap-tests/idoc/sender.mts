@@ -7,6 +7,7 @@
 // (mutual TLS) mapped to a user in SAP.
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { rootCertificates } from 'node:tls';
 import { XMLParser } from 'fast-xml-parser';
 import { IdocError, type Idoc } from './idoc.mts';
 import { toIdocXml } from './xml.mts';
@@ -130,8 +131,9 @@ function textsOf(node: unknown, name: string, found: string[] = []): string[] {
 
 /**
  * Reads SAP's answer. From /sap/bc/srt/idoc it is a SOAP envelope: on success it names each IDoc's number in a
- * `DbId` element (CPI passes it on as the header SapIDocDbId), on failure it holds a SOAP fault. Anything that
- * isn't XML (an HTML error page, plain text) only counts by its HTTP status.
+ * `DbId` element (CPI passes it on as the header SapIDocDbId), on failure it holds a SOAP fault. A SOAP send counts
+ * as taken only with an envelope without a fault: a logon or error page in front of the service may come with
+ * status 200 too. A web page never counts as taken, whatever its status.
  */
 export function readSapAnswer(
 	service: SapService,
@@ -147,17 +149,35 @@ export function readSapAnswer(
 		}
 	}
 	const fault = parsed === undefined ? undefined : textsOf(parsed, 'faultstring')[0];
-	const ok = status >= 200 && status < 300 && fault === undefined;
+	const envelope =
+		typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && 'Envelope' in parsed;
+	const page = /^\s*(<!DOCTYPE\s+html|<html[\s>])/i.test(body);
+	const ok =
+		status >= 200 &&
+		status < 300 &&
+		fault === undefined &&
+		!page &&
+		(service === 'xml' || envelope);
 	const idocNumbers =
 		ok && service === 'soap' && parsed !== undefined
 			? textsOf(parsed, 'DbId').filter((n) => /^\d+$/.test(n))
 			: [];
 	if (ok) return { ok, idocNumbers };
+	const what =
+		status >= 200 && status < 300 && fault === undefined
+			? page
+				? 'SAP answered with a web page instead of the service (a logon page?): '
+				: 'SAP answered without a SOAP envelope: '
+			: '';
 	const text = body
 		.replaceAll(/<[^>]*>/g, ' ')
 		.replaceAll(/\s+/g, ' ')
 		.trim();
-	return { ok, idocNumbers, reason: fault ?? (text.slice(0, 300) || `HTTP ${status}`) };
+	return {
+		ok,
+		idocNumbers,
+		reason: fault ?? (what + text.slice(0, 300) || `HTTP ${status}`)
+	};
 }
 
 function readAnswer(response: IncomingMessage): Promise<string> {
@@ -205,8 +225,8 @@ export async function sendToSap(target: SapTarget, idocs: Idoc | Idoc[]): Promis
 				...(https && {
 					cert: target.tls?.cert,
 					key: target.tls?.key,
-					// The usual CAs stay trusted; the given one is added for SAP's own certificate.
-					ca: target.tls?.ca ? [target.tls.ca] : undefined
+					// Node's `ca` replaces the usual CAs; they are passed along, so the given one is added to them.
+					ca: target.tls?.ca ? [...rootCertificates, target.tls.ca] : undefined
 				})
 			};
 			const onResponse = (response: IncomingMessage) => {

@@ -162,6 +162,25 @@ test.describe('sending into SAP', () => {
 			idocNumbers: [],
 			reason: '500 Internal Server Error Service cannot be reached'
 		});
+		// Status 200 but not the service: a logon page in front of it, or something that isn't SOAP.
+		expect(
+			readSapAnswer('soap', 200, '<!DOCTYPE html><html><body>Logon</body></html>')
+		).toMatchObject({ ok: false, reason: expect.stringMatching(/^SAP answered with a web page/) });
+		expect(readSapAnswer('xml', 200, '<html><body>Logon</body></html>').ok).toBe(false);
+		expect(readSapAnswer('soap', 200, '<ok/>')).toMatchObject({
+			ok: false,
+			reason: expect.stringMatching(/without a SOAP envelope/)
+		});
+		expect(readSapAnswer('soap', 200, '')).toMatchObject({ ok: false });
+		// An envelope without numbers still counts: SAP took the IDocs, the numbers are just not known.
+		expect(
+			readSapAnswer(
+				'soap',
+				200,
+				'<e:Envelope xmlns:e="http://schemas.xmlsoap.org/soap/envelope/"><e:Body/></e:Envelope>'
+			)
+		).toEqual({ ok: true, idocNumbers: [] });
+		expect(readSapAnswer('xml', 200, '')).toEqual({ ok: true, idocNumbers: [] });
 		expect(readSapAnswer('xml', 403, '')).toEqual({
 			ok: false,
 			idocNumbers: [],
@@ -261,6 +280,35 @@ test.describe('the receiver’s POST /send', () => {
 		const away = SentIdocsSchema.parse((await control(r, 'POST', '/send', { idocs: [bare] })).body);
 		expect(away.result).toMatchObject({ ok: false, status: 0 });
 		expect(away.result.reason).toMatch(/could not reach SAP/);
+	});
+
+	test('a large send keeps characters that fall on a chunk boundary', async () => {
+		const sap = await fakeSap();
+		const r = await receiver({ sap: { url: sap.url } });
+		// Two bytes each in UTF-8, well beyond one chunk of the request. The single-byte x between the runs
+		// shifts them by one byte, so some chunk boundary falls inside a character.
+		const long = Array.from({ length: 40 }, () => 'äöüß'.repeat(1500)).join('x');
+		const big = { ...bare, segments: [{ name: 'E1EDK01', fields: { BELNR: long }, children: [] }] };
+		const sent = SentIdocsSchema.parse((await control(r, 'POST', '/send', { idocs: [big] })).body);
+		expect(sent.result.ok).toBe(true);
+		expect(sap.received[0].idoc.segments[0].fields.BELNR).toBe(long);
+	});
+
+	test('the stand-in’s answer can be set only when there is one', async () => {
+		const sap = await fakeSap();
+		const withFake = await receiver({ sap: { url: sap.url }, fakeSap: sap });
+		expect((await control(withFake, 'GET', '/info')).body).toMatchObject({
+			sap: { standIn: true }
+		});
+		expect(
+			(await control(withFake, 'PUT', '/fake-sap/reply', { mode: 'reject', status: 503 })).body
+		).toEqual({ mode: 'reject', status: 503, message: 'Rejected by the stand-in for SAP' });
+		expect(sap.reply).toMatchObject({ mode: 'reject', status: 503 });
+
+		const withoutFake = await receiver({ sap: { url: sap.url } });
+		expect((await control(withoutFake, 'PUT', '/fake-sap/reply', { mode: 'accept' })).status).toBe(
+			409
+		);
 	});
 
 	test('without an SAP system set, sending is refused', async () => {

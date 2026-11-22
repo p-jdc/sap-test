@@ -29,6 +29,31 @@ test('send takes IDocs built in the test, several of one type at once', async ({
 	expect(result.idocNumbers).toHaveLength(2);
 });
 
+/** How the stand-in for SAP in the receiver answers. */
+const setFakeSapReply = (reply: unknown) =>
+	fetch(`${process.env.IDOC_HUB_URL}/fake-sap/reply`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(reply)
+	});
+
+test('with expectOk: false, SAP’s refusal comes back instead of failing the step', async ({
+	idocSender
+}) => {
+	expect((await setFakeSapReply({ mode: 'reject', message: 'No partner profile' })).status).toBe(
+		200
+	);
+	try {
+		const { result } = await idocSender.send(order, { expectOk: false });
+		expect(result).toMatchObject({ ok: false, status: 500, reason: 'No partner profile' });
+		await expect(idocSender.send(order)).rejects.toThrow(
+			'SAP did not take the IDocs (HTTP 500): No partner profile'
+		);
+	} finally {
+		await setFakeSapReply({ mode: 'accept' });
+	}
+});
+
 test('an IDoc marked outbound is refused before anything is sent', async ({ idocSender }) => {
 	const outbound = readFileSync(
 		new URL('../../idoc/samples/orders05.xml', import.meta.url),

@@ -110,7 +110,7 @@ let receiver;
 try {
 	receiver = await startReceiver({
 		sap,
-		sapStandIn: Boolean(fake),
+		fakeSap: fake,
 		host: env.IDOC_HOST || '127.0.0.1',
 		port: port(env.IDOC_PORT, 47200),
 		tls: cert && key ? { cert, key, ca, clientFingerprint } : undefined,

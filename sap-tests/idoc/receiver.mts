@@ -34,6 +34,7 @@ import {
 	type Reply,
 	type SentIdocs
 } from './inbox.mts';
+import type { RunningFakeSap } from './fake-sap.mts';
 import { asInbound, checkTarget, sendToSap, type SapTarget, type SendResult } from './sender.mts';
 import { parseIdocXml, toIdocXml } from './xml.mts';
 
@@ -62,9 +63,19 @@ export interface ReceiverOptions {
 	maxBody?: number;
 	/** The SAP system `POST /send` sends IDocs into. Without it, the receiver only receives. */
 	sap?: SapTarget;
-	/** `sap` is the stand-in of fake-sap.mts, not an SAP system: `/info` says so. */
-	sapStandIn?: boolean;
+	/** `sap` is this stand-in of fake-sap.mts, not an SAP system: `/info` says so, and `PUT /fake-sap/reply`
+	 * sets how it answers. */
+	fakeSap?: RunningFakeSap;
 }
+
+const FakeReplySchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('accept') }),
+	z.object({
+		mode: z.literal('reject'),
+		status: z.number().int().min(400).max(599).default(500),
+		message: z.string().min(1).max(500).default('Rejected by the stand-in for SAP')
+	})
+]);
 
 /** What `/info` tells about the SAP system IDocs are sent to: never the login itself. */
 export interface SapTargetInfo {
@@ -332,7 +343,7 @@ function controlHandler(
 	token: string | undefined,
 	idocUrl: () => string,
 	sap: SapTarget | undefined,
-	sapStandIn: boolean
+	fakeSap: RunningFakeSap | undefined
 ) {
 	return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
 		if (!token) checkHost(request);
@@ -343,7 +354,7 @@ function controlHandler(
 			return json(response, 200, {
 				idocUrl: idocUrl(),
 				instance: inbox.instance,
-				sap: targetInfo(sap, sapStandIn)
+				sap: targetInfo(sap, Boolean(fakeSap))
 			});
 
 		if (method === 'POST' && path === '/send') {
@@ -354,6 +365,12 @@ function controlHandler(
 				);
 			const body = await readBody(request, SendBodySchema, MAX_SEND);
 			return json(response, 200, await sendAndRecord(inbox, sap, body));
+		}
+		// Only with the stand-in: how it answers, to test a refusal from "SAP".
+		if (method === 'PUT' && path === '/fake-sap/reply') {
+			if (!fakeSap) throw new UserError('there is no stand-in for SAP (IDOC_FAKE_SAP=1)', 409);
+			fakeSap.reply = await readBody(request, FakeReplySchema);
+			return json(response, 200, fakeSap.reply);
 		}
 		if (path === '/sent') {
 			if (method === 'GET') {
@@ -509,7 +526,7 @@ export async function startReceiver(options: ReceiverOptions = {}): Promise<Runn
 		options.controlToken,
 		() => idocUrl,
 		options.sap,
-		Boolean(options.sapStandIn)
+		options.fakeSap
 	);
 	const controlListener = (request: IncomingMessage, response: ServerResponse) => {
 		onControl(request, response).catch((error: unknown) => fail(response, error));
