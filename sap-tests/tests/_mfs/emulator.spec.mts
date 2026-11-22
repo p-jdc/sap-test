@@ -289,6 +289,17 @@ test('control API: fault rules and telegrams sent on request, checked against th
 	// Starting from an empty warehouse clears the rules with the other faults.
 	emulator.reset();
 	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toBeUndefined();
+	// A telegram a delay rule still holds does not go out in the next run either.
+	await post('/plcs/CONS/faults', { rules: [{ type: 'WTCO', action: 'delay', delayMs: 60_000 }] });
+	expect((await post('/plcs/CONS/send', { type: 'WTCO', fields: { tanum: '9' } })).status).toBe(
+		200
+	);
+	emulator.reset();
+	expect(
+		emulator
+			.log()
+			.filter((entry) => entry.note === 'dropped while delayed: the warehouse was reset')
+	).toMatchObject([{ type: 'WTCO', notSent: true, fields: { tanum: '9' } }]);
 
 	expect((await post('/plcs/CONS/send', { raw: '\u0002garbage\u0003' })).status).toBe(200);
 	expect((await post('/plcs/CONS/send', { type: 'WTCO', fields: { tanum: 'abc' } })).status).toBe(
@@ -400,10 +411,14 @@ test('a telegram EWM never acknowledged goes out again when EWM connects again',
 	await expect
 		.poll(() => emulator.events())
 		.toContainEqual(expect.objectContaining({ kind: 'telegrams-kept', plc: 'CONS', count: 1 }));
+	// It went through the fault rules when it was first sent; a rule set since does not apply to it.
+	const drop = { type: 'STAT', action: 'drop', times: 1 } as const;
+	emulator.setFaults('CONS', { rules: [drop] });
 
 	const second = await silentPeer(port);
 	await expect.poll(() => second.data()).toContain('STAT');
 	expect(second.data()).toContain(device);
+	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toEqual([drop]);
 	second.socket.destroy();
 });
 

@@ -186,6 +186,42 @@ test('a delayed telegram goes out late, and is handed back if the connection end
 	expect(plc.closedWith()?.map((telegram) => telegram.fields.tanum)).toEqual(['2']);
 });
 
+test('a delayed telegram that cannot be built fails at once, and held ones can be dropped', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules({ type: 'WTCO', action: 'delay', delayMs: 60_000, times: 2 });
+	expect(() => plc.channel.send('WTCO', { ...confirmation('1'), result: 'TOOLONG' })).toThrow(
+		'longer than 4 characters'
+	);
+	plc.channel.send('WTCO', confirmation('2'));
+	plc.channel.dropDelayed('the warehouse was reset');
+
+	expect(plc.log.filter((entry) => entry.notSent)).toMatchObject([
+		{ note: 'dropped while delayed: the warehouse was reset', fields: { tanum: '2' } }
+	]);
+	plc.channel.close();
+	await expect.poll(() => plc.closedWith()).toEqual([]);
+	expect(ewm.received).toEqual([]);
+});
+
+test('a rule on a numeric field matches the value however it is padded; a resend skips the rules', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules(
+		{ type: 'WTCO', fields: { tanum: '7' }, action: 'drop' },
+		{ type: 'WTCO', fields: { tanum: '000000000008' }, action: 'drop' },
+		{ type: 'WTCO', fields: { tanum: '9' }, action: 'drop' }
+	);
+	plc.channel.send('WTCO', confirmation('000000000007'));
+	plc.channel.send('WTCO', confirmation('8'));
+	plc.channel.send('WTCO', confirmation('9'), { rules: false });
+
+	await expect.poll(() => tanums(ewm)).toEqual([9]);
+	expect(plc.channel.faults.rules).toMatchObject([{ fields: { tanum: '9' }, times: 1 }]);
+});
+
 test('raw text is sent exactly as given, a broken telegram included', async ({ pair }) => {
 	const { ewm, plc } = pair;
 	const wellFormed = encode(

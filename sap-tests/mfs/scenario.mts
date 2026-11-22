@@ -278,10 +278,12 @@ function withoutPlaceholders(fields: Record<string, string>): Record<string, str
 function concrete(rule: FaultRuleInput): FaultRuleInput {
 	if (rule.action !== 'change') return rule;
 	const set = withoutPlaceholders(rule.set);
-	// Names still checked; a set left without concrete values has nothing to encode.
+	// Every name in `set` is checked as one of `fields`; only the concrete values are encoded, and a set left
+	// without any has nothing to encode.
+	const fields = { ...rule.fields, ...rule.set };
 	return Object.keys(set).length > 0
-		? { ...rule, set }
-		: { ...rule, action: 'drop', fields: { ...rule.fields, ...rule.set } };
+		? { ...rule, fields, set }
+		: { ...rule, action: 'drop', fields };
 }
 
 const fieldList = (fields: Record<string, string> | undefined) => {

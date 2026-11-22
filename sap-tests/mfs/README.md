@@ -120,12 +120,15 @@ how EWM copes when a PLC misbehaves:
 | `change`    | goes out with the field values in `set`: a wrong HU, bin or result                               |
 
 - `type` and the field names are the telegram layout's; `fields` narrows the rule to telegrams with these values.
-  A rule that does not fit the layout is refused.
+  A numeric field matches by value, so `"tanum": "7"` matches the task number sent as `000000000007`. A rule
+  that does not fit the layout is refused.
 - A rule acts on `times` telegrams (default 1), then it is used up. Several rules: the first that matches acts.
   Setting `rules` replaces the PLC's rules; `[]` clears them, and so does a fresh demo run.
 - Rules only act on telegrams the PLC sends. What EWM sends is untouched; `dropAcks` withholds acknowledgements.
 - A dropped telegram appears in the log marked `notSent`, and telegram conditions do not count it. A delayed one
-  that was not sent when the connection ends goes out after the reconnect.
+  that was not sent when the connection ends goes out after the reconnect, without further delay. A fresh demo
+  run drops the delayed ones still held.
+- A telegram goes through the rules once. Sent again after a reconnect, it goes out as it was first sent.
 - `sendTelegram` makes a PLC send what no device reported: a telegram built from type and fields (it goes through
   the rules and waits for its acknowledgement), or `raw` text exactly as given, start and end characters included,
   broken on purpose if need be.

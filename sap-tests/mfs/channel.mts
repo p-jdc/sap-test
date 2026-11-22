@@ -197,9 +197,12 @@ export class Channel {
 		return !this.#closed;
 	}
 
-	/** Sends a telegram that the other side must acknowledge, unless a fault rule changes what happens. */
-	send(type: string, fields: Fields): void {
-		const rule = this.#ruleFor(type, fields);
+	/**
+	 * Sends a telegram that the other side must acknowledge, unless a fault rule changes what happens. A telegram
+	 * sent again after a reconnect has been through the rules once already: `rules: false` sends it as it is.
+	 */
+	send(type: string, fields: Fields, options: { rules?: boolean } = {}): void {
+		const rule = options.rules === false ? undefined : this.#ruleFor(type, fields);
 		if (!rule) {
 			this.#sendNow(type, fields);
 			return;
@@ -216,12 +219,22 @@ export class Channel {
 			return;
 		}
 		if (rule.action === 'delay') {
+			// Built once now, so a telegram that cannot be built fails here, for the caller, as it would undelayed.
+			encode(this.#layout, type, {}, fields);
 			const held = {
 				type,
 				fields,
 				timer: setTimeout(() => {
 					this.#delayed.delete(held);
-					this.#sendNow(type, fields, `delayed ${rule.delayMs} ms (fault rule)`);
+					// Runs from a timer: a telegram that cannot be built must not end the program.
+					try {
+						this.#sendNow(type, fields, `delayed ${rule.delayMs} ms (fault rule)`);
+					} catch (error) {
+						const reason = error instanceof Error ? error.message : String(error);
+						this.#entry(this.local, this.remote, type, '', fields, `not sent: ${reason}`, {
+							notSent: true
+						});
+					}
 				}, rule.delayMs)
 			};
 			this.#delayed.add(held);
@@ -265,14 +278,36 @@ export class Channel {
 		return seq;
 	}
 
+	/**
+	 * Drops the telegrams a delay rule still holds, so that they never go out: for a fresh start, when what
+	 * they report no longer exists.
+	 */
+	dropDelayed(reason: string): void {
+		for (const { timer, type, fields } of this.#delayed) {
+			clearTimeout(timer);
+			this.#entry(this.local, this.remote, type, '', fields, `dropped while delayed: ${reason}`, {
+				notSent: true
+			});
+		}
+		this.#delayed.clear();
+	}
+
 	/** The first rule for this telegram; uses up one of its times. */
 	#ruleFor(type: string, fields: Fields): FaultRule | undefined {
 		const rules = this.faults.rules;
+		const defs = this.#layout.telegrams[type] ?? [];
+		// A numeric field matches by its value: "7" is the task number that travels as "000000000007".
+		const same = (name: string, value: string) => {
+			const actual = fields[name] ?? '';
+			return defs.find((def) => def.name === name)?.type === 'numc'
+				? bare(actual) === bare(value)
+				: actual === value;
+		};
 		const index =
 			rules?.findIndex(
 				(rule) =>
 					rule.type === type &&
-					Object.entries(rule.fields ?? {}).every(([name, value]) => fields[name] === value)
+					Object.entries(rule.fields ?? {}).every(([name, value]) => same(name, value))
 			) ?? -1;
 		const rule = rules?.[index];
 		if (!rules || !rule) return undefined;

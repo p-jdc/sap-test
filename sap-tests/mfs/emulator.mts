@@ -192,7 +192,8 @@ interface PlcState {
 	server: Server;
 	port: number;
 	channel: Channel | undefined;
-	outbox: { type: string; fields: Fields }[];
+	/** Telegrams for when EWM connects again. `ruled`: it went through the fault rules before, so not again. */
+	outbox: { type: string; fields: Fields; ruled?: boolean }[];
 	faults: ChannelFaults;
 }
 
@@ -291,7 +292,9 @@ export class Emulator {
 						this.#event('ewm-disconnected', `${plc.id}: EWM disconnected`, { plc: plc.id });
 						if (unacknowledged.length === 0) return;
 						// EWM never confirmed these: they go out again, first, when it is back.
-						state.outbox.unshift(...unacknowledged);
+						state.outbox.unshift(
+							...unacknowledged.map((telegram) => ({ ...telegram, ruled: true }))
+						);
 						this.#trimOutbox(state);
 						this.#event(
 							'telegrams-kept',
@@ -302,7 +305,8 @@ export class Emulator {
 				});
 				state.channel.faults = state.faults;
 				this.#event('ewm-connected', `${plc.id}: EWM connected`, { plc: plc.id });
-				for (const { type, fields } of state.outbox.splice(0)) state.channel.send(type, fields);
+				for (const { type, fields, ruled } of state.outbox.splice(0))
+					state.channel.send(type, fields, { rules: !ruled });
 			});
 			await new Promise<void>((resolve, reject) => {
 				state.server.once('error', reject);
@@ -387,6 +391,7 @@ export class Emulator {
 			delete plc.faults.stopLife;
 			delete plc.faults.rules;
 			plc.outbox = [];
+			plc.channel?.dropDelayed('the warehouse was reset');
 		}
 		this.#event('reset', 'Reset: the warehouse is empty, all devices are up');
 	}

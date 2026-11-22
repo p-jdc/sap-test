@@ -321,7 +321,8 @@ test('scenario files are checked: wrong keys, HU names and references are report
 					rules: [
 						{ type: 'WTCX', action: 'drop' },
 						{ type: 'WTCO', action: 'change', fields: { hu: '{A}' }, set: { result: 'TOOLONG' } },
-						{ type: 'WTCO', action: 'change', set: { hu: '{A}', colour: 'red' } }
+						{ type: 'WTCO', action: 'change', set: { hu: '{A}', colour: 'red' } },
+						{ type: 'WTCO', action: 'change', set: { hux: '{A}', result: 'ERR' } }
 					]
 				},
 				{ send: 'PLC9', type: 'WTCO', fields: { tanum: 'abc' } },
@@ -342,6 +343,7 @@ test('scenario files are checked: wrong keys, HU names and references are report
 		'step 9, rule 1: the telegram layout has no telegram "WTCX"',
 		'step 9, rule 2: result: "TOOLONG" is longer than 4 characters',
 		'step 9, rule 3: telegram WTCO has no field "colour"',
+		'step 9, rule 4: telegram WTCO has no field "hux"',
 		'step 10: unknown PLC "PLC9"',
 		'step 10: tanum: "abc" is not numeric'
 	]);
