@@ -97,7 +97,9 @@ export const FIXED_SETTINGS = [
 	'SAP_API_USERNAME',
 	'SAP_API_PASSWORD',
 	'SAP_CLIENT',
-	'CHROMIUM_PATH'
+	'CHROMIUM_PATH',
+	// self-signed.ts
+	'SAP_SELF_SIGNED_HOST'
 ] as const;
 
 // A value saved for a setting becomes an environment variable of every run. Names that the

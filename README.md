@@ -353,6 +353,18 @@ The rules are applied after each run, when the app starts and once a day.
 In `sap-tests/.env`, `CHROMIUM_PATH` lets the tests use an already installed Chromium where
 `playwright install` cannot download.
 
+**A trial system with a self-signed certificate.** An SAP system reached by its IP address, such as
+an SAP Cloud Appliance Library appliance, has a certificate no browser trusts, and Playwright stops
+at it. Set `SAP_SELF_SIGNED_HOST` to that system's host (e.g. `203.0.113.10`, without `https://`,
+port or path; Settings, Technical details, or `sap-tests/.env`). The browsers of systems that sign
+in with the SAP login (`sapLogin` in `systems.json`) then accept its certificate in runs and in the
+UI5 and WebGUI recorders, but only while the system's address is on that host: point `SAP_URL` at
+another system and the exception no longer applies. Ariba and other systems where a person signs in
+always keep the full check. Only use it for a test system you reached yourself, ideally restricted
+to your IP: without a trusted certificate, the browser cannot tell that host from an impostor, and
+the test user's password is typed into it. Recording from the command line, pass
+`--ignore-https-errors` to `bun run record` or `bun run codegen` yourself.
+
 ### Gate before a pull request
 
 `/gate` in Claude Code checks a committed branch before it becomes a pull request. It is a smaller

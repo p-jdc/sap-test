@@ -406,6 +406,40 @@ describe('recorderInvocation', () => {
 		expect(ariba.env).toEqual(BLANK);
 	});
 
+	test('the SAP recorders accept a self-signed certificate on the host of SAP_SELF_SIGNED_HOST only', async () => {
+		const { recorder, systems, system } = await recorderWith(SAP);
+		const trial = { ...env, SAP_SELF_SIGNED_HOST: 'SAP.example.com' };
+		const args = (
+			kind: 'ui5' | 'webgui' | 'web',
+			id: string,
+			url: string,
+			settings: Record<string, string>
+		) =>
+			recorder.recorderInvocation(
+				{ recorder: kind, name: 'x' },
+				system(id),
+				systems,
+				'x/x.spec.ts',
+				url,
+				settings
+			).args;
+		expect(args('ui5', 'sap', env.SAP_URL, trial)).toContain('--ignore-https-errors');
+		const webgui = args('webgui', 'sap', env.SAP_URL, trial);
+		// Before the login flag, which the recorder replaces with --sap-login at the very end.
+		expect(webgui.slice(-2)).toEqual(['--ignore-https-errors', '--sap-login-from-env']);
+		// Not without the setting, not for another host, not for a person's sign-in (Ariba).
+		expect(args('webgui', 'sap', env.SAP_URL, env)).not.toContain('--ignore-https-errors');
+		expect(args('ui5', 'sap', 'https://other.example.com/fiori', trial)).not.toContain(
+			'--ignore-https-errors'
+		);
+		expect(
+			args('web', 'ariba', 'https://ariba.example.com', {
+				...trial,
+				SAP_SELF_SIGNED_HOST: 'ariba.example.com'
+			})
+		).not.toContain('--ignore-https-errors');
+	});
+
 	test('another SAP system records with its own settings, and the spec reads them by name', async () => {
 		const { recorder, systems, system } = await recorderWith(SAP, OTHER_SYSTEMS);
 		const settings = {

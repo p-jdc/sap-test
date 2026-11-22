@@ -9,6 +9,9 @@
 	import { getRuns, getStability } from '#lib/remote/runs.remote.js';
 	import type { SettingName, SignInSystemInfo } from '#lib/shared/types.js';
 
+	/** Optional browser settings (Settings, Technical details), not listed with the systems here. */
+	const BROWSER_SETTINGS = new Set<SettingName>(['CHROMIUM_PATH', 'SAP_SELF_SIGNED_HOST']);
+
 	const env = getEnvStatus();
 	const specs = getSpecs();
 	const runs = getRuns();
@@ -197,7 +200,7 @@
 						</ui5-message-strip>
 					{/if}
 					<div class="row">
-						{#each env.current.vars.filter((v) => v.name !== 'CHROMIUM_PATH') as v (v.name)}
+						{#each env.current.vars.filter((v) => !BROWSER_SETTINGS.has(v.name)) as v (v.name)}
 							<ui5-tag
 								design={v.set ? 'Positive' : 'Neutral'}
 								hide-state-icon={!v.set || undefined}
