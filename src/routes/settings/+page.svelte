@@ -55,7 +55,7 @@
 				{
 					name: 'SAP_SELF_SIGNED_HOST',
 					label: 'Accept the self-signed certificate of',
-					hint: 'Host or IP of a trial SAP system, e.g. 203.0.113.10. Only that host, only SAP-login systems'
+					hint: 'Host or IP of a trial SAP system, e.g. 203.0.113.10. Its browser then skips all certificate checks (README)'
 				}
 			]
 		}

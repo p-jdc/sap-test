@@ -116,11 +116,12 @@ const browser = { ...devices['Desktop Chrome'] };
 // and the login request) and no video.
 const signIn = { ...browser, trace: 'off', video: 'off' } as const;
 // An SAP system on the host of SAP_SELF_SIGNED_HOST (a trial appliance with its own certificate)
-// gets a browser that accepts that certificate; every other system keeps the full check.
+// gets a browser without the certificate check, for every address it reaches (self-signed.ts);
+// every other system keeps the full check.
 const certificate = (system: (typeof systems)[number]) =>
 	system.signIn.method === 'sapLogin' &&
 	acceptsSelfSigned(process.env[system.env.url], process.env[SELF_SIGNED_SETTING])
-		? // oxlint-disable-next-line secure-coding/require-secure-defaults -- off by default; only for the one host the person named in SAP_SELF_SIGNED_HOST (README)
+		? // oxlint-disable-next-line secure-coding/require-secure-defaults -- off by default; only for an SAP system on the host the person named in SAP_SELF_SIGNED_HOST (README)
 			{ ignoreHTTPSErrors: true }
 		: {};
 

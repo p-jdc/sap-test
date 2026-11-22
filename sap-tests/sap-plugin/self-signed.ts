@@ -1,8 +1,11 @@
 // A test system with a self-signed certificate, such as an SAP Cloud Appliance Library appliance
-// reached by its IP address. The setting SAP_SELF_SIGNED_HOST names that one host. Browsers for a
-// system that signs in with the SAP login then accept its certificate, but only while the system's
-// address is on that host: pointing the address at another system ends the exception by itself.
-// Nothing else is accepted, so a man in the middle on any other address still fails the check.
+// reached by its IP address. The setting SAP_SELF_SIGNED_HOST names that host. The browsers of a
+// system that signs in with the SAP login skip the certificate check while the system's address is
+// on that host: pointing the address at another system ends the exception by itself, and other
+// systems (Ariba) are never affected. Once on, the check is off for that browser as a whole
+// (Playwright's ignoreHTTPSErrors), so it also accepts a bad certificate of any other address the
+// system's pages reach. Pinning the appliance's key would be narrower, but the WebGUI recorder
+// (Playwright-SAP's codegen) cannot pass the Chromium option for it.
 // No imports: the test app bundles this file (setting-value.ts, recorder.ts).
 
 /** The setting that holds the host whose self-signed certificate is accepted. */
