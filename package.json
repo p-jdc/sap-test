@@ -108,6 +108,7 @@
 		"xpath": "0.0.34"
 	},
 	"patchedDependencies": {
-		"@sveltejs/adapter-bun@1.0.2": "patches/@sveltejs%2Fadapter-bun@1.0.2.patch"
+		"@sveltejs/adapter-bun@1.0.2": "patches/@sveltejs%2Fadapter-bun@1.0.2.patch",
+		"knip@6.46.1": "patches/knip@6.46.1.patch"
 	}
 }

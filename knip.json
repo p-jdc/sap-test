@@ -1,5 +1,9 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
+	// knip is patched (patches/knip@6.46.1.patch, package.json "patchedDependencies"): unpatched, it loads the
+	// config files (vite.config.ts and the like) with the tsconfig of the folder above this checkout, which in a
+	// worktree under .claude/worktrees is the main checkout's. Upgrading knip: carry the patch over, or drop it
+	// once knip hands jiti a file path instead of the bare working directory (dist/util/jiti.js).
 	"entry": [
 		"src/**/*.remote.ts",
 		"reporter/*.ts",

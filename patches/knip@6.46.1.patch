@@ -1,0 +1,13 @@
+diff --git a/dist/util/jiti.js b/dist/util/jiti.js
+index 69e8b76de12088c54c25460e0ed250059d7bf8a1..caaef4e5c38c00b5e45ae747d633c67eeb928fbf 100644
+--- a/dist/util/jiti.js
++++ b/dist/util/jiti.js
+@@ -18,5 +18,7 @@ export const getJiti = () => {
+     if (jiti)
+         return jiti;
+     const { createJiti } = require('jiti');
+-    return (jiti = createJiti(cwd, options));
++    // Patched (patches/knip@6.46.1.patch): jiti takes this as a file and looks for the tsconfig from its folder up,
++    // so a bare cwd started one folder too high and could pick up the tsconfig of an enclosing checkout.
++    return (jiti = createJiti(join(cwd, 'package.json'), options));
+ };
