@@ -74,28 +74,59 @@ export interface HuState {
  * What happened, as a kind and fields. Scenarios and tests match on these; the text is for people and may change.
  */
 export const EventKindSchema = z.enum([
-	'hu-entered', // hu, point
-	'hu-left', // hu, point (goods issue)
-	'task-taken', // plc, device, hu, from, to, task
-	'task-refused', // plc, hu, from, to, task, result (noRoute, wrongPlc, noHu)
-	'delivered', // plc, device, hu, from, to, task
-	'bin-occupied', // plc, device, hu, from, to (the bin), task
-	'scanned', // plc, device, hu, point, result (OK, NORD, CONT, WGHT)
-	'device-status', // plc, device, status (UP, DOWN)
-	'ewm-connected', // plc
-	'ewm-disconnected', // plc
-	'connection-refused', // plc: a second connection while EWM is alive
-	'connection-replaced', // plc: a silent connection made way for a new one
-	'connection-dropped', // plc: closed by a fault
-	'telegrams-kept', // plc, count: unacknowledged when EWM went away, sent again when it is back
-	'telegram-queued', // plc, telegram: EWM not connected
-	'telegrams-dropped', // plc, count: the oldest queued ones, EWM away too long
-	'telegram-not-sent', // plc, telegram: could not be built
-	'telegram-ignored', // plc, telegram: not one a PLC handles
-	'no-telegram', // plc, message: the layout has no telegram for this report
+	'hu-entered',
+	'hu-left', // goods issue
+	'task-taken',
+	'task-refused',
+	'delivered',
+	'bin-occupied', // `to` is the bin
+	'scanned',
+	'device-status',
+	'ewm-connected',
+	'ewm-disconnected',
+	'connection-refused', // a second connection while EWM is alive
+	'connection-replaced', // a silent connection made way for a new one
+	'connection-dropped', // closed by a fault
+	'telegrams-kept', // unacknowledged when EWM went away, sent again when it is back
+	'telegram-queued', // EWM not connected
+	'telegrams-dropped', // the oldest queued ones, EWM away too long
+	'telegram-not-sent', // could not be built
+	'telegram-ignored', // not one a PLC handles
+	'no-telegram', // `message`: the report the layout has no telegram for
 	'reset'
 ]);
 export type EventKind = z.infer<typeof EventKindSchema>;
+
+const MOVE = ['plc', 'device', 'hu', 'from', 'to', 'task'] as const;
+/** The fields each kind of event carries. A scenario condition may only name these. */
+export const EVENT_FIELDS = {
+	'hu-entered': ['hu', 'point'],
+	'hu-left': ['hu', 'point'],
+	'task-taken': MOVE,
+	'task-refused': ['plc', 'hu', 'from', 'to', 'task', 'result'],
+	delivered: MOVE,
+	'bin-occupied': MOVE,
+	scanned: ['plc', 'device', 'hu', 'point', 'result'],
+	'device-status': ['plc', 'device', 'status'],
+	'ewm-connected': ['plc'],
+	'ewm-disconnected': ['plc'],
+	'connection-refused': ['plc'],
+	'connection-replaced': ['plc'],
+	'connection-dropped': ['plc'],
+	'telegrams-kept': ['plc', 'count'],
+	'telegram-queued': ['plc', 'telegram'],
+	'telegrams-dropped': ['plc', 'count'],
+	'telegram-not-sent': ['plc', 'telegram'],
+	'telegram-ignored': ['plc', 'telegram'],
+	'no-telegram': ['plc', 'message'],
+	reset: []
+} as const satisfies Record<EventKind, readonly (keyof EventFacts)[]>;
+
+/** The results an event can report: the emulator's names, the same with any telegram layout. */
+export const EVENT_RESULTS: Partial<Record<EventKind, readonly string[]>> = {
+	'task-refused': ['noRoute', 'wrongPlc', 'noHu'],
+	scanned: ScanResultSchema.options
+};
 
 /** The fields an event can carry. Locations: `from`, `to` for a move, `point` for where an HU is. */
 export interface EventFacts {

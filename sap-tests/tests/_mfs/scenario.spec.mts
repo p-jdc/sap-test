@@ -224,7 +224,13 @@ test('scenario files are checked: wrong keys, HU names and references are report
 				{ wait: { hu: 'B', at: 'bin' } },
 				{ device: 'SRM9', status: 'DOWN' },
 				{ enter: 'A', at: 'NOWHERE' },
-				{ wait: { event: { kind: 'delivered', hu: 'C', device: 'SRM9', plc: 'PLC9' } } }
+				{ wait: { event: { kind: 'delivered', hu: 'C', device: 'SRM9', plc: 'PLC9' } } },
+				// Fields and results an event never has: such a condition could never match.
+				{ check: { event: { kind: 'delivered', hu: 'A', result: 'occupied' } } },
+				{ check: { event: { kind: 'task-refused', result: 'NoRoute' }, count: 0 } },
+				{ check: { event: { kind: 'bin-occupied', point: 'A1-01-01' }, count: 0 } },
+				// Fields the kind does carry are fine.
+				{ check: { event: { kind: 'telegram-queued', plc: 'CONS', telegram: 'WTCO' }, count: 0 } }
 			]),
 			setup
 		)
@@ -234,6 +240,9 @@ test('scenario files are checked: wrong keys, HU names and references are report
 		'step 3: unknown point "NOWHERE"',
 		'step 4: HU C is used before it enters',
 		'step 4: unknown device "SRM9"',
-		'step 4: unknown PLC "PLC9"'
+		'step 4: unknown PLC "PLC9"',
+		'step 5: a delivered event has no "result" (it has plc, device, hu, from, to, task)',
+		'step 6: a task-refused event has no result "NoRoute" (it reports noRoute, wrongPlc, noHu)',
+		'step 7: a bin-occupied event has no "point" (it has plc, device, hu, from, to, task)'
 	]);
 });

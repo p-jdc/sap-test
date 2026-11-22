@@ -4,6 +4,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { z } from 'zod';
 import {
+	EVENT_FIELDS,
+	EVENT_RESULTS,
 	EventKindSchema,
 	ScanResultSchema,
 	type Emulator,
@@ -63,7 +65,11 @@ const EventCondition = z.strictObject({
 		task: z.string().optional(),
 		/** The emulator's name for the result (noRoute, NORD, …), not the code in the telegram. */
 		result: z.string().optional(),
-		status: z.enum(['UP', 'DOWN']).optional()
+		status: z.enum(['UP', 'DOWN']).optional(),
+		/** The telegram type (telegram-queued, -not-sent, -ignored). */
+		telegram: z.string().optional(),
+		/** The report the layout has no telegram for (no-telegram): task, confirmation, scan, status. */
+		message: z.string().optional()
 	}),
 	/** Exactly this many matching events since the scenario started; without it, at least one. */
 	count: z.number().int().min(0).optional()
@@ -180,6 +186,20 @@ export function validateScenario(scenario: Scenario, setup: LoadedSetup): string
 		}
 		if ('event' in condition) {
 			const want = condition.event;
+			// A field the kind never carries, or a result it never reports, would never match: a check for
+			// "this did not happen" (count 0) would then always pass.
+			const { kind, ...fields } = want;
+			const carried: readonly string[] = EVENT_FIELDS[kind];
+			for (const field of Object.keys(fields))
+				if (!carried.includes(field))
+					errors.push(
+						`${where}: a ${kind} event has no "${field}"${carried.length > 0 ? ` (it has ${carried.join(', ')})` : ''}`
+					);
+			const results = EVENT_RESULTS[kind];
+			if (want.result && results && !results.includes(want.result))
+				errors.push(
+					`${where}: a ${kind} event has no result "${want.result}" (it reports ${results.join(', ')})`
+				);
 			if (want.hu) huKnown(where, want.hu);
 			if (want.device && !devices.has(want.device))
 				errors.push(`${where}: unknown device "${want.device}"`);
@@ -652,7 +672,7 @@ export class ScenarioRunner {
 		if (want.from && !locationMatches(setup, event.from, want.from)) return false;
 		if (want.to && !locationMatches(setup, event.to, want.to)) return false;
 		if (want.point && !locationMatches(setup, event.point, want.point)) return false;
-		return (['plc', 'device', 'task', 'result', 'status'] as const).every(
+		return (['plc', 'device', 'task', 'result', 'status', 'telegram', 'message'] as const).every(
 			(field) => want[field] === undefined || event[field] === want[field]
 		);
 	}

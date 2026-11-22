@@ -134,7 +134,9 @@ An event condition matches what the Mock PLC did, by the event's kind and fields
 "What happened" is for people and may change. `count` means exactly that many since the scenario started; without
 it, at least one. `hu` is the scenario's HU name; `from`, `to` and `point` take an id, `bin` or a pattern with `*`,
 as in HU conditions. `result` is the emulator's name, not the telegram's code, so the condition holds with any
-telegram layout.
+telegram layout. A condition may name only the fields its kind has (table below) and only the results it reports;
+anything else is refused when the scenario is checked, because it could never match and a `"count": 0` with it
+would always pass. The event's own `count` (how many telegrams were kept or dropped) cannot be matched.
 
 | Kind                                                                                                   | Fields                                                                     |
 | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
