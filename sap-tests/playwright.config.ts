@@ -28,7 +28,8 @@ if (odataMock)
 // 47200 and 47201, lie in the range Linux hands out for free ports and outgoing connections, so another process
 // can hold them (in CI, the Mock PLC that runs just before did). Playwright reads both addresses from the
 // receiver's ready line (`wait` below) into IDOC_HUB_URL, its control API, and IDOC_MOCK_URL, the endpoint tests
-// post IDocs to in SAP's place. That replaces any IDOC_HUB_URL from the environment file, and the workers
+// post IDocs to in SAP's place. IDocs the tests send into SAP (idocSender) go to a stand-in for SAP in the
+// receiver's process (IDOC_FAKE_SAP). That replaces any IDOC_HUB_URL from the environment file, and the workers
 // inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
 if (idocMock) process.env.IDOC_HUB_TOKEN = '';
@@ -102,7 +103,17 @@ const webServers: WebServer[] = [
 						IDOC_TLS_KEY: '',
 						IDOC_TLS_CA: '',
 						IDOC_TLS_CLIENT_FINGERPRINT: '',
-						IDOC_CONTROL_TOKEN: ''
+						IDOC_CONTROL_TOKEN: '',
+						IDOC_FAKE_SAP: '1',
+						IDOC_SAP_URL: '',
+						IDOC_SAP_CLIENT: '',
+						IDOC_SAP_SERVICE: '',
+						IDOC_SAP_USER: '',
+						IDOC_SAP_PASSWORD: '',
+						IDOC_SAP_TLS_CERT: '',
+						IDOC_SAP_TLS_KEY: '',
+						IDOC_SAP_TLS_CA: '',
+						IDOC_SAP_TIMEOUT_MS: ''
 					},
 					reuseExistingServer: false
 				}

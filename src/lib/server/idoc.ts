@@ -12,13 +12,16 @@ import {
 	IdocListSchema,
 	IdocReplyInEffectSchema,
 	ReceivedIdocSchema,
+	SentIdocsSchema,
 	type IdocEndpoint,
 	type IdocReply,
 	type IdocSample,
 	type IdocSampleAnswer,
 	type IdocSnapshot,
 	type IdocStatus,
-	type ReceivedIdoc
+	type IdocSapTarget,
+	type ReceivedIdoc,
+	type SentIdocs
 } from '#lib/shared/idoc.js';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
@@ -32,6 +35,8 @@ const READY = 'IDOC_READY ';
 const START_TIMEOUT_MS = 15_000;
 /** IDocs the page keeps; the receiver itself keeps more. */
 const KEEP = 200;
+/** Sends into SAP the page shows. */
+const KEEP_SENT = 50;
 /** Raw requests are shown up to this size. */
 const RAW_SHOWN = 2 * 1024 * 1024;
 const SETUP_HINT = 'Run "bun run setup" in the repo root, then start the receiver again.';
@@ -321,6 +326,24 @@ export async function sendSample(name: string, partner: string): Promise<IdocSam
 	return { status: response.status, reason: fault ?? body, body };
 }
 
+/**
+ * Sends a sample IDoc into SAP through the receiver, in CPI's place: into the SAP system the receiver was started
+ * with (IDOC_SAP_URL, or the stand-in of IDOC_FAKE_SAP). Returns the send with SAP's answer; it also appears in
+ * the list of sends.
+ */
+export function sendSampleToSap(name: string): Promise<SentIdocs> {
+	if (!listSamples().some((sample) => sample.name === name))
+		return Promise.reject(new Error(`There is no sample "${name}".`));
+	return call('/send', SentIdocsSchema, {
+		method: 'POST',
+		body: JSON.stringify({ xml: readFileSync(resolve(SAMPLES_DIR, name), 'utf8'), by: 'person' })
+	});
+}
+
+export async function clearSent(): Promise<void> {
+	await call('/sent', z.unknown(), { method: 'DELETE' });
+}
+
 /** How SAP reaches the receiver. The login is known only for one this app started. */
 function endpointOf(idocUrl: string): IdocEndpoint {
 	const https = idocUrl.startsWith('https:');
@@ -351,6 +374,7 @@ const sleep = (ms: number) =>
 export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 	let instance: string | undefined;
 	let endpoint: IdocEndpoint | undefined;
+	let sap: IdocSapTarget | null = null;
 	let idocs: ReceivedIdoc[] = [];
 	let cursor = 0;
 	let last = '';
@@ -361,7 +385,9 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 			idocs: [],
 			replies: {},
 			failures: [],
-			canSendSamples: false
+			canSendSamples: false,
+			sap: null,
+			sent: []
 		};
 		if (status.running) {
 			try {
@@ -372,14 +398,16 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 					// Started again (or another receiver): its numbering begins anew.
 					instance = info.instance;
 					endpoint = endpointOf(info.idocUrl);
+					sap = info.sap;
 					idocs = [];
 					cursor = 0;
 				}
 				// oxlint-disable-next-line no-await-in-loop
-				const [list, replies, failures] = await Promise.all([
+				const [list, replies, failures, sent] = await Promise.all([
 					call(`/idocs?after=${cursor}&limit=${KEEP}`, IdocListSchema),
 					call('/replies', z.record(z.string(), IdocReplyInEffectSchema)),
-					call('/failures', z.array(IdocFailureSchema))
+					call('/failures', z.array(IdocFailureSchema)),
+					sap ? call('/sent', z.array(SentIdocsSchema)) : Promise.resolve([])
 				]);
 				// oxlint-disable-next-line no-await-in-loop
 				idocs = [...(await refreshPending(idocs)), ...list.idocs].slice(-KEEP);
@@ -392,14 +420,17 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 					idocs,
 					replies,
 					failures: failures.slice(-50),
-					canSendSamples: sampleTarget() !== undefined
+					canSendSamples: sampleTarget() !== undefined,
+					sap,
+					sent: sent.slice(-KEEP_SENT)
 				};
 			} catch (error) {
 				snapshot = {
 					...snapshot,
 					status: { ...status, error: error instanceof Error ? error.message : String(error) },
 					endpoint,
-					idocs
+					idocs,
+					sap
 				};
 			}
 		} else {

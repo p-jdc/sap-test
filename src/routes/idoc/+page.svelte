@@ -4,15 +4,17 @@
 	import { view } from '#lib/client/view.svelte.js';
 	import {
 		clearIdocInbox,
+		clearSentIdocs,
 		getIdocSamples,
 		getRawIdoc,
 		sendIdocSample,
+		sendIdocSampleToSap,
 		setIdocReply,
 		startIdocReceiver,
 		stopIdocReceiver,
 		watchIdocLive
 	} from '#lib/remote/idoc.remote.js';
-	import type { IdocReply, ReceivedIdoc } from '#lib/shared/idoc.js';
+	import type { IdocReply, ReceivedIdoc, SentIdocs } from '#lib/shared/idoc.js';
 
 	const live = watchIdocLive();
 	const samples = getIdocSamples();
@@ -29,6 +31,7 @@
 
 	let samplePartner = $state('PWMOCK');
 	let sample = $state('');
+	let sapSample = $state('');
 
 	let replyPartner = $state('PWMOCK');
 	let replyMode = $state<IdocReply['mode']>('reject');
@@ -61,10 +64,22 @@
 
 	const idocs = $derived((snap?.idocs ?? []).toReversed());
 	const open = $derived(idocs.find((idoc) => idoc.seq === selected));
+	/** Samples SAP would send; the inbound ones go the other way, into SAP. */
+	const outboundSamples = $derived(
+		(samples.current ?? []).filter((s) => !s.name.includes('inbound'))
+	);
 	const chosenSample = $derived(
-		(samples.current ?? []).find((s) => s.name === sample) ?? samples.current?.[0]
+		outboundSamples.find((s) => s.name === sample) ?? outboundSamples[0]
 	);
 	const replies = $derived(Object.entries(snap?.replies ?? {}));
+	/** The sample to send into SAP: the one chosen, otherwise the first inbound one. An outbound one is refused
+	 * before it goes out. */
+	const chosenSapSample = $derived(
+		(samples.current ?? []).find((s) => s.name === sapSample) ??
+			(samples.current ?? []).find((s) => s.name.includes('inbound')) ??
+			samples.current?.[0]
+	);
+	const sent = $derived((snap?.sent ?? []).toReversed());
 
 	const time = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour12: false });
 	const kind = ({ idoc: { control } }: ReceivedIdoc) =>
@@ -82,6 +97,21 @@
 			? ({ text: 'SAP gave up waiting', design: 'Critical' } as const)
 			: ({ text: 'Rejected', design: 'Negative' } as const);
 	};
+
+	const sentKind = ({ idocs: [first] }: SentIdocs) =>
+		first
+			? [first.control.CIMTYP || first.control.IDOCTYP, first.control.MESTYP]
+					.filter(Boolean)
+					.join(' · ') || '?'
+			: '?';
+
+	/** What SAP answered to a send, in a few words. */
+	const sentOutcome = ({ result }: SentIdocs) =>
+		result.ok
+			? ({ text: 'Taken by SAP', design: 'Positive' } as const)
+			: result.status === 0
+				? ({ text: 'SAP not reached', design: 'Critical' } as const)
+				: ({ text: `Refused (HTTP ${result.status})`, design: 'Negative' } as const);
 
 	const describeReply = (reply: IdocReply) =>
 		reply.mode === 'reject'
@@ -101,6 +131,14 @@
 		user: 'user and password',
 		certificate: "SAP's client certificate",
 		'user-and-certificate': "user and password, and SAP's client certificate"
+	} as const;
+
+	/** How the receiver logs on to SAP. */
+	const LOGIN_TO_SAP = {
+		none: 'none',
+		user: 'user and password',
+		certificate: 'client certificate',
+		'user-and-certificate': 'user and password, and client certificate'
 	} as const;
 
 	/** Control record fields worth showing without technical details. */
@@ -123,6 +161,18 @@
 					? 'The receiver accepted the IDoc.'
 					: `The receiver refused the IDoc (HTTP ${answer.status}): ${answer.reason ?? ''}`;
 			notice = view.technical ? `${plain} It answered: ${answer.body}` : plain;
+		});
+	}
+
+	async function sendToSap() {
+		const name = chosenSapSample?.name;
+		if (!name) return;
+		await run(async () => {
+			const { result } = await sendIdocSampleToSap({ name });
+			const numbers = result.idocNumbers.join(', ');
+			notice = result.ok
+				? `SAP took the IDoc${numbers ? `: IDoc number ${numbers}` : ''}.`
+				: `SAP did not take the IDoc: ${result.reason ?? `HTTP ${result.status}`}`;
 		});
 	}
 
@@ -158,7 +208,8 @@
 <p class="muted intro">
 	Stands in for the partner system SAP sends IDocs to. It keeps every IDoc SAP sends, so a test can
 	check what a business step produced, and it can refuse IDocs or answer late, to test how SAP
-	handles a partner that is down.
+	handles a partner that is down. It can also send IDocs into SAP, the way SAP Cloud Integration
+	does.
 </p>
 
 {#if error}
@@ -256,7 +307,7 @@
 					></ui5-input>
 					<ui5-label for="sample" show-colon>Sample</ui5-label>
 					<ui5-select id="sample" onchange={select<string>((v) => (sample = v))}>
-						{#each samples.current ?? [] as option (option.name)}
+						{#each outboundSamples as option (option.name)}
 							<ui5-option
 								data-value={option.name}
 								selected={option.name === chosenSample?.name || undefined}
@@ -371,6 +422,109 @@
 			</div>
 		</ui5-card>
 	</div>
+
+	<ui5-card class="block">
+		<ui5-card-header
+			slot="header"
+			title-text="Send IDocs into SAP"
+			subtitle-text="In place of SAP Cloud Integration"
+		></ui5-card-header>
+		<div class="card-body">
+			{#if snap.sap}
+				<div class="line">
+					<span class="muted">To</span>
+					<span class="mono">{snap.sap.url}</span>
+					{#if snap.sap.client}<span class="muted">client {snap.sap.client}</span>{/if}
+					{#if snap.sap.standIn}
+						<ui5-tag design="Critical">Stand-in, not SAP</ui5-tag>
+					{/if}
+				</div>
+				{#if snap.sap.standIn}
+					<p class="muted">
+						A stand-in in the receiver takes the IDocs and numbers them, for trying this out. SAP
+						never sees them.
+					</p>
+				{/if}
+				{#if view.technical}
+					<div class="line">
+						<span class="muted mono">
+							{snap.sap.service === 'soap' ? '/sap/bc/srt/idoc (SOAP)' : '/sap/bc/idoc_xml'}
+							· login: {LOGIN_TO_SAP[snap.sap.login]}
+						</span>
+					</div>
+				{/if}
+				<div class="form">
+					<ui5-label for="sap-sample" show-colon>Sample</ui5-label>
+					<ui5-select id="sap-sample" onchange={select<string>((v) => (sapSample = v))}>
+						{#each samples.current ?? [] as option (option.name)}
+							<ui5-option
+								data-value={option.name}
+								selected={option.name === chosenSapSample?.name || undefined}
+							>
+								{option.name}
+							</ui5-option>
+						{/each}
+					</ui5-select>
+					{#if chosenSapSample?.description}
+						<span></span>
+						<p class="muted">{chosenSapSample.description}</p>
+					{/if}
+					<span></span>
+					<div class="row">
+						<ui5-button
+							design="Emphasized"
+							icon="paper-plane"
+							disabled={busy || !chosenSapSample || undefined}
+							onclick={sendToSap}
+						>
+							Send to SAP
+						</ui5-button>
+						{#if sent.length}
+							<ui5-button
+								icon="delete"
+								design="Transparent"
+								disabled={busy || undefined}
+								onclick={() => run(() => clearSentIdocs())}
+							>
+								Clear the list
+							</ui5-button>
+						{/if}
+					</div>
+				</div>
+				<div class="scroll">
+					{#each sent as entry (entry.seq)}
+						{@const result = sentOutcome(entry)}
+						<div class="line">
+							<span class="muted mono">{time(entry.sentAt)}</span>
+							<span>{sentKind(entry)}</span>
+							<ui5-tag design={result.design}>{result.text}</ui5-tag>
+							{#if entry.result.idocNumbers.length}
+								<span class="mono">{entry.result.idocNumbers.join(', ')}</span>
+							{/if}
+							{#if entry.by === 'test'}<span class="muted">by a test</span>{/if}
+							{#if !entry.result.ok && entry.result.reason}
+								<span class="muted">{entry.result.reason}</span>
+							{/if}
+						</div>
+					{:else}
+						<span class="muted">Nothing sent yet.</span>
+					{/each}
+				</div>
+			{:else}
+				<p class="muted">
+					No SAP system is set for the receiver, so it only receives. Set one in the app's
+					environment and start the receiver again.
+				</p>
+				{#if view.technical}
+					<p class="muted mono">
+						IDOC_SAP_URL, IDOC_SAP_CLIENT, IDOC_SAP_USER and IDOC_SAP_PASSWORD (or IDOC_SAP_TLS_CERT
+						with IDOC_SAP_TLS_KEY), or IDOC_FAKE_SAP=1 to try it with a stand-in; see
+						sap-tests/idoc/README.md.
+					</p>
+				{/if}
+			{/if}
+		</div>
+	</ui5-card>
 
 	<ui5-card class="block">
 		<ui5-card-header

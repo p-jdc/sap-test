@@ -1,13 +1,16 @@
 import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
+import { recordActivity } from '#lib/server/auth/access.js';
 import {
 	clearInbox,
+	clearSent,
 	listSamples,
 	PARTNER,
 	rawRequest,
 	SAMPLE_NAME,
 	sendSample,
+	sendSampleToSap,
 	setPartnerReply,
 	startReceiver,
 	stopReceiver,
@@ -66,3 +69,19 @@ export const sendIdocSample = command(
 	z.object({ name: z.string().regex(SAMPLE_NAME), partner: partnerName }),
 	({ name, partner }) => act(() => sendSample(name, partner))
 );
+
+/** Sends a sample IDoc into SAP through the receiver, in CPI's place. */
+export const sendIdocSampleToSap = command(
+	z.object({ name: z.string().regex(SAMPLE_NAME) }),
+	async ({ name }) => {
+		const sent = await act(() => sendSampleToSap(name));
+		// It acts in SAP under the receiver's login: who did it belongs in the activity log, like starting a run.
+		await recordActivity(
+			'Sent an IDoc into SAP',
+			`${name}: ${sent.result.ok ? 'taken' : `refused (${sent.result.status})`}`
+		);
+		return sent;
+	}
+);
+
+export const clearSentIdocs = command(() => act(() => clearSent()));

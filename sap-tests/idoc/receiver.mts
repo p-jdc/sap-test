@@ -3,8 +3,9 @@
 // Mock PLC:
 // - the IDoc endpoint, which SAP must reach: HTTPS, with a login (basic authentication) or SAP's client
 //   certificate (mutual TLS);
-// - the control API, for tests and the app: list and clear the inbox, set the reply per partner. It stays on this
-//   computer unless a token protects it.
+// - the control API, for tests and the app: list and clear the inbox, set the reply per partner, and send IDocs
+//   into SAP in CPI's place (sender.mts) when an SAP system is set. It stays on this computer unless a token
+//   protects it.
 import {
 	createServer as createHttpServer,
 	type IncomingMessage,
@@ -23,9 +24,19 @@ import {
 	requestTarget,
 	UserError
 } from '../mfs/http.mts';
-import { IdocError } from './idoc.mts';
-import { IdocFilterSchema, IdocInbox, ReplySchema, type Reply } from './inbox.mts';
-import { parseIdocXml } from './xml.mts';
+import { IdocError, type Idoc } from './idoc.mts';
+import { z } from 'zod';
+import {
+	IdocBodySchema,
+	IdocFilterSchema,
+	IdocInbox,
+	ReplySchema,
+	type Reply,
+	type SentIdocs
+} from './inbox.mts';
+import type { RunningFakeSap } from './fake-sap.mts';
+import { asInbound, checkTarget, sendToSap, type SapTarget, type SendResult } from './sender.mts';
+import { parseIdocXml, toIdocXml } from './xml.mts';
 
 export interface ReceiverOptions {
 	/** Address of the IDoc endpoint (default 127.0.0.1). */
@@ -50,6 +61,97 @@ export interface ReceiverOptions {
 	inbox?: IdocInbox;
 	/** Largest request SAP may send, in bytes (default 10 MB). */
 	maxBody?: number;
+	/** The SAP system `POST /send` sends IDocs into. Without it, the receiver only receives. */
+	sap?: SapTarget;
+	/** `sap` is this stand-in of fake-sap.mts, not an SAP system: `/info` says so, and `PUT /fake-sap/reply`
+	 * sets how it answers. */
+	fakeSap?: RunningFakeSap;
+}
+
+const FakeReplySchema = z.discriminatedUnion('mode', [
+	z.object({ mode: z.literal('accept') }),
+	z.object({
+		mode: z.literal('reject'),
+		status: z.number().int().min(400).max(599).default(500),
+		message: z.string().min(1).max(500).default('Rejected by the stand-in for SAP')
+	})
+]);
+
+/** What `/info` tells about the SAP system IDocs are sent to: never the login itself. */
+export interface SapTargetInfo {
+	url: string;
+	client?: string;
+	service: 'soap' | 'xml';
+	login: 'none' | 'user' | 'certificate' | 'user-and-certificate';
+	/** The stand-in of fake-sap.mts, not an SAP system. */
+	standIn: boolean;
+}
+
+const SendBodySchema = z.object({
+	/** IDoc-XML, plain or in SOAP; or the IDocs themselves. */
+	xml: z.string().min(1).optional(),
+	idocs: z.array(IdocBodySchema).min(1).optional(),
+	by: z.enum(['test', 'person']).default('person')
+});
+/** Largest send body: IDocs for a test are small, but a pasted document may hold several. */
+const MAX_SEND = 5 * 1024 * 1024;
+
+function targetInfo(sap: SapTarget | undefined, standIn: boolean): SapTargetInfo | null {
+	if (!sap) return null;
+	const user = Boolean(sap.basicAuth);
+	const certificate = Boolean(sap.tls?.cert);
+	return {
+		url: checkTarget(sap).origin,
+		client: sap.client,
+		service: sap.service ?? 'soap',
+		standIn,
+		login:
+			user && certificate
+				? 'user-and-certificate'
+				: user
+					? 'user'
+					: certificate
+						? 'certificate'
+						: 'none'
+	};
+}
+
+/** Sends into SAP and records it, also when SAP refused or couldn't be reached (status 0). */
+async function sendAndRecord(
+	inbox: IdocInbox,
+	sap: SapTarget,
+	body: z.infer<typeof SendBodySchema>
+): Promise<SentIdocs> {
+	if (Boolean(body.xml) === Boolean(body.idocs))
+		throw new UserError('send either "xml" or "idocs"');
+	// Everything that can be refused before anything goes out: then nothing is recorded.
+	let idocs: Idoc[];
+	try {
+		idocs = (body.idocs ?? parseIdocXml(body.xml!).idocs).map(asInbound);
+		toIdocXml(idocs);
+	} catch (error) {
+		if (error instanceof IdocError) throw new UserError(error.message);
+		throw error;
+	}
+	const service = sap.service ?? 'soap';
+	let result: SendResult;
+	const started = Date.now();
+	try {
+		result = await sendToSap(sap, idocs);
+	} catch (error) {
+		if (!(error instanceof IdocError)) throw error;
+		// SAP couldn't be reached or didn't answer in time.
+		result = {
+			ok: false,
+			status: 0,
+			service,
+			idocNumbers: [],
+			reason: error.message,
+			body: '',
+			durationMs: Date.now() - started
+		};
+	}
+	return inbox.recordSent({ by: body.by, idocs, result });
 }
 
 export interface RunningReceiver {
@@ -236,14 +338,48 @@ function checkHost(request: IncomingMessage): void {
 		);
 }
 
-function controlHandler(inbox: IdocInbox, token: string | undefined, idocUrl: () => string) {
+function controlHandler(
+	inbox: IdocInbox,
+	token: string | undefined,
+	idocUrl: () => string,
+	sap: SapTarget | undefined,
+	fakeSap: RunningFakeSap | undefined
+) {
 	return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
 		if (!token) checkHost(request);
 		authorize(request, token);
 		const { method, path, parts, params } = requestTarget(request);
 		if (method === 'GET' && path === '/health') return json(response, 200, { ok: true });
 		if (method === 'GET' && path === '/info')
-			return json(response, 200, { idocUrl: idocUrl(), instance: inbox.instance });
+			return json(response, 200, {
+				idocUrl: idocUrl(),
+				instance: inbox.instance,
+				sap: targetInfo(sap, Boolean(fakeSap))
+			});
+
+		if (method === 'POST' && path === '/send') {
+			if (!sap)
+				throw new UserError(
+					'no SAP system to send to: start the receiver with IDOC_SAP_URL (or IDOC_FAKE_SAP=1)',
+					409
+				);
+			const body = await readBody(request, SendBodySchema, MAX_SEND);
+			return json(response, 200, await sendAndRecord(inbox, sap, body));
+		}
+		// Only with the stand-in: how it answers, to test a refusal from "SAP".
+		if (method === 'PUT' && path === '/fake-sap/reply') {
+			if (!fakeSap) throw new UserError('there is no stand-in for SAP (IDOC_FAKE_SAP=1)', 409);
+			fakeSap.reply = await readBody(request, FakeReplySchema);
+			return json(response, 200, fakeSap.reply);
+		}
+		if (path === '/sent') {
+			if (method === 'GET') {
+				const after = Number(params.get('after') ?? 0);
+				if (!Number.isInteger(after)) throw new UserError('after must be a number');
+				return json(response, 200, inbox.sent(after));
+			}
+			if (method === 'DELETE') return json(response, 200, (inbox.clearSent(), { ok: true }));
+		}
 
 		if (parts[0] === 'idocs') {
 			if (parts.length === 1) {
@@ -304,6 +440,13 @@ function controlHandler(inbox: IdocInbox, token: string | undefined, idocUrl: ()
 
 /** Refuses settings that would expose the IDocs, a password or the control API to the network. */
 function checkExposure(options: ReceiverOptions): void {
+	if (options.sap) {
+		checkTarget(options.sap);
+		if ((options.sap.basicAuth || options.sap.tls?.cert) && !options.controlToken)
+			throw new Error(
+				'The control API can send IDocs into SAP with its login: set a control token, so only the app and its tests can.'
+			);
+	}
 	const host = options.host ?? '127.0.0.1';
 	if (!isLoopback(host)) {
 		if (!options.tls)
@@ -378,7 +521,13 @@ export async function startReceiver(options: ReceiverOptions = {}): Promise<Runn
 	const idocPort = await listen(idocServer, options.port ?? 0, host);
 	const idocUrl = `${options.tls ? 'https' : 'http'}://${urlHost(host)}:${idocPort}`;
 
-	const onControl = controlHandler(inbox, options.controlToken, () => idocUrl);
+	const onControl = controlHandler(
+		inbox,
+		options.controlToken,
+		() => idocUrl,
+		options.sap,
+		options.fakeSap
+	);
 	const controlListener = (request: IncomingMessage, response: ServerResponse) => {
 		onControl(request, response).catch((error: unknown) => fail(response, error));
 	};

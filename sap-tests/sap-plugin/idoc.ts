@@ -1,16 +1,19 @@
-// IDocs for tests: what SAP sent to the IDoc receiver (idoc/receiver.mts). Specs that check IDocs import `test` and
-// `expect` from here; the OData fixtures and the SAP locators stay available, so one test can run a business step
-// in the UI or over the API and then wait for the IDoc it produced.
+// IDocs for tests: what SAP sent to the IDoc receiver (idoc/receiver.mts), and IDocs sent into SAP through it in
+// CPI's place. Specs that check IDocs import `test` and `expect` from here; the OData fixtures and the SAP locators
+// stay available, so one test can run a business step in the UI or over the API and then wait for the IDoc it
+// produced, or send an IDoc and check the document SAP made from it.
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { test as base, expect } from './odata';
 import { isInsecureHttp } from './secure-url';
 // Types only from idoc/: its ES modules must not be loaded through this CommonJS file as well, or a worker that
 // also loads the receiver (tests/_idoc) gets two copies of them, and the second has no named exports.
-import type { Segment } from '../idoc/idoc.mts';
-import type { ReceivedIdoc, ReplyInput } from '../idoc/inbox.mts';
+import type { Idoc, Segment } from '../idoc/idoc.mts';
+import type { ReceivedIdoc, ReplyInput, SentIdocs } from '../idoc/inbox.mts';
+import type { SendResult } from '../idoc/sender.mts';
 
-export type { ReceivedIdoc, ReplyInput } from '../idoc/inbox.mts';
+export type { ReceivedIdoc, ReplyInput, SentIdocs } from '../idoc/inbox.mts';
+export type { Idoc } from '../idoc/idoc.mts';
 
 export interface IdocMatch {
 	/** The partner in the receiver's address (/idoc/<partner>), for example PWMOCK. */
@@ -36,10 +39,23 @@ export interface IdocInbox {
 	reply(partner: string, reply: ReplyInput): Promise<void>;
 }
 
+export interface IdocSender {
+	/**
+	 * Sends IDocs into SAP through the receiver, as CPI's IDoc adapter would: IDoc-XML (a sample file's text), one
+	 * IDoc or several of one type. TABNAM and DIRECT 2 are filled in. Fails unless SAP took them; with
+	 * `{ expectOk: false }` it returns SAP's refusal instead, for negative tests.
+	 * `result.idocNumbers` holds the numbers SAP gave the IDocs, for checking them in WE02 or BD87.
+	 */
+	send(idocs: string | Idoc | Idoc[], options?: { expectOk?: boolean }): Promise<SentIdocs>;
+}
+
 export interface IdocFixtures {
 	/** The IDoc receiver's inbox: IDOC_HUB_URL (its control API) and, beyond this computer, IDOC_HUB_TOKEN.
 	 * Skips the test when IDOC_HUB_URL is not set. */
 	idocInbox: IdocInbox;
+	/** Sends IDocs into SAP through the same receiver, which holds the SAP system and its login
+	 * (IDOC_SAP_URL and the rest there). Skips the test when IDOC_HUB_URL is not set. */
+	idocSender: IdocSender;
 }
 
 // The receiver's answers, checked. The type annotations make the compiler catch any drift from idoc/inbox.mts.
@@ -67,6 +83,24 @@ const ListSchema = z.object({
 	instance: z.string(),
 	cursor: z.number().int(),
 	idocs: z.array(ReceivedSchema)
+});
+const SendResultSchema: z.ZodType<SendResult> = z.object({
+	ok: z.boolean(),
+	status: z.number().int(),
+	service: z.enum(['soap', 'xml']),
+	idocNumbers: z.array(z.string()),
+	reason: z.string().optional(),
+	body: z.string(),
+	durationMs: z.number()
+});
+const SentSchema: z.ZodType<SentIdocs> = z.object({
+	seq: z.number().int(),
+	sentAt: z.string(),
+	by: z.enum(['test', 'person']),
+	idocs: z.array(
+		z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
+	),
+	result: SendResultSchema
 });
 const POLL_MS = 1000;
 
@@ -116,17 +150,51 @@ const describe = (match: IdocMatch) =>
 const summary = ({ seq, partner, idoc: { control } }: ReceivedIdoc) =>
 	`#${seq} ${control.IDOCTYP ?? '?'}/${control.MESTYP ?? '?'} for ${partner}`;
 
+/** The receiver's control API from IDOC_HUB_URL and IDOC_HUB_TOKEN; skips the test without it. */
+function hubClient(testInfo: { skip(condition: boolean, description: string): void }) {
+	const url = process.env.IDOC_HUB_URL;
+	testInfo.skip(!url, 'missing env: IDOC_HUB_URL');
+	const token = process.env.IDOC_HUB_TOKEN || undefined;
+	if (token && isInsecureHttp(url!))
+		throw new Error(
+			'IDOC_HUB_URL must start with https://: over http:// the control token would cross the network unencrypted.'
+		);
+	return new InboxClient(url!, token);
+}
+
+const sentSummary = (idocs: string | Idoc | Idoc[]) => {
+	if (typeof idocs === 'string') return 'IDoc-XML';
+	const list = Array.isArray(idocs) ? idocs : [idocs];
+	const { IDOCTYP, MESTYP } = list[0]?.control ?? {};
+	return `${list.length} × ${IDOCTYP ?? '?'}/${MESTYP ?? '?'}`;
+};
+
 export const test = base.extend<IdocFixtures>({
 	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
+	idocSender: async ({}, use, testInfo) => {
+		const client = hubClient(testInfo);
+		await use({
+			send: (idocs, options = {}) =>
+				base.step(`idocSender.send ${sentSummary(idocs)}`, async () => {
+					const body =
+						typeof idocs === 'string'
+							? { xml: idocs, by: 'test' }
+							: { idocs: Array.isArray(idocs) ? idocs : [idocs], by: 'test' };
+					const sent = SentSchema.parse(await client.call('POST', '/send', body));
+					const { ok, status, reason, idocNumbers } = sent.result;
+					if ((options.expectOk ?? true) && !ok)
+						throw new Error(
+							`SAP did not take the IDocs (${status === 0 ? 'not reached' : `HTTP ${status}`}): ${reason ?? 'no reason given'}`
+						);
+					if (ok && idocNumbers.length > 0)
+						await testInfo.attach('IDoc numbers', { body: idocNumbers.join('\n') });
+					return sent;
+				})
+		});
+	},
+	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
 	idocInbox: async ({}, use, testInfo) => {
-		const url = process.env.IDOC_HUB_URL;
-		testInfo.skip(!url, 'missing env: IDOC_HUB_URL');
-		const token = process.env.IDOC_HUB_TOKEN || undefined;
-		if (token && isInsecureHttp(url!))
-			throw new Error(
-				'IDOC_HUB_URL must start with https://: over http:// the control token would cross the network unencrypted.'
-			);
-		const client = new InboxClient(url!, token);
+		const client = hubClient(testInfo);
 		// Everything before this point belongs to earlier tests.
 		let { instance, cursor: start } = await client.list({}, Number.MAX_SAFE_INTEGER);
 		/** The IDocs since the test started. A receiver that restarted meanwhile (a new instance) numbers from 1
