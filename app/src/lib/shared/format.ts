@@ -1,4 +1,4 @@
-import type { LocatorKind, Surface } from './types';
+import type { LocatorKind, Recorder, Surface } from './types';
 
 export function duration(ms: number | undefined): string {
 	if (ms === undefined) return '–';
@@ -64,10 +64,24 @@ export function statusDesign(status: string | undefined): string {
 export const SURFACE_LABEL: Record<Surface, string> = {
 	fiori: 'Fiori / UI5',
 	webgui: 'SAP WebGUI',
-	ariba: 'SAP Ariba',
 	api: 'SAP services (API)',
 	demo: 'Demo',
 	other: 'Other'
+};
+
+/**
+ * What a test is about: Fiori, WebGUI, API or demo; any other test by the system it signs in to
+ * (its title from systems.json), else "Other".
+ */
+export function kindLabel(surface: Surface, systemTitle?: string): string {
+	return surface === 'other' && systemTitle ? systemTitle : SURFACE_LABEL[surface];
+}
+
+/** What the recorder records: the app's kind of page. */
+export const RECORDER_LABEL: Record<Recorder, string> = {
+	ui5: 'Fiori / UI5',
+	webgui: 'WebGUI',
+	web: 'Web pages'
 };
 
 export const LOCATOR_LABEL: Record<LocatorKind, string> = {

@@ -46,7 +46,8 @@ jobs:
       # The Mock PLC (mfs/): telegrams, the protocol and the emulator against the fake EWM, over
       # local TCP ports. No browser and no SAP system.
       - run: bun run test:mfs
-      # The IDoc model (idoc/): IDoc-XML, plain and in SOAP, and the RFC tables. No browser needed.
+      # IDocs (idoc/): the model, the mock receiver (started by the test run, local ports only) and
+      # the idocInbox fixture. No browser and no SAP system.
       - run: bun run test:idoc
       # The SAP plugin itself (sap-plugin/): selector engines, page methods, UI5 wait and model
       # reads. Most of these tests open SAP's public UI5 demo kit (ui5.sap.com), so they need

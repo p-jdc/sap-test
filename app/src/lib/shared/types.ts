@@ -1,4 +1,8 @@
-export type Surface = 'fiori' | 'webgui' | 'ariba' | 'api' | 'demo' | 'other';
+/**
+ * What a test drives, as far as the rule check needs it: SAP's UI technologies, OData services,
+ * the demo tests, anything else. Which system a test signs in to is `SpecFile.system`.
+ */
+export type Surface = 'fiori' | 'webgui' | 'api' | 'demo' | 'other';
 
 export type LocatorKind =
 	| 'ui5'
@@ -68,6 +72,10 @@ export interface SpecTest {
 export interface SpecFile {
 	file: string;
 	surface: Surface;
+	/** The id of the system in sap-tests/systems.json whose sign-in its tests start with. */
+	system?: string;
+	/** That system's title. */
+	systemTitle?: string;
 	tests: SpecTest[];
 	issues: Issue[];
 	parseError?: string;
@@ -193,6 +201,23 @@ export interface SignInSystemInfo {
 	method: 'sapLogin' | 'ias' | 'form';
 	/** The settings that hold its address, user and password. */
 	env: { url: SettingName; user: SettingName; password: SettingName };
+	/** The folders a recording for this system can be saved in, each with its recorder. */
+	record: RecordTarget[];
+}
+
+/**
+ * How a test is recorded: `ui5` with the UI5 recorder of sap-plugin (Fiori), `webgui` with the
+ * Playwright-SAP recorder signed in to SAP, `web` with the Playwright-SAP recorder where the person
+ * signs in.
+ */
+export type Recorder = 'ui5' | 'webgui' | 'web';
+
+export interface RecordTarget {
+	/** Under sap-tests/tests. */
+	folder: string;
+	recorder: Recorder;
+	/** `ui5` only: where a recording without sign-in goes (a folder the system excludes). */
+	noLoginFolder?: string;
 }
 
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */

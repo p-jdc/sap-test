@@ -1,7 +1,7 @@
 # Regeln für SAP-Tests
 
 Dieses Projekt nutzt Standard-Playwright mit dem SAP-Plugin in sap-plugin/ (Locators aus Playwright-SAP). Tests importieren `test` und `expect` aus sap-plugin (z. B. '../../sap-plugin'), nicht aus '@playwright/test'.
-Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und Ariba.
+Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und von Systemen, die sich nicht mit der SAP-Anmeldung anmelden (z. B. Ariba). Welche Ordner und welcher Recorder je System, ergibt sich aus systems.json (README, „Adding a system“).
 Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge
@@ -47,6 +47,13 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Szenarien mit `"modes": ["demo"]` laufen nur mit dem simulierten EWM. Gegen ein echtes EWM nur Szenarien mit "ewm" in `modes`.
 - Gegen ein echtes EWM braucht jede HU des Szenarios eine Nummer, die EWM kennt: die HU zuerst im Test in EWM anlegen und mit `mfs.runScenario(name, { hus: { A: nummer } })` übergeben. Keine erfundenen HU-Nummern.
 - Negativfälle mit `{ expectPass: false }` und dem zurückgegebenen Ergebnis prüfen, nicht mit try/catch.
+
+## IDoc-Tests
+
+- Tests, die von SAP gesendete IDocs prüfen, importieren `test` und `expect` aus '../../sap-plugin/idoc'. OData-Fixtures und SAP-Locators bleiben verfügbar.
+- Auf das IDoc mit `idocInbox.waitFor({ partner, messageType })` warten, nicht mit festen Wartezeiten. Mit `where` auf etwas Eindeutiges des Tests einschränken, z. B. die Belegnummer aus der Erfolgsmeldung: Der Empfänger wird geteilt.
+- Fehlerfälle mit `idocInbox.reply(partner, { mode: 'reject' })` oder `{ mode: 'slow', delayMs }` testen und danach den IDoc-Status in SAP prüfen. Die Antwort gilt nur bis zum Ende des Tests.
+- Neue IDoc-Tests müssen auch gegen den lokalen Empfänger laufen (`bun run test:idoc`).
 
 ## Was abgedeckt sein muss
 

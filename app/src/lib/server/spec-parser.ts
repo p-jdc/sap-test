@@ -27,6 +27,15 @@ const LOCATOR_METHODS: Record<string, LocatorKind> = {
 	getByAltText: 'text',
 	locator: 'css'
 };
+/**
+ * A record's own entry for a name from the parsed source. Plain lookups would also find what every object
+ * inherits: `.toString()` in a spec would come back as Object.prototype.toString, a function the page then
+ * cannot send to the browser.
+ */
+function own<T>(record: Record<string, T>, name: string): T | undefined {
+	return Object.hasOwn(record, name) ? record[name] : undefined;
+}
+
 const ACTIONS = new Set([
 	'click',
 	'dblclick',
@@ -65,7 +74,7 @@ const SAP_SURFACES = new Set<Surface>(['fiori', 'webgui']);
 
 function surfaceFromPath(file: string): Surface | undefined {
 	const top = file.split('/')[0];
-	if (top === 'fiori' || top === 'webgui' || top === 'ariba' || top === 'api') return top;
+	if (top === 'fiori' || top === 'webgui' || top === 'api') return top;
 	if (top === '_demo') return 'demo';
 	// The plugin's own tests mix UI5 and WebGUI stand-ins; they are no business flow of a surface.
 	if (top === '_plugin') return 'other';
@@ -188,7 +197,7 @@ const SELECTOR_BUILDERS: Record<string, LocatorKind> = {
 
 function classifyCss(ctx: Ctx, arg: ts.Expression | undefined): LocatorKind {
 	if (arg && ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) {
-		const built = SELECTOR_BUILDERS[arg.expression.text];
+		const built = own(SELECTOR_BUILDERS, arg.expression.text);
 		if (built) return built;
 	}
 	const text = arg ? argText(ctx, arg) : '';
@@ -203,7 +212,7 @@ function describeLocator(
 	let info: LocatorInfo | undefined;
 	if (ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
 		const name = root.expression.text;
-		const helper = ctx.helpers[name];
+		const helper = own(ctx.helpers, name);
 		const args = root.arguments.slice(1).map((a) => JSON.stringify(argText(ctx, a)));
 		info = {
 			kind: helper?.locator ?? 'other',
@@ -212,7 +221,7 @@ function describeLocator(
 		};
 	}
 	for (const seg of segments) {
-		const kind = LOCATOR_METHODS[seg.name];
+		const kind = own(LOCATOR_METHODS, seg.name);
 		if (kind && seg.node && (!info || seg.name !== 'locator')) {
 			const k = seg.name === 'locator' ? classifyCss(ctx, seg.args[0]) : kind;
 			info = {
@@ -343,7 +352,7 @@ function analyzeAwait(ctx: Ctx, stmt: ts.Node, expr: ts.Expression): FlowStep | 
 	if (segments.length === 0 && ts.isCallExpression(root) && ts.isIdentifier(root.expression)) {
 		const name = root.expression.text;
 		const args = root.arguments.slice(1).map((a) => argText(ctx, a));
-		const helperLocator = ctx.helpers[name]?.locator;
+		const helperLocator = own(ctx.helpers, name)?.locator;
 		return makeStep(ctx, stmt, {
 			kind: 'helper',
 			action: name,
@@ -871,7 +880,7 @@ export function parseHelpers(files: { file: string; source: string }[]): HelperM
 			const visit = (n: ts.Node) => {
 				if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
 					const m = n.expression.name.text;
-					const kind = LOCATOR_METHODS[m];
+					const kind = own(LOCATOR_METHODS, m);
 					if (!locator && kind) locator = kind;
 					if (ACTIONS.has(m)) isAction = true;
 				}

@@ -216,6 +216,16 @@ test('the written spec: title, login from the environment, no click before a fil
 	expect(renderSpec('https://x.test/', [], './sap-plugin')).toContain(
 		`test('recorded', async ({ page }) => {\n\tawait page.goto('https://x.test/');`
 	);
+	// Another system of systems.json: the spec reads its own variables.
+	expect(
+		renderSpec('https://ewm.example.com/fiori', [], '../../sap-plugin', {
+			login: true,
+			urlFromEnv: true,
+			env: { url: 'EWM_URL', user: 'EWM_USER', password: 'EWM_PASSWORD' }
+		})
+	).toContain(
+		'await page.SAPLogin(process.env.EWM_USER!, process.env.EWM_PASSWORD!, process.env.EWM_URL);'
+	);
 });
 
 // WebGUI marks each element with an `lsdata` attribute that carries its SID. A real WebGUI needs

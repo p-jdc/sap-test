@@ -12,6 +12,7 @@ import {
 	type SignInSystem
 } from '../../sap-plugin';
 import { parseSystems } from '../../sap-plugin/systems';
+import { systemOfFile } from '../../sap-plugin/systems-schema';
 
 const APP = 'https://app.test';
 const IAS = 'https://ias.test';
@@ -180,4 +181,24 @@ test('systems.json: a system holds the tests of its folders, without the exclude
 		'/r/tests/webgui/a.spec.ts'
 	])
 		expect(file).not.toMatch(files);
+});
+
+test('systems.json: the test app assigns each file to the system whose projects run it', () => {
+	const sap = {
+		...system({ method: 'sapLogin' }),
+		tests: ['fiori', '_reference'],
+		exclude: ['fiori/demokit']
+	};
+	const other = { ...system({ method: 'ias' }), id: 'other', tests: ['other'] };
+	for (const file of [
+		'fiori/a.spec.ts',
+		'_reference/b.spec.ts',
+		'fiori/demokit/a.spec.ts',
+		'fiori-x/a.spec.ts',
+		'other/c.spec.ts',
+		'_demo/d.spec.ts'
+	]) {
+		const project = [sap, other].find((s) => `/r/tests/${file}`.match(testFiles(s)));
+		expect(systemOfFile(file, [sap, other])?.id, file).toBe(project?.id);
+	}
 });
