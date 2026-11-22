@@ -286,6 +286,7 @@ const WEBGUI_STAND_IN = `<!doctype html><html><body>
 <label>Order <input lsdata='{"0":"x","SID":"wnd[0]/usr/ctxtVBAK-VBELN"}' /></label>
 <span lsdata='{"SID":"wnd[0]/tbar[1]/btn[8]"}'><button onclick="this.textContent='pressed'">Run</button></span>
 <p>No SID here</p>
+<label>Urgent <input type="checkbox" checked lsdata='{"SID":"wnd[0]/usr/chkURGENT"}' /></label>
 </body></html>`;
 const html = (body: string) => ({ contentType: 'text/html', body });
 const webgui: Flow = {
@@ -300,26 +301,39 @@ test('WebGUI stand-in: clicks and typing are recorded by SID and replay', async 
 	const steps = await record(browser, testInfo, webgui, async (page) => {
 		await page.getByLabel('Order').click();
 		await page.getByLabel('Order').pressSequentially('4711');
+		// A check of the field while the cursor is still in it: the typing comes first.
+		await checkButton(page).click();
+		await page.getByLabel('Order').click();
 		// The button sits inside the element that carries the SID.
 		await page.getByRole('button', { name: 'Run' }).click();
 		// Without a SID nothing is recorded.
 		await page.getByText('No SID here').click();
 		await expect(page.getByRole('button', { name: 'pressed' })).toBeVisible();
-		// Checks, by SID: the field's value and the button's text.
-		await checkButton(page).click();
-		await page.getByLabel('Order').click();
+		// Checks of the button's text and of a native checkbox, which is not a field.
 		await checkButton(page).click();
 		await page.getByRole('button', { name: 'pressed' }).click();
+		await checkButton(page).click();
+		await page.getByLabel('Urgent').click();
+		await expect(page.getByLabel('Urgent')).toBeChecked();
 	});
 
 	expect(steps.map((step) => [step.action, step.sid, step.value])).toEqual([
 		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
 		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711'],
-		['click', 'wnd[0]/tbar[1]/btn[8]', undefined],
 		['expect', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711'],
-		['expect', 'wnd[0]/tbar[1]/btn[8]', 'pressed']
+		['click', 'wnd[0]/tbar[1]/btn[8]', undefined],
+		['expect', 'wnd[0]/tbar[1]/btn[8]', 'pressed'],
+		['expect', 'wnd[0]/usr/chkURGENT', undefined]
 	]);
-	expect(steps.slice(3).map((step) => step.check)).toEqual(['value', 'text']);
+	expect(steps.map((step) => step.check)).toEqual([
+		undefined,
+		undefined,
+		'value',
+		undefined,
+		'text',
+		'checked'
+	]);
+	expect(steps[5]?.checked).toBe(true);
 
 	await replay(browser, webgui, steps, async (page) => {
 		await expect(page.getByLabel('Order')).toHaveValue('4711');
@@ -467,6 +481,10 @@ test('inside an iframe: WebGUI steps carry the frame and replay', async ({ brows
 		await expect(app.getByRole('button')).toHaveText('pressed');
 		// The Check button is in the top frame; the check is made in the iframe.
 		await checkButton(page).click();
+		// The mode reaches the iframe through the recorder outside the page; a person is slower.
+		await page
+			.frame({ name: 'application' })!
+			.waitForFunction(() => window.sapRecorderState?.checking);
 		await app.getByLabel('Order').click();
 		// Recording the check ends the check mode in the top frame as well.
 		await expect(checkButton(page)).toBeVisible();
@@ -700,23 +718,25 @@ const CHECK_BOX =
 const box = (page: Page) => page.getByRole('checkbox', { name: 'Option b', exact: true });
 
 test('checks: whether a checkbox is ticked', async ({ browser }, testInfo) => {
-	let ticked = false;
 	const steps = await record(browser, testInfo, { url: CHECK_BOX }, async (page) => {
 		await ui5Started(page);
+		// "Option b" starts unticked. UI5 ticks it a moment after the click.
+		await expect(box(page)).not.toBeChecked();
 		await clickLikeAPerson(page, box(page));
-		ticked = await box(page).isChecked();
+		await expect(box(page)).toBeChecked();
 		await checkLikeAPerson(page, box(page));
-		// The check did not tick or untick it.
-		await expect(box(page)).toBeChecked({ checked: ticked });
+		// The check did not untick it.
+		await recorderIdle(page);
+		await expect(box(page)).toBeChecked();
 	});
 
 	expect(steps.map((step) => [step.action, step.check, step.checked])).toEqual([
 		['click', undefined, undefined],
-		['expect', 'checked', ticked]
+		['expect', 'checked', true]
 	]);
 	expect(needingALook(steps)).toEqual([]);
 	await replay(browser, { url: CHECK_BOX }, steps, async (page) => {
-		await expect(box(page)).toBeChecked({ checked: ticked });
+		await expect(box(page)).toBeChecked();
 	});
 });
 

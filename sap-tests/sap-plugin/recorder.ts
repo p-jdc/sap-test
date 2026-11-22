@@ -146,14 +146,16 @@ function recorderScript(binding: string) {
 	const badge = document.createElement('div');
 	badge.dataset.sapRecorder = '';
 	badge.style.cssText =
-		'position:fixed;z-index:2147483647;top:8px;left:50%;transform:translateX(-50%)';
+		'position:fixed;z-index:2147483647;top:8px;left:50%;transform:translateX(-50%);' +
+		// Only the button takes the mouse: the app under the bar stays usable.
+		'pointer-events:none';
 	const shadow = badge.attachShadow({ mode: 'open' });
 	const style = document.createElement('style');
 	style.textContent =
 		'.bar{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 12px;border-radius:14px;' +
 		'background:#b00;color:#fff;font:12px/1.2 sans-serif;white-space:nowrap;opacity:.92}' +
 		'.bar.checking{background:#0a6ed1}' +
-		'button{font:inherit;color:#b00;background:#fff;border:0;border-radius:10px;padding:3px 10px;cursor:pointer}' +
+		'button{font:inherit;color:#b00;background:#fff;border:0;border-radius:10px;padding:3px 10px;cursor:pointer;pointer-events:auto}' +
 		'.checking button{color:#0a6ed1}';
 	const bar = document.createElement('div');
 	bar.className = 'bar';
@@ -600,6 +602,9 @@ function recorderScript(binding: string) {
 		'position:fixed;z-index:2147483646;pointer-events:none;outline:2px solid #0a6ed1;' +
 		'background:rgba(10,110,209,.08);border-radius:2px';
 	state.setChecking = (on) => {
+		// What was typed into the field that has the focus comes first: the check may be of that
+		// value. Neither the Check button nor the check click takes the focus out of the field.
+		if (on) state.flush?.();
 		state.checking = on;
 		if (!on) overlay.remove();
 		showBadge();
@@ -616,27 +621,38 @@ function recorderScript(binding: string) {
 		element instanceof HTMLInputElement
 			? element.checked
 			: element.getAttribute('aria-checked') === 'true';
+	// A field one types into: no checkbox, radio button or push button.
+	const isTextField = (element: Element | null): element is Editable =>
+		isEditable(element) &&
+		!element.matches(TICKABLE) &&
+		!['button', 'submit', 'reset', 'image'].includes(element.type);
 	// The input of the field an element is in (sap.m.Input, DatePicker, TextArea and the like).
 	const fieldAround = (target: Element): Editable | undefined => {
-		if (isEditable(target)) return target;
+		if (isTextField(target)) return target;
 		let control = state.ready ? controlOf(target) : undefined;
 		for (let level = 0; control && level < 3; level++, control = control.getParent() ?? undefined) {
 			if (!control.isA('sap.m.InputBase')) continue;
 			const field = control.getFocusDomRef();
-			return isEditable(field) ? field : undefined;
+			return isTextField(field) ? field : undefined;
 		}
 		return undefined;
 	};
 	type Checked = { element: Element; check: 'value' | 'checked' | 'text' };
 	const checkedAt = (target: Element): Checked => {
-		const field = fieldAround(target);
-		if (field) return { element: field, check: 'value' };
 		const tickable = target.closest(TICKABLE);
 		if (tickable) return { element: tickable, check: 'checked' };
+		const field = fieldAround(target);
+		if (field) return { element: field, check: 'value' };
 		return { element: buttonAround(target) ?? target, check: 'text' };
 	};
-	// The element the written locator will find: what UI5 resolves the selector to.
+	// The element the written locator will find: what UI5 resolves the selector to, or for WebGUI
+	// the element whose lsdata holds the SID, as the sid engine finds it.
 	const resolvedBy = (described: Described): Element | undefined => {
+		const { sid } = described;
+		if (sid)
+			return [...document.querySelectorAll('[lsdata]')].find((holder) =>
+				(holder.getAttribute('lsdata') ?? '').includes(`"SID":"${sid}"`)
+			);
 		if (!described.selector || described.innerText || described.chartPoint) return undefined;
 		try {
 			// oxlint-disable-next-line no-underscore-dangle -- UI5's name
@@ -647,12 +663,12 @@ function recorderScript(binding: string) {
 	};
 	// The text as toHaveText compares it: textContent with its white space collapsed.
 	const textOf = (element: Element) =>
-		(element.textContent ?? '').replaceAll('​', '').replace(/\s+/g, ' ').trim();
+		(element.textContent ?? '').replaceAll('\u200b', '').replace(/\s+/g, ' ').trim();
 	const LONGEST_TEXT = 200;
 	const checkStep = (described: Described, at: Checked): PageStep => {
 		const located = described.chartPoint || described.innerText;
-		const element = (described.sid ? at.element : resolvedBy(described)) ?? at.element;
-		if (!located && at.check === 'value' && isEditable(element) && !isSecret(element))
+		const element = resolvedBy(described) ?? at.element;
+		if (!located && at.check === 'value' && isTextField(element) && !isSecret(element))
 			return { action: 'expect', check: 'value', value: element.value };
 		if (!located && at.check === 'checked' && isTickable(element))
 			return { action: 'expect', check: 'checked', checked: tickedOf(element) };
@@ -694,13 +710,21 @@ function recorderScript(binding: string) {
 			}
 			if (!state.checking || !(event.target instanceof Element)) return;
 			block(event);
+			// Typed while in the check mode: the keyboard is not blocked.
+			state.flush?.();
 			checkEverywhere(false);
 			if (!watched(event.target)) return;
 			const at = checkedAt(event.target);
 			const step = { ...next(), hint: hintFor(at.element) };
-			void describe(at.element).then((described) =>
-				report({ ...step, ...described, ...checkStep(described, at) })
-			);
+			// Read once the click is over: a native checkbox ticks itself before the click event and
+			// only goes back when the event has been cancelled.
+			// Busy until then, so that the end of a recording waits for this step.
+			state.busy++;
+			const over = new Promise((done) => setTimeout(done));
+			void over
+				.then(() => describe(at.element))
+				.then((described) => report({ ...step, ...described, ...checkStep(described, at) }))
+				.finally(() => state.busy--);
 		},
 		true
 	);
