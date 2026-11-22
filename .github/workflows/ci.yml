@@ -32,6 +32,9 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
+      # The hook that keeps Claude Code's shell commands away from .env files.
+      - run: bun test ./.claude/hooks/guard-dotenv.test.ts
+        working-directory: .
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run format:check

@@ -15,7 +15,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "bun \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-dotenv.ts\"",
+						"command": "bun \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-dotenv.ts\" || { echo 'The .env guard did not run (is bun installed?). Shell commands are refused until it does.' >&2; exit 2; }",
 						"statusMessage": "Checking the .env guard"
 					}
 				]

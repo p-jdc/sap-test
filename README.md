@@ -433,9 +433,13 @@ bun install --cwd .claude/mcp
 lookups.
 
 `.claude/settings.json` keeps Claude Code away from `sap-tests/.env`: the file tools are denied
-there, and a hook (`.claude/hooks/guard-dotenv.ts`) refuses shell commands that name a `.env` file,
-except to ask whether it exists. The hook reads the command text, so it stops `cat sap-tests/.env`
-but not a path built from a glob or a search of the whole folder; it is a tripwire, not a wall.
+there, and a hook (`.claude/hooks/guard-dotenv.ts`) refuses shell commands that name a `.env` file
+(also `.env.local` and the like; not `.env.example` or `.env.test`), except to ask whether it
+exists. The hook reads the command text, so it stops `cat sap-tests/.env` but not a path built from
+a glob or a search of the whole folder; it is a tripwire, not a wall. It also refuses a command
+whose text merely mentions the name, such as a commit message; that text goes into a file
+(`git commit -F`). If the hook cannot run, for example without `bun`, every shell command is
+refused until it can.
 
 Skills for Claude Code are in `.claude/skills/` (Svelte 5 practice and testing, checking before
 claiming something works, and how to start and drive this app for a look in the browser); the
