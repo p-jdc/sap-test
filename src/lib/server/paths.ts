@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import nodePath, { isAbsolute, resolve } from 'node:path';
 
 /** The repository root. The app runs from here (`bun run dev`, `bun run start`). */
-const APP_ROOT = process.cwd();
+export const APP_ROOT = process.cwd();
 
 /** The SAP test project (stock Playwright with sap-plugin) this app drives. Override with SAP_TESTS_DIR. */
 export const TESTS_ROOT = resolve(process.env.SAP_TESTS_DIR || resolve(APP_ROOT, 'sap-tests'));

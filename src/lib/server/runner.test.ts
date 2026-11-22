@@ -176,6 +176,18 @@ describe('startRun', () => {
 		expect(runner.activeRunId()).toBeNull();
 	});
 
+	test('does not start while another job (the healer) is busy, and says why', async () => {
+		const runner = await freshRunner('pass');
+		let asked = 0;
+		const result = await runner.startRun({}, () => {
+			asked += 1;
+			return 'The healer is working on "a test".';
+		});
+		expect(result).toEqual({ ok: false, error: 'The healer is working on "a test".' });
+		expect(asked).toBe(1);
+		expect(runner.activeRunId()).toBeNull();
+	});
+
 	test('a run that passes ends as passed, with its output and a stored state', async () => {
 		const runner = await freshRunner('pass');
 		const id = await started(runner);

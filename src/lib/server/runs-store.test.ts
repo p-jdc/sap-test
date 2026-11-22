@@ -292,6 +292,48 @@ describe('applyRetention', () => {
 		});
 	});
 
+	test("the healer's test runs go with the run's files, its report with the log", async () => {
+		const store = await freshStore();
+		const old = writeRun({ flow: 'failed' }, 'failed');
+		writeRun({ flow: 'passed' });
+		const dir = withArtifacts(old);
+		const healer = join(dir, 'healer');
+		mkdirSync(join(healer, 't1-results/a-chromium'), { recursive: true });
+		mkdirSync(join(healer, 't1-browser'), { recursive: true });
+		writeFileSync(join(healer, 't1-results/a-chromium/trace.zip'), 'zip');
+		writeFileSync(join(healer, 't1.json'), '{}');
+
+		// 20 days on: the failure was fixed; the files go, the steps and the log stay.
+		store.applyRetention(DAYS_LATER(20));
+		expect(existsSync(join(dir, 'results'))).toBe(false);
+		expect(existsSync(join(healer, 't1-results'))).toBe(false);
+		expect(existsSync(join(healer, 't1-browser'))).toBe(false);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+		expect(existsSync(join(healer, 't1.json'))).toBe(true);
+		// Results written after the run's own files went are removed on the next pass.
+		mkdirSync(join(healer, 't2-results'), { recursive: true });
+		store.applyRetention(DAYS_LATER(21));
+		expect(existsSync(join(healer, 't2-results'))).toBe(false);
+
+		store.applyRetention(DAYS_LATER(40));
+		expect(existsSync(join(dir, 'output.log'))).toBe(false);
+		expect(existsSync(healer)).toBe(false);
+	});
+
+	test('the run the healer works on is left alone until its session ends', async () => {
+		const store = await freshStore();
+		const { setHealingRun } = await import('./healing-run.js');
+		const old = writeRun({ flow: 'failed' }, 'failed');
+		writeRun({ flow: 'passed' });
+		const dir = withArtifacts(old);
+		setHealingRun(old);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([]);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+		setHealingRun(null);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([old]);
+		expect(existsSync(join(dir, 'output.log'))).toBe(false);
+	});
+
 	test('recent runs are left alone, and so is everything when the rules are off', async () => {
 		const store = await freshStore();
 		const old = writeRun({ flow: 'passed' });
