@@ -161,8 +161,8 @@ import { render } from 'vitest-browser-svelte';
 import { expect } from 'vitest';
 
 test('component behavior', async () => {
-	render(Component);
-	await expect.element(page.getByRole('button')).toBeInTheDocument();
+  render(Component);
+  await expect.element(page.getByRole('button')).toBeInTheDocument();
 });
 
 // Server-side API test
@@ -170,13 +170,13 @@ test('component behavior', async () => {
 import { POST } from './+server';
 
 test('API endpoint', async () => {
-	const formData = new FormData();
-	const request = new Request('http://localhost/api', {
-		method: 'POST',
-		body: formData,
-	});
-	const response = await POST({ request });
-	expect(response.status).toBe(200);
+  const formData = new FormData();
+  const request = new Request('http://localhost/api', {
+    method: 'POST',
+    body: formData
+  });
+  const response = await POST({ request });
+  expect(response.status).toBe(200);
 });
 
 // SSR test
@@ -184,8 +184,8 @@ test('API endpoint', async () => {
 import PageComponent from './+page.svelte';
 
 test('SSR rendering', () => {
-	const { html } = PageComponent.render({ data: {} });
-	expect(html).toContain('expected content');
+  const { html } = PageComponent.render({ data: {} });
+  expect(html).toContain('expected content');
 });
 ```
 

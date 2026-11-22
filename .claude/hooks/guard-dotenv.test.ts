@@ -85,7 +85,8 @@ test.each(ALLOWED)('allows: %s', (command) => {
 	expect(refusal(command)).toBeUndefined();
 });
 
-const payload = (command: unknown) => JSON.stringify({ tool_name: 'Bash', tool_input: { command } });
+const payload = (command: unknown) =>
+	JSON.stringify({ tool_name: 'Bash', tool_input: { command } });
 
 test('the answer denies a refused command and is empty for an allowed one', () => {
 	const denied = JSON.parse(answer(payload('cat sap-tests/.env')) ?? '{}');
@@ -97,9 +98,13 @@ test('the answer denies a refused command and is empty for an allowed one', () =
 });
 
 test('a Monitor on a WebSocket has no command to check', () => {
-	expect(answer(JSON.stringify({ tool_name: 'Monitor', tool_input: { ws: { url: 'wss://x' } } }))).toBeUndefined();
 	expect(
-		answer(JSON.stringify({ tool_name: 'Monitor', tool_input: { command: 'tail -f sap-tests/.env' } }))
+		answer(JSON.stringify({ tool_name: 'Monitor', tool_input: { ws: { url: 'wss://x' } } }))
+	).toBeUndefined();
+	expect(
+		answer(
+			JSON.stringify({ tool_name: 'Monitor', tool_input: { command: 'tail -f sap-tests/.env' } })
+		)
 	).toContain('deny');
 });
 

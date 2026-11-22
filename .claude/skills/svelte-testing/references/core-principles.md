@@ -56,22 +56,22 @@ mismatches:
 ```typescript
 // ❌ BRITTLE: Mocks hide API mismatches
 const mockRequest = {
-	formData: vi.fn().mockResolvedValue({
-		get: vi.fn().mockReturnValue('test@example.com'),
-	}),
+  formData: vi.fn().mockResolvedValue({
+    get: vi.fn().mockReturnValue('test@example.com')
+  })
 };
 
 // ✅ ROBUST: Real FormData catches mismatches
 const formData = new FormData();
 formData.append('email', 'test@example.com');
 const request = new Request('http://localhost/api/users', {
-	method: 'POST',
-	body: formData,
+  method: 'POST',
+  body: formData
 });
 
 // Only mock external services
 vi.mocked(database.createUser).mockResolvedValue({
-	id: '123',
-	email: 'test@example.com',
+  id: '123',
+  email: 'test@example.com'
 });
 ```

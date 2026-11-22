@@ -32,13 +32,13 @@ Process (doc lookup, autofixer) lives in `svelte-code-writer`; this file is cont
 Reach for it only when nothing else fits, and never to keep one piece of state in sync with another —
 that is what `$derived` is for. Writing state inside an effect is the single most common Svelte 5 bug.
 
-| Need | Use |
-| --- | --- |
-| Derive a value from other state | `$derived` |
-| Hand a DOM node to an imperative library (D3, maps, charts, editors) | `{@attach}` |
-| React to user interaction | event handler or function binding |
-| Observe something outside Svelte (media queries, sockets, external stores) | `createSubscriber` |
-| See why something re-ran | `$inspect` / `$inspect.trace` |
+| Need                                                                       | Use                               |
+| -------------------------------------------------------------------------- | --------------------------------- |
+| Derive a value from other state                                            | `$derived`                        |
+| Hand a DOM node to an imperative library (D3, maps, charts, editors)       | `{@attach}`                       |
+| React to user interaction                                                  | event handler or function binding |
+| Observe something outside Svelte (media queries, sockets, external stores) | `createSubscriber`                |
+| See why something re-ran                                                   | `$inspect` / `$inspect.trace`     |
 
 - `{@attach}` supersedes `use:action`. Attachments are values, so they compose, take arguments
   reactively, and can be spread through props.
@@ -63,7 +63,7 @@ that is what `$derived` is for. Writing state inside an effect is the single mos
 - **Always key `{#each}` by a stable id**, never by index — index keys corrupt state on reorder.
 - Avoid destructuring in `{#each}` when you intend to mutate. `{#each items as item}` with
   `bind:value={item.count}` works; `{#each items as { count }}` gives you a dead copy.
-- **Components are dynamic by default in runes mode** — there is no replacement *element* for
+- **Components are dynamic by default in runes mode** — there is no replacement _element_ for
   `<svelte:component>`. Put the component in a capitalized variable and render it:
   `const Cmp = $derived(map[kind]);` then `<Cmp {...props} />`.
 - `import Self from './Self.svelte'` over `<svelte:self>`.
@@ -93,7 +93,7 @@ live here. Two traps the reference app has already hit:
 
 - **Never `await` inside the reactive graph on a streaming-hot path**. A `$derived(await …)`
   in a component that mounts mid-stream wedges Svelte's batch scheduler and freezes effect flushing
-  *page-wide*, with healthy state and a clean console. Render a sync fallback and land `.then()`
+  _page-wide_, with healthy state and a clean console. Render a sync fallback and land `.then()`
   results into `$state`. `{#await}` blocks don't batch-participate and are always safe. This is
   narrower than "no await in a derived" — read the reference before working around it.
 - **In tests, the async flag defeats `await`-based ordering assertions.** Pin ordering with
@@ -108,18 +108,18 @@ One reference carries the detail — load it only when the task calls for it:
 
 ## Legacy APIs and their replacements
 
-| Legacy | Use instead |
-| --- | --- |
-| `export let` | `$props()` |
-| `$:` reactive statement | `$derived` / `$effect` |
-| stores (`writable`, `$store`) | class with `$state` fields |
-| `on:click` | `onclick` |
-| slots | snippets |
-| `<svelte:component>` | a capitalized variable — `const Cmp = $derived(…)`, then `<Cmp />` |
-| `<svelte:self>` | `import Self from './Self.svelte'` |
-| `use:action` | `{@attach}` |
-| `class:active` | `class={['btn', active && 'active']}` |
-| `onMount` for setup | `$effect`, `{@attach}`, or an event handler |
+| Legacy                        | Use instead                                                        |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `export let`                  | `$props()`                                                         |
+| `$:` reactive statement       | `$derived` / `$effect`                                             |
+| stores (`writable`, `$store`) | class with `$state` fields                                         |
+| `on:click`                    | `onclick`                                                          |
+| slots                         | snippets                                                           |
+| `<svelte:component>`          | a capitalized variable — `const Cmp = $derived(…)`, then `<Cmp />` |
+| `<svelte:self>`               | `import Self from './Self.svelte'`                                 |
+| `use:action`                  | `{@attach}`                                                        |
+| `class:active`                | `class={['btn', active && 'active']}`                              |
+| `onMount` for setup           | `$effect`, `{@attach}`, or an event handler                        |
 
 ## Checking your work
 

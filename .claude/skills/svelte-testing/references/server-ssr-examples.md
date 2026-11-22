@@ -2,67 +2,70 @@
 
 - Example 4: SSR Test (this file is a fragment: it opens mid-way through the tail of Example 3's code block)
 
-    	vi.mocked(database.createUser).mockResolvedValue({
-    		id: '123',
-    		email: 'user@example.com',
-    	});
+        vi.mocked(database.createUser).mockResolvedValue({
+        	id: '123',
+        	email: 'user@example.com',
+        });
 
-    	// Use real FormData
-    	const formData = new FormData();
-    	formData.append('email', 'user@example.com');
-    	formData.append('password', 'securepass123');
+        // Use real FormData
+        const formData = new FormData();
+        formData.append('email', 'user@example.com');
+        formData.append('password', 'securepass123');
 
-    	// Use real Request object
-    	const request = new Request('http://localhost/api/users', {
-    		method: 'POST',
-    		body: formData,
-    	});
+        // Use real Request object
+        const request = new Request('http://localhost/api/users', {
+        	method: 'POST',
+        	body: formData,
+        });
 
-    	const response = await POST({ request });
-    	const data = await response.json();
+        const response = await POST({ request });
+        const data = await response.json();
 
-    	expect(response.status).toBe(201);
-    	expect(data.email).toBe('user@example.com');
-    	expect(database.createUser).toHaveBeenCalledWith({
-    		email: 'user@example.com',
-    		password: 'securepass123',
-    	});
-    });
+        expect(response.status).toBe(201);
+        expect(data.email).toBe('user@example.com');
+        expect(database.createUser).toHaveBeenCalledWith({
+        	email: 'user@example.com',
+        	password: 'securepass123',
+        });
 
-    test('rejects invalid email format', async () => {
-    	const formData = new FormData();
-    	formData.append('email', 'invalid-email');
-    	formData.append('password', 'pass123');
+  });
 
-    	const request = new Request('http://localhost/api/users', {
-    		method: 'POST',
-    		body: formData,
-    	});
+  test('rejects invalid email format', async () => {
+  const formData = new FormData();
+  formData.append('email', 'invalid-email');
+  formData.append('password', 'pass123');
 
-    	const response = await POST({ request });
-    	const data = await response.json();
+        const request = new Request('http://localhost/api/users', {
+        	method: 'POST',
+        	body: formData,
+        });
 
-    	expect(response.status).toBe(400);
-    	expect(data.errors.email).toBeDefined();
-    	expect(database.createUser).not.toHaveBeenCalled();
-    });
+        const response = await POST({ request });
+        const data = await response.json();
 
-    test('handles missing required fields', async () => {
-    	const formData = new FormData();
-    	// Missing email and password
+        expect(response.status).toBe(400);
+        expect(data.errors.email).toBeDefined();
+        expect(database.createUser).not.toHaveBeenCalled();
 
-    	const request = new Request('http://localhost/api/users', {
-    		method: 'POST',
-    		body: formData,
-    	});
+  });
 
-    	const response = await POST({ request });
-    	const data = await response.json();
+  test('handles missing required fields', async () => {
+  const formData = new FormData();
+  // Missing email and password
 
-    	expect(response.status).toBe(400);
-    	expect(data.errors.email).toBeDefined();
-    	expect(data.errors.password).toBeDefined();
-    });
+        const request = new Request('http://localhost/api/users', {
+        	method: 'POST',
+        	body: formData,
+        });
+
+        const response = await POST({ request });
+        const data = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(data.errors.email).toBeDefined();
+        expect(data.errors.password).toBeDefined();
+
+  });
 
 });
 

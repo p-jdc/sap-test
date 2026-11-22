@@ -33,13 +33,13 @@ the whole page, and the failure is nasty enough to be worth the paragraph.
 Under `experimental.async`, a `$derived(await …)` or a template `await` joins the current
 effect batch as pending work. When such a component **mounts mid-stream** — our case was chat
 tool chips → `ToolInput`/`ToolOutput` → the then-shiki `CodeBlock`'s highlight — the batch defers its
-effects and then never re-flushes them, *even after pending work returns to zero*. Observed on
+effects and then never re-flushes them, _even after pending work returns to zero_. Observed on
 Svelte 5.56.6; likely an upstream bug, no matching issue found.
 
 **Symptom signature.** UI frozen (chips stuck Pending, submit stuck "generating"), SSE stream
 fully consumed, `$state` provably advancing if you poll it, `$derived` recomputing on read —
 but no `$effect` re-runs and no cleanup fires. Zero console errors. A reload renders perfectly.
-State and invalidation are healthy; only effect *flushing* is dead.
+State and invalidation are healthy; only effect _flushing_ is dead.
 
 **How to tell it apart from a data bug.** (a) pull-driven tap on the SSE body, (b) an untracked
 `setInterval` poll of the same state, (c) a probe `$effect` on one plain `$state`. If (a) and
@@ -71,7 +71,7 @@ Independent `await` expressions in markup run in parallel even though they read 
 <p>{await two(y)}</p>
 ```
 
-This does *not* apply to sequential awaits inside `<script>` or inside an async function — those
+This does _not_ apply to sequential awaits inside `<script>` or inside an async function — those
 behave like any other async JavaScript. Independent `$derived`s update independently once
 created, though they are created sequentially:
 
@@ -94,14 +94,14 @@ that resolves when the current update completes:
 import { tick, settled } from 'svelte';
 
 async function onclick() {
-	updating = true;
-	await tick(); // without this, `updating` batches with the changes below and never shows
+  updating = true;
+  await tick(); // without this, `updating` batches with the changes below and never shows
 
-	color = 'octarine';
-	answer = 42;
+  color = 'octarine';
+  answer = 42;
 
-	await settled();
-	updating = false;
+  await settled();
+  updating = false;
 }
 ```
 
