@@ -70,12 +70,85 @@ export interface HuState {
 	path: string[];
 }
 
-export interface EmulatorEvent {
-	n: number;
-	at: number;
-	text: string;
-	hu?: string;
+/**
+ * What happened, as a kind and fields. Scenarios and tests match on these; the text is for people and may change.
+ */
+export const EventKindSchema = z.enum([
+	'hu-entered',
+	'hu-left', // goods issue
+	'task-taken',
+	'task-refused',
+	'delivered',
+	'bin-occupied', // `to` is the bin
+	'scanned',
+	'device-status',
+	'ewm-connected',
+	'ewm-disconnected',
+	'connection-refused', // a second connection while EWM is alive
+	'connection-replaced', // a silent connection made way for a new one
+	'connection-dropped', // closed by a fault
+	'telegrams-kept', // unacknowledged when EWM went away, sent again when it is back
+	'telegram-queued', // EWM not connected
+	'telegrams-dropped', // the oldest queued ones, EWM away too long
+	'telegram-not-sent', // could not be built
+	'telegram-ignored', // not one a PLC handles
+	'no-telegram', // `message`: the report the layout has no telegram for
+	'reset'
+]);
+export type EventKind = z.infer<typeof EventKindSchema>;
+
+const MOVE = ['plc', 'device', 'hu', 'from', 'to', 'task'] as const;
+/** The fields each kind of event carries. A scenario condition may only name these. */
+export const EVENT_FIELDS = {
+	'hu-entered': ['hu', 'point'],
+	'hu-left': ['hu', 'point'],
+	'task-taken': MOVE,
+	'task-refused': ['plc', 'hu', 'from', 'to', 'task', 'result'],
+	delivered: MOVE,
+	'bin-occupied': MOVE,
+	scanned: ['plc', 'device', 'hu', 'point', 'result'],
+	'device-status': ['plc', 'device', 'status'],
+	'ewm-connected': ['plc'],
+	'ewm-disconnected': ['plc'],
+	'connection-refused': ['plc'],
+	'connection-replaced': ['plc'],
+	'connection-dropped': ['plc'],
+	'telegrams-kept': ['plc', 'count'],
+	'telegram-queued': ['plc', 'telegram'],
+	'telegrams-dropped': ['plc', 'count'],
+	'telegram-not-sent': ['plc', 'telegram'],
+	'telegram-ignored': ['plc', 'telegram'],
+	'no-telegram': ['plc', 'message'],
+	reset: []
+} as const satisfies Record<EventKind, readonly (keyof EventFacts)[]>;
+
+/** The results an event can report: the emulator's names, the same with any telegram layout. */
+export const EVENT_RESULTS: Partial<Record<EventKind, readonly string[]>> = {
+	'task-refused': ['noRoute', 'wrongPlc', 'noHu'],
+	scanned: ScanResultSchema.options
+};
+
+/** The fields an event can carry. Locations: `from`, `to` for a move, `point` for where an HU is. */
+export interface EventFacts {
+	plc?: string;
 	device?: string;
+	hu?: string;
+	from?: string;
+	to?: string;
+	point?: string;
+	task?: string;
+	result?: string;
+	status?: string;
+	telegram?: string;
+	message?: string;
+	count?: number;
+}
+export interface EmulatorEvent extends EventFacts {
+	n: number;
+	/** When it happened (epoch ms). */
+	at: number;
+	kind: EventKind;
+	text: string;
 }
 
 interface Job {
@@ -173,12 +246,18 @@ export class Emulator {
 					// that has been silent for several life intervals makes way for the new connection.
 					const silent = Date.now() - state.channel.lastHeardAt;
 					if (silent <= SILENT_INTERVALS * this.#timing.lifeIntervalMs) {
-						this.#event(`${plc.id}: second connection refused, the channel is in use`);
+						this.#event(
+							'connection-refused',
+							`${plc.id}: second connection refused, the channel is in use`,
+							{ plc: plc.id }
+						);
 						socket.destroy();
 						return;
 					}
 					this.#event(
-						`${plc.id}: nothing heard from EWM for ${Math.round(silent / 1000)} s, the old connection makes way for a new one`
+						'connection-replaced',
+						`${plc.id}: nothing heard from EWM for ${Math.round(silent / 1000)} s, the old connection makes way for a new one`,
+						{ plc: plc.id }
 					);
 					state.channel.close();
 				}
@@ -192,18 +271,20 @@ export class Emulator {
 					log: (entry) => this.#record(entry),
 					onTelegram: (telegram) => this.#onTelegram(plc.id, telegram),
 					onClose: (unacknowledged) => {
-						this.#event(`${plc.id}: EWM disconnected`);
+						this.#event('ewm-disconnected', `${plc.id}: EWM disconnected`, { plc: plc.id });
 						if (unacknowledged.length === 0) return;
 						// EWM never confirmed these: they go out again, first, when it is back.
 						state.outbox.unshift(...unacknowledged);
 						this.#trimOutbox(state);
 						this.#event(
-							`${plc.id}: ${unacknowledged.length} unacknowledged telegram(s) kept until EWM connects again`
+							'telegrams-kept',
+							`${plc.id}: ${unacknowledged.length} unacknowledged telegram(s) kept until EWM connects again`,
+							{ plc: plc.id, count: unacknowledged.length }
 						);
 					}
 				});
 				state.channel.faults = state.faults;
-				this.#event(`${plc.id}: EWM connected`);
+				this.#event('ewm-connected', `${plc.id}: EWM connected`, { plc: plc.id });
 				for (const { type, fields } of state.outbox.splice(0)) state.channel.send(type, fields);
 			});
 			await new Promise<void>((resolve, reject) => {
@@ -266,7 +347,7 @@ export class Emulator {
 			path: [point]
 		};
 		this.#hus.set(hu, state);
-		this.#event(`HU ${hu} enters at ${point}`, { hu });
+		this.#event('hu-entered', `HU ${hu} enters at ${point}`, { hu, point });
 		this.#arrive(state, point);
 		return state;
 	}
@@ -289,7 +370,7 @@ export class Emulator {
 			delete plc.faults.stopLife;
 			plc.outbox = [];
 		}
-		this.#event('Reset: the warehouse is empty, all devices are up');
+		this.#event('reset', 'Reset: the warehouse is empty, all devices are up');
 	}
 
 	script(hu: string, script: HuScript): HuState {
@@ -303,7 +384,11 @@ export class Emulator {
 		const device = this.#devices.get(id);
 		if (!device) throw new UserError(`unknown device ${id}`, 404);
 		device.status = status;
-		this.#event(`${id} is ${status === 'UP' ? 'up again' : 'down'}`, { device: id });
+		this.#event('device-status', `${id} is ${status === 'UP' ? 'up again' : 'down'}`, {
+			plc: device.def.plc,
+			device: id,
+			status
+		});
 		this.#send(device.def.plc, 'status', { device: id, status: status === 'UP' ? 'up' : 'down' });
 		if (status === 'UP') this.#pump(device);
 	}
@@ -314,7 +399,7 @@ export class Emulator {
 		const { disconnect, ...rest } = faults;
 		Object.assign(plc.faults, rest);
 		if (disconnect) {
-			this.#event(`${plcId}: connection closed (fault)`);
+			this.#event('connection-dropped', `${plcId}: connection closed (fault)`, { plc: plcId });
 			plc.channel?.close();
 		}
 	}
@@ -358,7 +443,12 @@ export class Emulator {
 	#onTelegram(plcId: string, telegram: Telegram) {
 		const message = fromWire(this.setup.layout, telegram);
 		if (message?.kind === 'task') this.#onTask(plcId, message.values);
-		else this.#event(`${plcId}: telegram ${telegram.type} not handled by a PLC, ignored`);
+		else
+			this.#event(
+				'telegram-ignored',
+				`${plcId}: telegram ${telegram.type} not handled by a PLC, ignored`,
+				{ plc: plcId, telegram: telegram.type }
+			);
 	}
 
 	#onTask(plcId: string, values: Record<string, string | undefined>) {
@@ -366,7 +456,18 @@ export class Emulator {
 		const label = task ? `task ${task}` : 'task';
 		const refuse = (result: string, reason: string) => {
 			const code = wireCode(this.setup.layout, 'confirmation', result);
-			this.#event(`${plcId}: ${label} ${src} → ${dst} refused (${code}): ${reason}`, { hu });
+			this.#event(
+				'task-refused',
+				`${plcId}: ${label} ${src} → ${dst} refused (${code}): ${reason}`,
+				{
+					plc: plcId,
+					hu,
+					from: src,
+					to: dst,
+					task,
+					result
+				}
+			);
 			this.#send(plcId, 'confirmation', { hu, source: src, destination: dst, task, result });
 		};
 		const device = deviceFor(this.setup, src, dst);
@@ -382,9 +483,13 @@ export class Emulator {
 		const deviceState = this.#devices.get(device.id);
 		if (!deviceState) return refuse('noRoute', `device ${device.id} missing`);
 		deviceState.queue.push({ hu: state, taskHu: hu, src, dst, task, automatic: false });
-		this.#event(`${device.id} takes ${label}: HU ${state.hu} ${src} → ${dst}`, {
+		this.#event('task-taken', `${device.id} takes ${label}: HU ${state.hu} ${src} → ${dst}`, {
+			plc: plcId,
+			device: device.id,
 			hu: state.hu,
-			device: device.id
+			from: src,
+			to: dst,
+			task
 		});
 		this.#pump(deviceState);
 	}
@@ -429,26 +534,29 @@ export class Emulator {
 						result
 					});
 			};
+			const facts: EventFacts = {
+				plc: def.plc,
+				device: def.id,
+				hu: job.hu.hu,
+				from: job.src,
+				to: job.dst,
+				task: job.task
+			};
 			const putaway = def.type === 'stacker-crane' && isBinOf(def, job.dst);
 			const occupiedBy = putaway ? this.#occupant(job.dst) : undefined;
 			if (putaway && (job.hu.script.binOccupied || occupiedBy)) {
 				job.hu.script.binOccupied = false;
 				job.hu.at = job.src;
 				this.#event(
+					'bin-occupied',
 					`${def.id}: bin ${job.dst} is occupied${occupiedBy ? ` by HU ${occupiedBy.hu}` : ''}, HU ${job.hu.hu} back at ${job.src}`,
-					{
-						hu: job.hu.hu,
-						device: def.id
-					}
+					facts
 				);
 				reply('occupied');
 			} else {
 				job.hu.at = job.dst;
 				job.hu.path.push(job.dst);
-				this.#event(`${def.id} delivered HU ${job.hu.hu} to ${job.dst}`, {
-					hu: job.hu.hu,
-					device: def.id
-				});
+				this.#event('delivered', `${def.id} delivered HU ${job.hu.hu} to ${job.dst}`, facts);
 				reply('ok');
 				this.#arrive(job.hu, job.dst);
 			}
@@ -466,7 +574,13 @@ export class Emulator {
 			const def = device.def;
 			if (def.type === 'id-point' && def.point === point) {
 				const result = hu.script.idPoint ?? 'OK';
-				this.#event(`${def.id} reads HU ${hu.hu}: ${result}`, { hu: hu.hu, device: def.id });
+				this.#event('scanned', `${def.id} reads HU ${hu.hu}: ${result}`, {
+					plc: def.plc,
+					device: def.id,
+					hu: hu.hu,
+					point,
+					result
+				});
 				this.#send(def.plc, 'scan', {
 					point,
 					hu: result === 'NORD' ? '' : hu.hu,
@@ -487,7 +601,10 @@ export class Emulator {
 		}
 		if (this.setup.points.find((p) => p.id === point)?.role === 'gi') {
 			hu.left = true;
-			this.#event(`HU ${hu.hu} leaves the automated area at ${point}`, { hu: hu.hu });
+			this.#event('hu-left', `HU ${hu.hu} leaves the automated area at ${point}`, {
+				hu: hu.hu,
+				point
+			});
 		}
 	}
 
@@ -497,7 +614,9 @@ export class Emulator {
 		if (tooMany <= 0) return;
 		plc.outbox.splice(0, tooMany);
 		this.#event(
-			`${plc.id}: ${tooMany} of the oldest queued telegram(s) dropped, EWM is away too long`
+			'telegrams-dropped',
+			`${plc.id}: ${tooMany} of the oldest queued telegram(s) dropped, EWM is away too long`,
+			{ plc: plc.id, count: tooMany }
 		);
 	}
 
@@ -507,14 +626,25 @@ export class Emulator {
 		if (!plc) return;
 		const telegram = toWire(this.setup.layout, kind, values);
 		if (!telegram) {
-			this.#event(`${plcId}: the telegram layout has no ${kind} telegram, nothing reported`);
+			this.#event(
+				'no-telegram',
+				`${plcId}: the telegram layout has no ${kind} telegram, nothing reported`,
+				{ plc: plcId, message: kind }
+			);
 			return;
 		}
 		const { type, fields } = telegram;
 		if (!plc.channel?.open) {
 			plc.outbox.push({ type, fields });
 			this.#trimOutbox(plc);
-			this.#event(`${plcId}: EWM not connected, ${type} queued until it connects`);
+			this.#event(
+				'telegram-queued',
+				`${plcId}: EWM not connected, ${type} queued until it connects`,
+				{
+					plc: plcId,
+					telegram: type
+				}
+			);
 			return;
 		}
 		// Sending runs from device timers: a telegram that cannot be built must not end the emulator.
@@ -522,7 +652,9 @@ export class Emulator {
 			plc.channel.send(type, fields);
 		} catch (error) {
 			this.#event(
-				`${plcId}: ${type} not sent: ${error instanceof Error ? error.message : String(error)}`
+				'telegram-not-sent',
+				`${plcId}: ${type} not sent: ${error instanceof Error ? error.message : String(error)}`,
+				{ plc: plcId, telegram: type }
 			);
 		}
 	}
@@ -541,8 +673,12 @@ export class Emulator {
 		for (const listener of this.#logListeners) listener(entry);
 	}
 
-	#event(text: string, extra: { hu?: string; device?: string } = {}) {
-		const event = { n: ++this.#eventCounter, at: Date.now(), text, ...extra };
+	#event(kind: EventKind, text: string, facts: EventFacts = {}) {
+		// Fields left undefined are dropped: the event stays the same as JSON and in memory.
+		const known = Object.fromEntries(
+			Object.entries(facts).filter(([, value]) => value !== undefined && value !== '')
+		) as EventFacts;
+		const event: EmulatorEvent = { ...known, n: ++this.#eventCounter, at: Date.now(), kind, text };
 		this.#events.push(event);
 		if (this.#events.length > this.#logSize)
 			this.#events.splice(0, this.#events.length - this.#logSize);
