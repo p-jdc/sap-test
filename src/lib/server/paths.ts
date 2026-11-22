@@ -1,9 +1,16 @@
+import { existsSync } from 'node:fs';
 import nodePath, { resolve } from 'node:path';
 
 /** The SAP test project (stock Playwright with sap-plugin) this app drives. Override with SAP_TESTS_DIR. */
 export const TESTS_ROOT = resolve(process.env.SAP_TESTS_DIR || resolve(process.cwd(), 'sap-tests'));
-/** The project's one install, which sap-tests shares with this app: next to the test project. */
-export const PACKAGES_DIR = resolve(TESTS_ROOT, '..', 'node_modules');
+/**
+ * This app's install, which the test project shares: the Playwright the runs start, the recorders
+ * and the packages of the Mock PLC and the IDoc receiver come from here, also with SAP_TESTS_DIR
+ * set. TEST_APP_PACKAGES_DIR overrides it for the app's own tests, which run stand-ins.
+ */
+export const PACKAGES_DIR = resolve(
+	process.env.TEST_APP_PACKAGES_DIR || resolve(process.cwd(), 'node_modules')
+);
 export const TESTS_DIR = resolve(TESTS_ROOT, 'tests');
 export const HELPERS_DIR = resolve(TESTS_ROOT, 'helpers');
 /** The sign-in setup projects (sap-tests/setup/*.setup.ts), which run before the tests that need them. */
@@ -14,6 +21,21 @@ export const DATA_DIR = resolve(process.env.TEST_APP_DATA_DIR || resolve(process
 export const RUNS_DIR = resolve(DATA_DIR, 'runs');
 
 export const LIVE_REPORTER = resolve(process.cwd(), 'reporter/live-reporter.ts');
+
+/**
+ * Left over from before the app moved to the root: data the app would not find (it would start
+ * with an empty database), or an old install of the test project that would load a second copy of
+ * Playwright. `bun run setup` moves or deletes them. Undefined when there is nothing.
+ */
+export function oldLayoutProblem(): string | undefined {
+	const leftovers = [
+		...(process.env.TEST_APP_DATA_DIR ? [] : [resolve(process.cwd(), 'app/.data')]),
+		resolve(TESTS_ROOT, 'node_modules'),
+		resolve(TESTS_ROOT, 'recorder/node_modules')
+	].filter((path) => existsSync(path));
+	if (leftovers.length === 0) return undefined;
+	return `Left over from before the app moved to the repository root: ${leftovers.join(', ')}. Run "bun run setup" in the repository root, which moves the data and deletes the old installs.`;
+}
 
 type PathApi = Pick<typeof nodePath, 'resolve' | 'relative' | 'isAbsolute' | 'sep'>;
 

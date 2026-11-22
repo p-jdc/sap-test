@@ -1,5 +1,7 @@
-import { posix, win32 } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, posix, win32 } from 'node:path';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { toPosix, within } from './paths.js';
 
 describe('within', () => {
@@ -37,4 +39,33 @@ describe('within', () => {
 test('toPosix gives the same relative path on every platform', () => {
 	expect(toPosix(String.raw`fiori\demokit\a.spec.ts`, win32.sep)).toBe('fiori/demokit/a.spec.ts');
 	expect(toPosix('fiori/demokit/a.spec.ts', posix.sep)).toBe('fiori/demokit/a.spec.ts');
+});
+
+/** paths.js loaded fresh for a stand-in checkout with these folders. */
+async function pathsWith(dirs: string[]) {
+	const root = mkdtempSync(join(tmpdir(), 'layout-'));
+	for (const dir of dirs) mkdirSync(join(root, dir), { recursive: true });
+	vi.stubEnv('SAP_TESTS_DIR', join(root, 'sap-tests'));
+	// The data folder is set, as in every unit test, so app/.data under the working directory
+	// is not looked at here; the script test covers moving it.
+	vi.stubEnv('TEST_APP_DATA_DIR', join(root, '.data'));
+	vi.resetModules();
+	return { root, paths: await import('./paths.js') };
+}
+
+describe('oldLayoutProblem', () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	test('names an old install of the test project, which would load a second Playwright', async () => {
+		const { root, paths } = await pathsWith(['sap-tests/tests', 'sap-tests/node_modules']);
+		expect(paths.oldLayoutProblem()).toContain(join(root, 'sap-tests/node_modules'));
+		expect(paths.oldLayoutProblem()).toContain('bun run setup');
+	});
+
+	test('says nothing for a checkout in the current layout', async () => {
+		const { paths } = await pathsWith(['sap-tests/tests', 'node_modules']);
+		expect(paths.oldLayoutProblem()).toBeUndefined();
+	});
 });

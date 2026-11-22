@@ -39,8 +39,13 @@ const STATIC: Step[] = [
 	{ name: 'unused files and dependencies', command: ['bunx', 'knip'] },
 	{ name: 'eslint (Svelte templates)', command: ['bunx', 'eslint', '.'] },
 	{
-		name: 'Claude Code hooks: tests',
-		command: ['bun', 'test', './.claude/hooks/guard-dotenv.test.ts']
+		name: 'scripts and Claude Code hooks: tests',
+		command: [
+			'bun',
+			'test',
+			'./.claude/hooks/guard-dotenv.test.ts',
+			'./scripts/upgrade-layout.test.ts'
+		]
 	},
 	{ name: 'sap-tests: specs load', command: ['bun', 'run', 'test:sap:list'] }
 ];

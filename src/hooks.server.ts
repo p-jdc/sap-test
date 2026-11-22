@@ -8,6 +8,7 @@ import {
 	signedOutResponse
 } from '#lib/server/auth/policy.js';
 import { configuredHosts, hostAllowed } from '#lib/server/host-check.js';
+import { oldLayoutProblem } from '#lib/server/paths.js';
 import { applyRetention } from '#lib/server/runs-store.js';
 
 const allowed = configuredHosts();
@@ -31,7 +32,7 @@ function tidy() {
 }
 
 export const init: ServerInit = async () => {
-	const problem = exposureProblem(mode);
+	const problem = exposureProblem(mode) ?? oldLayoutProblem();
 	if (problem) throw new Error(problem);
 	if (mode === 'passkey') await signIn();
 	tidy();

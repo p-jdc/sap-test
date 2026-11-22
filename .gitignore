@@ -33,6 +33,10 @@ blob-report/
 # Local TLS certs (bun run setup:cert)
 /cert/
 
+# The app's folder before it moved to the root. An older checkout still has its data, certificate
+# and build output there; `bun run setup` moves .data and cert to the root.
+/app/
+
 # Saved sessions from the sign-in setup and the recorder (cookies of a logged-in user)
 sap-tests/.auth/
 # Generated from sap-tests/odata/metadata by `bun run odata:generate`, which runs after every install

@@ -31,8 +31,9 @@ jobs:
         with:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
-      # The hook that keeps Claude Code's shell commands away from .env files.
-      - run: bun test ./.claude/hooks/guard-dotenv.test.ts
+      # The hook that keeps Claude Code's shell commands away from .env files, and the step of
+      # `bun run setup` that brings an older checkout to the current layout.
+      - run: bun test ./.claude/hooks/guard-dotenv.test.ts ./scripts/upgrade-layout.test.ts
       - run: bunx tsc -p sap-tests --noEmit
       # Linting and formatting of sap-tests run in the app job, which lints the whole repository.
       # Loads every spec without running it: catches syntax and import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
@@ -49,7 +50,7 @@ jobs:
       # The SAP plugin itself (sap-plugin/): selector engines, page methods, UI5 wait and model
       # reads. Most of these tests open SAP's public UI5 demo kit (ui5.sap.com), so they need
       # internet access; the config retries a failed test once in CI.
-      - run: bunx playwright install --with-deps chromium
+      - run: node node_modules/@playwright/test/cli.js install --with-deps chromium
       - run: bun run test:plugin
 
       - name: Upload plugin test report
@@ -81,7 +82,7 @@ jobs:
       - name: Install
         run: |
           bun install --frozen-lockfile
-          bunx playwright install --with-deps chromium
+          node node_modules/@playwright/test/cli.js install --with-deps chromium
 
       - name: Type check
         run: bun run check

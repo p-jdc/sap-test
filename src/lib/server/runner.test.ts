@@ -111,6 +111,7 @@ async function freshRunner(
 	// A stand-in project: the test project in sap-tests/, the install next to it.
 	testsRoot = join(realpathSync(mkdtempSync(join(tmpdir(), 'runner-tests-'))), 'sap-tests');
 	mkdirSync(testsRoot);
+	vi.stubEnv('TEST_APP_PACKAGES_DIR', join(testsRoot, '..', 'node_modules'));
 	if (installed) {
 		const pkg = join(testsRoot, '../node_modules/@playwright/test');
 		mkdirSync(pkg, { recursive: true });

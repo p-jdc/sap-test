@@ -17,6 +17,7 @@ async function recorderWith(envFile: string, systemsJson?: string) {
 	// A stand-in project: the test project in sap-tests/, the install next to it.
 	const dir = join(mkdtempSync(join(tmpdir(), 'recorder-')), 'sap-tests');
 	mkdirSync(dir);
+	vi.stubEnv('TEST_APP_PACKAGES_DIR', join(dir, '..', 'node_modules'));
 	writeFileSync(join(dir, '.env'), envFile);
 	if (systemsJson) writeFileSync(join(dir, 'systems.json'), systemsJson);
 	else copySystems(dir);

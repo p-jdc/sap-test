@@ -180,7 +180,15 @@ Other versions are untested rather than known broken: on Node 26 the tests run a
 lines (see the CommonJS note below), but the recorder's `playwright install chromium` was seen hanging
 while it extracts the browser.
 
-Run everything from the repo root:
+Run everything from the repo root.
+
+**Upgrading a checkout from before the single `package.json`** (the app used to live in `app/`):
+run `bun run setup` once after pulling. It moves the app's data (`app/.data`: run history, users,
+passkeys) and its certificate (`app/cert`) to the root, where the app now looks for them, and
+deletes the old installs (`app/node_modules`, `sap-tests/node_modules`,
+`sap-tests/recorder/node_modules`). If both `app/.data` and `.data` exist, it stops and asks you to
+keep one. Until then the app refuses to start and names what is left over. What remains in `app/`
+is build output, ignored by git, and can be deleted.
 
 ```bash
 bun run setup          # installs everything (one bun install) plus both Chromium builds
@@ -271,7 +279,8 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SAP_TESTS_DIR` | `../sap-tests` | Test project to drive |
+| `SAP_TESTS_DIR` | `./sap-tests` | Test project to drive. Its packages still come from this app's install |
+| `TEST_APP_PACKAGES_DIR` | `./node_modules` | Where the app finds Playwright, the recorders and the packages of the Mock PLC and the IDoc receiver. Set by the app's own tests, which run stand-ins; not needed otherwise |
 | `TEST_APP_DATA_DIR` | `./.data` | The database (`app.sqlite`: run history and sign-in) and each run's files |
 | `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
 | `TEST_APP_KEEP_REPORT_DAYS` | `14` | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again |
