@@ -23,6 +23,8 @@ export default defineConfig(
 			'playwright-report/',
 			'test-results/',
 			'sap-tests/',
+			// Third-party oxlint rules, kept as they came; oxlint loads them, it does not lint them.
+			'tools/oxlint/anti-slop/',
 			'.claude/'
 		]
 	},
