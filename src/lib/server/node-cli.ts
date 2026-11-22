@@ -27,12 +27,33 @@ function realNode(): string {
 	return 'node';
 }
 
-export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-	const PATH = (process.env.PATH ?? '')
+/**
+ * The app's own secrets. Tests, the recorders and the mock servers never need them, so they are
+ * not handed on. This is not isolation: a child of the same user can still read the app's own
+ * environment (/proc/<pid>/environ on Linux). Only a separate pod or user keeps them from a test.
+ */
+export const APP_SECRETS = [
+	'BETTER_AUTH_SECRET',
+	'TEST_APP_SETUP_TOKEN',
+	'TEST_APP_RECOVERY_TOKEN',
+	'ANTHROPIC_FOUNDRY_API_KEY',
+	'ANTHROPIC_API_KEY',
+	'GOOGLE_APPLICATION_CREDENTIALS'
+];
+
+/** The app's environment for a child process: without Bun's node shim and the app's secrets. */
+export function childEnv(
+	extra: Record<string, string> = {},
+	env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+	const PATH = (env.PATH ?? '')
 		.split(delimiter)
 		.filter((d) => !isShim(d))
 		.join(delimiter);
-	return { ...process.env, PATH, ...extra };
+	const kept = Object.fromEntries(
+		Object.entries(env).filter(([name]) => !APP_SECRETS.includes(name))
+	);
+	return { ...kept, PATH, ...extra };
 }
 
 /** The Node major CI runs on, and the only one the Playwright-SAP recorder is tested on (README). */

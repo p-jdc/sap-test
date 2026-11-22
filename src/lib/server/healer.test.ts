@@ -197,6 +197,56 @@ describe('healerOptions', () => {
 	});
 });
 
+describe('modelAccess', () => {
+	test("goes through Foundry with Claude Code's switch, the key and the deployment", () => {
+		expect(
+			healer.modelAccess({
+				TEST_APP_AI: 'foundry',
+				TEST_APP_AI_MODEL: 'claude-healer',
+				ANTHROPIC_FOUNDRY_RESOURCE: 'lab-ai',
+				ANTHROPIC_FOUNDRY_API_KEY: 'k'
+			})
+		).toEqual({
+			model: 'claude-healer',
+			env: {
+				CLAUDE_CODE_USE_FOUNDRY: '1',
+				ANTHROPIC_FOUNDRY_RESOURCE: 'lab-ai',
+				ANTHROPIC_FOUNDRY_API_KEY: 'k'
+			}
+		});
+	});
+
+	test('goes through Vertex AI with its project and location', () => {
+		expect(
+			healer.modelAccess({
+				TEST_APP_AI: 'vertex',
+				GOOGLE_VERTEX_PROJECT: 'p',
+				GOOGLE_VERTEX_LOCATION: 'europe-west1'
+			})
+		).toMatchObject({
+			env: {
+				CLAUDE_CODE_USE_VERTEX: '1',
+				ANTHROPIC_VERTEX_PROJECT_ID: 'p',
+				CLOUD_ML_REGION: 'europe-west1'
+			}
+		});
+	});
+
+	test('with the AI off, uses the Claude login only on a local app', () => {
+		expect(healer.modelAccess({})).toEqual({ env: {} });
+		expect(healer.modelAccess({ TEST_APP_AUTH: 'passkey' })).toHaveProperty(
+			'problem',
+			expect.stringMatching(/TEST_APP_AI/)
+		);
+	});
+
+	test('the direct Anthropic API only on a local app', () => {
+		expect(
+			healer.modelAccess({ TEST_APP_AI: 'anthropic', ANTHROPIC_API_KEY: 'k', HOST: '0.0.0.0' })
+		).toHaveProperty('problem');
+	});
+});
+
 describe('startHealing', () => {
 	test('is off unless TEST_APP_HEALER is on', async () => {
 		vi.stubEnv('TEST_APP_HEALER', '');

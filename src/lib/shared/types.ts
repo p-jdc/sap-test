@@ -220,6 +220,38 @@ export interface RecordTarget {
 	noLoginFolder?: string;
 }
 
+/**
+ * Where the AI runs. The company approved Vertex AI and Microsoft Foundry: Claude and any other
+ * model only through these. `anthropic`, the direct API, is for local tests with the demo tests,
+ * refused with sign-in on or on the network.
+ */
+export type AiProvider = 'vertex' | 'foundry' | 'anthropic';
+
+/** How the app reaches the AI, from its settings (TEST_APP_AI and the provider's). No secrets. */
+export interface AiStatus {
+	provider: AiProvider | 'off';
+	model?: string;
+	/** Where the requests go, for example "Vertex AI, project lab, location eu". */
+	where?: string;
+	/** Names of the settings the provider still needs. */
+	missing: string[];
+	/** What is wrong with the settings; the AI is not used while this is set. */
+	problem?: string;
+}
+
+/** The answer of the AI to a short test request, or why there was none. */
+export type AiCheck =
+	| {
+			ok: true;
+			reply: string;
+			/** The model that answered, as the provider reports it. */
+			model: string;
+			inputTokens?: number;
+			outputTokens?: number;
+			ms: number;
+	  }
+	| { ok: false; error: string };
+
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
 export type SettingSource = 'keychain' | 'file' | 'process';
 

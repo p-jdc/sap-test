@@ -24,6 +24,9 @@ import {
 	toolInput,
 	unifiedDiff
 } from './healer-rules.js';
+import { aiReady } from '#lib/shared/ai.js';
+import { aiStatus } from './ai/settings.js';
+import { authMode, listensLocally } from './auth/policy.js';
 import { masker } from './healer-mask.js';
 import { settingNames } from './systems.js';
 import { idocTestEnv } from './idoc.js';
@@ -53,9 +56,65 @@ const CHANGING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
 /** Whether the healer is turned on (TEST_APP_HEALER=on); off, the run page does not show it. */
 export const healerOn = () => process.env.TEST_APP_HEALER === 'on';
 
+/**
+ * How the healer's Claude Code reaches Claude: through the app's AI provider (TEST_APP_AI, see
+ * ai/settings.ts) with Claude Code's own switches for Vertex AI and Microsoft Foundry, or, on a
+ * local app with the AI off, through the Claude login of this computer.
+ */
+export function modelAccess(
+	env: NodeJS.ProcessEnv = process.env
+): { env: Record<string, string>; model?: string } | { problem: string } {
+	const status = aiStatus(env);
+	if (status.provider === 'off') {
+		if (status.problem) return { problem: status.problem };
+		let local = false;
+		try {
+			local = authMode(env.TEST_APP_AUTH) === 'off' && listensLocally(env.HOST);
+		} catch {
+			local = false;
+		}
+		return local
+			? { env: {} }
+			: {
+					problem:
+						"The healer reaches Claude through the app's AI provider: set TEST_APP_AI to vertex or foundry. Only a local app may use the Claude login of its computer."
+				};
+	}
+	if (!aiReady(status))
+		return { problem: status.problem ?? `The AI needs ${status.missing.join(' and ')}.` };
+	const setting = (name: string) => env[name]?.trim() ?? '';
+	const { model } = status;
+	if (status.provider === 'vertex')
+		return {
+			model,
+			env: {
+				CLAUDE_CODE_USE_VERTEX: '1',
+				ANTHROPIC_VERTEX_PROJECT_ID: setting('GOOGLE_VERTEX_PROJECT'),
+				CLOUD_ML_REGION: setting('GOOGLE_VERTEX_LOCATION'),
+				// Google's sign-in: a key file if one is set, otherwise the credentials of gcloud.
+				...(setting('GOOGLE_APPLICATION_CREDENTIALS')
+					? { GOOGLE_APPLICATION_CREDENTIALS: setting('GOOGLE_APPLICATION_CREDENTIALS') }
+					: {})
+			}
+		};
+	if (status.provider === 'foundry')
+		return {
+			model,
+			env: {
+				CLAUDE_CODE_USE_FOUNDRY: '1',
+				ANTHROPIC_FOUNDRY_RESOURCE: setting('ANTHROPIC_FOUNDRY_RESOURCE'),
+				ANTHROPIC_FOUNDRY_API_KEY: setting('ANTHROPIC_FOUNDRY_API_KEY')
+			}
+		};
+	// Local tests only: aiStatus refuses it with sign-in on or on the network.
+	return { model, env: { ANTHROPIC_API_KEY: setting('ANTHROPIC_API_KEY') } };
+}
+
 export function healerProblem(): string | undefined {
 	if (!healerOn())
-		return 'The healer is off. It sends the test, its error and what the SAP screens show to the AI provider (Anthropic), so it is turned on with TEST_APP_HEALER=on once that is approved. It also needs an API key (ANTHROPIC_API_KEY) or a Claude login on the computer running this app.';
+		return "The healer is off. It sends the test, its error and what the SAP screens show to the app's AI provider (TEST_APP_AI), so it is turned on with TEST_APP_HEALER=on once that is approved.";
+	const access = modelAccess();
+	if ('problem' in access) return access.problem;
 	// The agent file and its paths assume the test project of this repository.
 	if (resolve(TESTS_ROOT) !== resolve(APP_ROOT, 'sap-tests'))
 		return 'The healer works only on the test project in this repository (SAP_TESTS_DIR points elsewhere).';
@@ -294,16 +353,19 @@ export function healerOptions(agent: AgentFile, o: SessionOptions): Options {
 		resolve(TESTS_ROOT, 'playwright.config.ts')
 	]);
 	// The model process gets no password, neither in its environment nor on its command line.
+	const access = modelAccess();
+	if ('problem' in access) throw new Error(access.problem);
 	const secretValues = new Set(o.secrets);
 	const modelEnv = Object.fromEntries(
-		Object.entries(childEnv({ CLAUDE_AGENT_SDK_CLIENT_APP: 'sap-test-lab' })).filter(
+		Object.entries(childEnv({ ...access.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'sap-test-lab' })).filter(
 			([, value]) => value !== undefined && !secretValues.has(value)
 		)
 	);
 	return {
 		cwd: APP_ROOT,
 		systemPrompt: agent.prompt,
-		...(agent.model ? { model: agent.model } : {}),
+		// The app's model (TEST_APP_AI_MODEL; on Foundry the deployment), else the agent file's.
+		...(access.model || agent.model ? { model: access.model ?? agent.model } : {}),
 		// The task holds the test's title and error, text from the SAP screens: Claude Code must not
 		// read an `@path` in it as a file to attach, which no hook would see.
 		verbatimPrompts: true,
