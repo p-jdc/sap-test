@@ -63,6 +63,8 @@ const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
  */
 const DENIED_MCP_TOOLS = new Set(['mcp__playwright-test__browser_run_code_unsafe']);
 const RESPONSE_PARTS = new Set(['response-headers', 'response-body']);
+/** Playwright's raw recordings of a test: the network with its cookies, the trace, the video. */
+const RAW_RECORDING = /(^|\/)\.playwright-artifacts|\.(network|trace|zip|webm|stacks)$/;
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
 export type ToolDecision = { allow: true; writes?: string } | { allow: false; reason: string };
@@ -169,8 +171,14 @@ export function toolDecision(
 			if (value && (value.includes('..') || nodePath.isAbsolute(value)))
 				return { allow: false, reason: `The ${key} must stay inside the folder searched.` };
 		}
-		if (outputDir && !secretName(toPosix(raw)) && insideFolder(raw, root, outputDir))
-			return { allow: true };
+		if (outputDir && insideFolder(raw, root, outputDir))
+			return tool === 'Read' && !secretName(toPosix(raw)) && !RAW_RECORDING.test(toPosix(raw))
+				? { allow: true }
+				: {
+						allow: false,
+						reason:
+							'In the results of its test runs, read the files the tools name (error-context.md); do not search them.'
+					};
 		const path = repoPath(root, raw);
 		if (!path || secretName(path.rel))
 			return { allow: false, reason: `${raw} is not something the healer may read.` };

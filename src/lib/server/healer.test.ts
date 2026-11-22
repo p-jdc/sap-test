@@ -94,6 +94,29 @@ describe('discardRepair', () => {
 	});
 });
 
+describe('continuedRepair', () => {
+	test('goes on from the files before the first session, unless a person changed them since', () => {
+		writeFileSync(file('untouched.ts'), 'H1');
+		writeFileSync(file('edited.ts'), 'H1 and a person');
+		saved(
+			{},
+			{
+				[file('untouched.ts')]: { before: 'B0', after: 'H1' },
+				[file('edited.ts')]: { before: 'B0', after: 'H1' }
+			}
+		);
+		expect(Object.fromEntries(healer.continuedRepair(RUN, TEST))).toEqual({
+			[file('untouched.ts')]: { before: 'B0' },
+			[file('edited.ts')]: { before: 'H1 and a person' }
+		});
+	});
+
+	test('starts afresh after a discard', () => {
+		saved({ discarded: true }, { [file('a.ts')]: { before: 'B0', after: 'H1' } });
+		expect(healer.continuedRepair(RUN, TEST).size).toBe(0);
+	});
+});
+
 describe('healingState', () => {
 	test('a healer the app stopped in the middle shows as stopped, with the changes saved so far', () => {
 		saved({ status: 'running' }, { [file('a.ts')]: { before: 'x' } });
@@ -136,6 +159,28 @@ describe('healerOptions', () => {
 		expect(args[0]).toMatch(/healer-mask\.ts$/);
 		expect(args.join(' ')).not.toContain(secret);
 		expect(JSON.stringify(options.env)).not.toContain(secret);
+	});
+
+	test('starts the server in the test project with what a run gets, without the model key', () => {
+		vi.stubEnv('SAP_URL', 'https://sap.example');
+		vi.stubEnv('ANTHROPIC_API_KEY', 'model-key');
+		const options = healer.healerOptions(
+			{ tools: ['mcp__playwright-test__test_run'], prompt: 'p' },
+			{
+				budget: 1,
+				abort: new AbortController(),
+				hooks: {},
+				serverEnv: { SAP_PASSWORD: 'from-the-store' },
+				secrets: ['from-the-store']
+			}
+		);
+		const { env } = z
+			.object({ env: z.record(z.string(), z.string()) })
+			.parse(options.mcpServers?.['playwright-test']);
+		// healer-mask.ts starts the server there, where the config loads sap-tests/.env.
+		expect(env.HEALER_CWD).toBe(tests);
+		expect(env).toMatchObject({ SAP_URL: 'https://sap.example', SAP_PASSWORD: 'from-the-store' });
+		expect(env.ANTHROPIC_API_KEY).toBeUndefined();
 	});
 });
 

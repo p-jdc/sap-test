@@ -12,7 +12,30 @@ import { redactor } from './redact.js';
 const MASK = '***';
 /** Header lines that carry a session or a login, as the browser tools print them. */
 const SECRET_HEADER =
-	/^(\s*(?:cookie|set-cookie|authorization|proxy-authorization|x-csrf-token)\s*:\s*).+$/gim;
+	/^(\s*(?:cookie|set-cookie|authorization|proxy-authorization|x-csrf-token)\s*:\s*)/i;
+/** A line that starts another header (`name: value`). */
+const HEADER = /^\s*[\w-]+\s*:\s/;
+
+/**
+ * Masks the value of a secret header, and the lines after it that are not another header:
+ * Playwright prints several Set-Cookie values one per line under one name.
+ */
+function maskHeaders(s: string): string {
+	let inSecret = false;
+	return s
+		.split('\n')
+		.map((line) => {
+			const secret = SECRET_HEADER.exec(line);
+			if (secret) {
+				inSecret = true;
+				return `${secret[1]}${MASK}`;
+			}
+			if (inSecret && line.trim() !== '' && !HEADER.test(line)) return MASK;
+			inSecret = false;
+			return line;
+		})
+		.join('\n');
+}
 /** SAP's session and single sign-on cookies, wherever they appear (document.cookie, a header). */
 const SAP_COOKIE =
 	/\b(MYSAPSSO2|SAP_SESSIONID_\w+|sap-usercontext|SAP_SSO\w*|JSESSIONID)=[^;\s"',]+/g;
@@ -26,8 +49,7 @@ export function masker(secrets: readonly string[]) {
 		.filter(Boolean)
 		.flatMap((s) => [s, encodeURIComponent(s), new URLSearchParams({ v: s }).toString().slice(2)]);
 	const redact = redactor(forms);
-	const text = (s: string) =>
-		redact(s).replaceAll(SECRET_HEADER, `$1${MASK}`).replaceAll(SAP_COOKIE, `$1=${MASK}`);
+	const text = (s: string) => maskHeaders(redact(s)).replaceAll(SAP_COOKIE, `$1=${MASK}`);
 	const deep = (value: unknown): unknown => {
 		if (typeof value === 'string') return text(value);
 		if (Array.isArray(value)) return value.map((item) => deep(item));
@@ -43,16 +65,21 @@ export function masker(secrets: readonly string[]) {
 			return text(raw);
 		}
 	};
-	return { text, line };
+	return { text, deep, line };
 }
 
 if (import.meta.main) {
-	const { HEALER_MASK, ...env } = process.env;
+	const { HEALER_MASK, HEALER_CWD, ...env } = process.env;
 	const secrets = z.array(z.string()).parse(JSON.parse(HEALER_MASK ?? '[]'));
 	const [command, ...args] = process.argv.slice(2);
 	if (!command) throw new Error('Usage: bun healer-mask.ts <command> <arguments…>');
 	const mask = masker(secrets);
-	const server = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
+	// The folder a run starts Playwright in: its config loads the settings file from there.
+	const server = spawn(command, args, {
+		stdio: ['pipe', 'pipe', 'pipe'],
+		env,
+		cwd: HEALER_CWD || process.cwd()
+	});
 	process.stdin.pipe(server.stdin);
 	createInterface({ input: server.stdout }).on('line', (l) => {
 		process.stdout.write(`${mask.line(l)}\n`);

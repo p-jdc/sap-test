@@ -466,21 +466,24 @@ report (the cause, test or application, what it changed) and a diff of every fil
 - With sign-in on, only an admin can start or stop the healer or discard its repair. Off (the
   default), the run page shows no healer, only what it did before it was turned off.
 - The app, not only the instructions, limits the tools: it reads and searches only in
-  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, in the results
-  of its own test runs and in `.playwright-mcp` (never a settings file or the saved sessions in
-  `.auth`), and
+  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results` and in
+  `.playwright-mcp`, and it reads the files the tools name in the results of its own test runs,
+  but not Playwright's raw network, trace or video files (never a settings file or the saved
+  sessions in `.auth`), and
   changes only `.ts` files in `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`,
   `_reference` and `_agents`. It has no shell. `browser_run_code_unsafe` is refused (it runs code in
   the MCP server's process) and so is any browser tool given a file to save to or read. No settings,
   hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
   Claude login. Its task, which quotes the test's title and error, is given to Claude Code as it is:
   an `@path` in it does not attach a file.
-- The passwords go to the MCP server only, which signs in as a run does. They are not in the model
+- The MCP server runs the tests as a run does: in `sap-tests`, with the app's environment and the
+  saved settings, so its config reads `sap-tests/.env` too. The passwords go to it only. They are not in the model
   process's environment or on its command line (the SDK hands the server's settings over stdin).
   Every answer of the server passes `src/lib/server/healer-mask.ts` before the model sees it, also
   one that ends as an error: it masks the passwords as they are and URL- or form-encoded, login
   headers (`Cookie`, `Set-Cookie`, `Authorization`, `X-CSRF-Token`) and SAP's session cookies
-  (`MYSAPSSO2`, `SAP_SESSIONID_…`). What the built-in tools return is masked as well. A request
+  (`MYSAPSSO2`, `SAP_SESSIONID_…`). What the built-in tools return is masked the same way, and a
+  failure of that masking blocks the result. A request
   of the browser's network list can be read only for its response, not for the headers and body
   it sent. Other encodings of a password (Base64 in a hand-made header, for example) are not
   caught.

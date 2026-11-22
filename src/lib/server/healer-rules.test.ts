@@ -119,8 +119,7 @@ describe('toolDecision', () => {
 		['the rules', 'Read', { file_path: 'sap-tests/CLAUDE.md' }],
 		['a search in the tests', 'Grep', { pattern: 'getByRoleUI5', path: 'sap-tests/tests' }],
 		['a glob in the helpers', 'Glob', { pattern: '**/*.ts', path: 'sap-tests/helpers' }],
-		['what its test runs left', 'Read', { file_path: 'OUT/a-chromium/error-context.md' }],
-		['a search in what its test runs left', 'Grep', { pattern: 'Error', path: 'OUT' }]
+		['what its test runs left', 'Read', { file_path: 'OUT/a-chromium/error-context.md' }]
 	])('lets it read %s', (_what, tool, input) => {
 		expect(decide(tool, withOutput(input))).toEqual({ allow: true });
 	});
@@ -133,6 +132,13 @@ describe('toolDecision', () => {
 		['the app data', 'Read', { file_path: '.data/app.sqlite' }],
 		['the results of other runs', 'Read', { file_path: 'test-results/x/trace.zip' }],
 		['a saved session beside its results', 'Read', { file_path: 'OUT/.auth/sap.json' }],
+		['a search in what its test runs left', 'Grep', { pattern: 'Cookie', path: 'OUT' }],
+		[
+			'the raw network of a test run',
+			'Read',
+			{ file_path: 'OUT/.playwright-artifacts-0/abc.network' }
+		],
+		['the trace of a test run', 'Read', { file_path: 'OUT/a-chromium/trace.zip' }],
 		['a search of the whole project', 'Grep', { pattern: 'PASSWORD', path: 'sap-tests' }],
 		['a search without a path', 'Grep', { pattern: 'PASSWORD' }],
 		['a glob that climbs out', 'Glob', { pattern: '../../*', path: 'sap-tests/tests' }],

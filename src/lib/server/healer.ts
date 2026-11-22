@@ -24,6 +24,7 @@ import {
 	toolInput,
 	unifiedDiff
 } from './healer-rules.js';
+import { masker } from './healer-mask.js';
 import { idocTestEnv } from './idoc.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
 import { APP_ROOT, RUNS_DIR, TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
@@ -183,7 +184,7 @@ function failedTest(runId: string, testId: string): RunTest | string {
 /** The task for the healer: the test and how it failed in this run. */
 function healerTask(test: RunTest, runId: string): string {
 	const location = `sap-tests/tests/${test.file}:${test.line}`;
-	// The MCP server runs in the healer's results folder, so the location it runs is absolute.
+	// Absolute, as the MCP server's test runner finds it best.
 	const runLocation = `${resolve(TESTS_DIR, test.file)}:${test.line}`;
 	const error = test.error?.message
 		? `It failed with this error:\n\n\`\`\`\n${test.error.message}\n\`\`\``
@@ -215,6 +216,18 @@ function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
 			rmSync(join(BROWSER_FILES, name), { recursive: true, force: true });
 		}
 	}
+}
+
+/**
+ * The MCP server's environment: what a run gets (this app's environment and the saved
+ * settings), with sap-tests as its folder, so that its config loads sap-tests/.env as a run's
+ * does. Not the model's key or login: the tests have no use for them.
+ */
+function serverEnv(extra: Record<string, string>, secrets: readonly string[]) {
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(childEnv(extra)))
+		if (value !== undefined && !/^(ANTHROPIC|CLAUDE)_/.test(key)) env[key] = value;
+	return { ...env, HEALER_CWD: TESTS_ROOT, HEALER_MASK: JSON.stringify(secrets) };
 }
 
 type SessionOptions = {
@@ -263,7 +276,7 @@ export function healerOptions(agent: AgentFile, o: SessionOptions): Options {
 				type: 'stdio',
 				command: process.execPath,
 				args: [MASK_SCRIPT, server.cmd, ...server.args],
-				env: { ...o.serverEnv, HEALER_MASK: JSON.stringify(o.secrets) },
+				env: serverEnv(o.serverEnv, o.secrets),
 				alwaysLoad: true
 			}
 		},
@@ -278,6 +291,24 @@ export function healerOptions(agent: AgentFile, o: SessionOptions): Options {
 		abortController: o.abort,
 		persistSession: false
 	};
+}
+
+/**
+ * The record of an earlier repair of this test that was not discarded: a new session goes on from
+ * it, so its diff and "Discard the repair" still go back to the files before the first session. A
+ * file someone changed since that session starts afresh from what it is now, so that a discard
+ * does not undo the person's edits.
+ */
+export function continuedRepair(runId: string, testId: string): Map<string, Original> {
+	const originals = new Map<string, Original>();
+	const files = healerFiles(runId, testId);
+	if (!files || healingState(runId, testId)?.discarded) return originals;
+	for (const [abs, original] of Object.entries(readJson(files.originals, originalsSchema) ?? {})) {
+		if (!within(TESTS_ROOT, relative(TESTS_ROOT, abs))) continue;
+		const now = readText(abs);
+		originals.set(abs, { before: now === original.after ? original.before : now });
+	}
+	return originals;
 }
 
 /**
@@ -318,11 +349,7 @@ export async function startHealing(
 	const allowed = new Set(agent.tools);
 	// A repair of this test that was not discarded: this session goes on from it, so its diff and
 	// "Discard the repair" still go back to the files as they were before the first session.
-	const originals = new Map<string, Original>();
-	if (!healingState(runId, testId)?.discarded)
-		for (const [abs, original] of Object.entries(readJson(files.originals, originalsSchema) ?? {}))
-			if (within(TESTS_ROOT, relative(TESTS_ROOT, abs)))
-				originals.set(abs, { before: original.before });
+	const originals = continuedRepair(runId, testId);
 	const abort = new AbortController();
 	const browserFilesBefore = browserFiles();
 	const state: HealerState = {
@@ -370,18 +397,24 @@ export async function startHealing(
 		});
 	};
 
-	// After every tool call: a password in what a tool returns (a test's output, a page, a file) is
-	// masked before the model sees it, and after a change the diff is saved.
+	// After every tool call: what a tool returns (a test's output, a page, a file) is masked as
+	// healer-mask.ts masks the server's answers, before the model sees it; after a change the diff
+	// is saved.
+	const mask = masker(settings.secrets);
 	const afterTool: HookCallback = (input) => {
 		if (input.hook_event_name !== 'PostToolUse') return Promise.resolve({});
 		if (CHANGING_TOOLS.has(input.tool_name)) {
-			state.changes = redact(changesOf(originals));
-			save(state, originals);
+			try {
+				state.changes = redact(changesOf(originals));
+				save(state, originals);
+			} catch (e) {
+				note(`The diff could not be saved: ${errorText(e)}`);
+			}
 		}
 		return Promise.resolve({
 			hookSpecificOutput: {
 				hookEventName: 'PostToolUse',
-				updatedToolOutput: redact(input.tool_response)
+				updatedToolOutput: mask.deep(input.tool_response)
 			}
 		});
 	};
@@ -412,7 +445,7 @@ export async function startHealing(
 				abort,
 				hooks: {
 					PreToolUse: [{ hooks: [gate], onFailure: 'block' }],
-					PostToolUse: [{ hooks: [afterTool] }]
+					PostToolUse: [{ hooks: [afterTool], onFailure: 'block' }]
 				},
 				// The test users' passwords go to the MCP server only, which runs the tests. Its results
 				// go to the healer's folder, which the retention rules remove with the run's log.
