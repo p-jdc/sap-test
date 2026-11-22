@@ -1,0 +1,225 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	// Stricter than the reference app: instead of a hand-picked list, whole categories are on as
+	// errors (correctness, suspicious, perf, pedantic), type-aware rules run via oxlint-tsgolint, and
+	// the lint scripts pass --deny-warnings, so the app stays at zero findings. ESLint keeps only what
+	// oxlint cannot do (eslint.config.js); eslint-plugin-oxlint turns the overlap off there.
+	"options": {
+		// oxlint tracks only its own directives; an `eslint-disable` does not silence oxlint.
+		"respectEslintDisableDirectives": false,
+		"reportUnusedDisableDirectives": "error",
+		"typeAware": true
+	},
+	"plugins": ["typescript", "unicorn", "oxc", "vitest", "promise", "import"],
+	"jsPlugins": [
+		"@rsvelte/oxlint-plugin",
+		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
+		{ "name": "browser-security", "specifier": "eslint-plugin-browser-security" },
+		{ "name": "anti-slop", "specifier": "./sap-tests/tools/oxlint/anti-slop/index.ts" }
+	],
+	"categories": {
+		"correctness": "error",
+		"suspicious": "error",
+		"perf": "error",
+		"pedantic": "error"
+	},
+	"env": {
+		"builtin": true,
+		"browser": true,
+		"node": true
+	},
+	"ignorePatterns": [
+		"**/node_modules",
+		".svelte-kit",
+		"build",
+		"static",
+		"**/test-results",
+		"playwright-report",
+		".data",
+		".data-e2e",
+		// Claude Code's hooks run on Bun and are tested with bun test (scripts/pregate.ts).
+		".claude"
+	],
+	"rules": {
+		// Pedantic rules that do not fit this code base, each turned off for a stated reason:
+		// - needs deep-readonly types for every parameter, including library types (ts.Node, Page)
+		"typescript/prefer-readonly-parameter-types": "off",
+		// - UI5 Web Components and CSS are registered through side-effect imports by design
+		"import/no-unassigned-import": "off",
+		// - size metrics, not defects: route components and the spec parser are long on purpose
+		"max-lines-per-function": "off",
+		"max-lines": "off",
+		"max-depth": "off",
+		"import/max-dependencies": "off",
+		// - '' and undefined are meant to be equivalent here (unset env vars, empty inputs, optional labels)
+		"typescript/strict-boolean-expressions": "off",
+		// - only ASCII patterns (paths, locator syntax, ANSI codes); the u flag only adds escape pitfalls
+		"require-unicode-regexp": "off",
+		// - same reason as strict-boolean-expressions: `||` on strings deliberately treats '' as unset
+		"typescript/prefer-nullish-coalescing": ["error", { "ignorePrimitives": { "string": true } }],
+
+		// Rules outside the enabled categories (restriction / style / nursery) kept from the reference.
+		"no-empty": "error",
+		"no-regex-spaces": "error",
+		"no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+		"no-unreachable-loop": "error",
+		"no-sequences": "error",
+		"@typescript-eslint/no-empty-object-type": "error",
+		"@typescript-eslint/no-explicit-any": "error",
+		"@typescript-eslint/no-namespace": "error",
+		"@typescript-eslint/no-require-imports": "error",
+		"@typescript-eslint/no-floating-promises": ["error", { "checkThenables": true }],
+		"@typescript-eslint/no-unnecessary-condition": "error",
+		"import/no-duplicates": "error",
+		"import/no-cycle": "error",
+		"import/no-amd": "error",
+		"import/first": "error",
+		"import/newline-after-import": "error",
+		"promise/catch-or-return": "error",
+		"vitest/no-identical-title": "error",
+
+		// Svelte (@rsvelte/oxlint-plugin): the reference's set, as errors.
+		"svelte/infinite-reactive-loop": "error",
+		"svelte/no-at-debug-tags": "error",
+		"svelte/no-at-html-tags": "error",
+		"svelte/no-dom-manipulating": "error",
+		"svelte/no-dupe-else-if-blocks": "error",
+		"svelte/no-dupe-on-directives": "error",
+		"svelte/no-dupe-style-properties": "error",
+		"svelte/no-dupe-use-directives": "error",
+		"svelte/no-export-load-in-svelte-module-in-kit-pages": "error",
+		"svelte/no-immutable-reactive-statements": "error",
+		"svelte/no-inner-declarations": "error",
+		"svelte/no-inspect": "error",
+		"svelte/no-not-function-handler": "error",
+		"svelte/no-object-in-text-mustaches": "error",
+		"svelte/no-raw-special-elements": "error",
+		"svelte/no-reactive-functions": "error",
+		"svelte/no-reactive-literals": "error",
+		"svelte/no-reactive-reassign": "error",
+		"svelte/no-shorthand-style-property-overrides": "error",
+		"svelte/no-store-async": "error",
+		"svelte/no-svelte-internal": "error",
+		"svelte/no-unknown-style-directive-property": "error",
+		"svelte/no-unnecessary-state-wrap": "error",
+		"svelte/no-useless-children-snippet": "error",
+		"svelte/no-useless-mustaches": "error",
+		"svelte/prefer-svelte-reactivity": "error",
+		"svelte/prefer-writable-derived": "error",
+		"svelte/require-each-key": "error",
+		"svelte/require-store-reactive-access": "error",
+		"svelte/valid-each-key": "error",
+		"svelte/valid-prop-names-in-kit-pages": "error",
+		// Needs SvelteKit route types; stays in ESLint (eslint-plugin-svelte).
+		"svelte/no-navigation-without-resolve": "off",
+
+		// Patterns that get around the type checker (rules from https://github.com/dmmulroy/anti-slop,
+		// vendored in sap-tests/tools/oxlint/anti-slop).
+		"anti-slop/no-reflect-apply": "error",
+		"anti-slop/no-reflect-get": "error",
+		"anti-slop/no-unknown-type-aliases": "error",
+		"anti-slop/no-chained-type-assertions": "error",
+		"anti-slop/no-unsafe-dictionary-type": "error",
+
+		// Security rules of eslint-plugin-secure-coding. The list and the severities follow the
+		// play-bun-ai project, which measured each rule for noise before enabling it.
+		"secure-coding/no-sql-injection": "error",
+		"secure-coding/no-hardcoded-credentials": "error",
+		"secure-coding/no-hardcoded-session-tokens": "error",
+		"secure-coding/no-fail-open-auth": "error",
+		"secure-coding/no-template-injection": "error",
+		"secure-coding/no-directive-injection": "error",
+		"secure-coding/no-xxe-injection": "error",
+		"secure-coding/no-xpath-injection": "error",
+		"secure-coding/no-ldap-injection": "error",
+		"secure-coding/detect-non-literal-regexp": "warn",
+		"secure-coding/no-redos-vulnerable-regex": "error",
+		"secure-coding/no-unsafe-regex-construction": "warn",
+		"secure-coding/no-improper-sanitization": "error",
+		"secure-coding/no-weak-password-recovery": "error",
+		"secure-coding/no-privilege-escalation": "error",
+		"secure-coding/no-missing-authentication": "error",
+		"secure-coding/no-sensitive-data-exposure": "warn",
+		"secure-coding/no-unlimited-resource-allocation": "error",
+		"secure-coding/no-unsafe-deserialization": "error",
+		"secure-coding/detect-object-injection": "warn",
+		"secure-coding/no-bidi-characters": "error",
+		"secure-coding/no-invisible-characters": "error",
+		"secure-coding/no-disabled-template-escaping": "error",
+		"secure-coding/no-pii-in-logs": "error",
+		"secure-coding/no-log-injection": "error",
+		"secure-coding/require-secure-defaults": "error",
+
+		// Security rules of eslint-plugin-browser-security, chosen the same way.
+		"browser-security/no-disabled-certificate-validation": "error",
+		"browser-security/require-mime-type-validation": "error",
+		"browser-security/no-sensitive-data-in-cache": "error",
+		"browser-security/no-unescaped-url-parameter": "error",
+		"browser-security/no-password-in-url": "error",
+		"browser-security/no-incomplete-url-sanitization": "error",
+		"browser-security/no-innerhtml": "error",
+		"browser-security/no-eval": "error",
+		"browser-security/require-postmessage-origin-check": "error",
+		"browser-security/no-postmessage-wildcard-origin": "error",
+		"browser-security/no-postmessage-innerhtml": "error",
+		"browser-security/no-sensitive-localstorage": "error",
+		"browser-security/no-jwt-in-storage": "error",
+		"browser-security/no-sensitive-sessionstorage": "error",
+		"browser-security/no-sensitive-indexeddb": "error",
+		"browser-security/no-sensitive-cookie-js": "error",
+		"browser-security/no-cookie-auth-tokens": "error",
+		"browser-security/require-cookie-secure-attrs": "error",
+		"browser-security/require-websocket-wss": "error",
+		"browser-security/no-websocket-innerhtml": "error",
+		"browser-security/no-websocket-eval": "error",
+		"browser-security/no-filereader-innerhtml": "error",
+		"browser-security/require-blob-url-revocation": "warn",
+		"browser-security/no-dynamic-service-worker-url": "error",
+		"browser-security/no-worker-message-innerhtml": "error",
+		"browser-security/no-unsafe-inline-csp": "error",
+		"browser-security/no-unsafe-eval-csp": "error",
+		"browser-security/detect-mixed-content": "error",
+		"browser-security/no-allow-arbitrary-loads": "error",
+		"browser-security/no-credentials-in-query-params": "error",
+		"browser-security/no-http-urls": "error",
+		"browser-security/no-insecure-redirects": "error",
+		"browser-security/require-https-only": "error",
+		"browser-security/no-insecure-websocket": "error",
+		"browser-security/no-unvalidated-deeplinks": "error",
+		"browser-security/no-client-side-auth-logic": "error"
+	},
+	"overrides": [
+		{
+			// TypeScript itself reports these; the JS versions only add false positives on TS syntax.
+			"files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+			"rules": {
+				"constructor-super": "off",
+				"no-class-assign": "off",
+				"no-const-assign": "off",
+				"no-dupe-class-members": "off",
+				"no-dupe-keys": "off",
+				"no-func-assign": "off",
+				"no-import-assign": "off",
+				"no-new-native-nonconstructor": "off",
+				"no-obj-calls": "off",
+				"no-redeclare": "off",
+				"no-setter-return": "off",
+				"no-this-before-super": "off",
+				"no-unsafe-negation": "off",
+				"no-var": "error",
+				"no-with": "off",
+				"prefer-const": "error",
+				"prefer-rest-params": "error",
+				"prefer-spread": "error"
+			}
+		},
+		{
+			"files": ["*.svelte", "**/*.svelte"],
+			"rules": {
+				"no-inner-declarations": "off",
+				"no-self-assign": "off",
+				"no-unused-expressions": "off"
+			}
+		}
+	]
+}

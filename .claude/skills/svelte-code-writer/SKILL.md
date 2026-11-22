@@ -42,7 +42,7 @@ unverified answer is based on, rather than presenting it as documented.
    only actionable issues with `file:line`. Apply the fixes. Re-validate only if the fixes were
    substantive.
 
-5. **Type-check** with `bun run check` in `app/` (it runs `svelte-kit sync` first; bare
+5. **Type-check** with `bun run check` (it runs `svelte-kit sync` first; bare
    `svelte-check` can report stale errors).
 
 ## Notes
@@ -51,6 +51,6 @@ unverified answer is based on, rather than presenting it as documented.
   is no reachable path to it today. Don't offer a playground link; if we ever need one, add the
   tool to that agent deliberately.
 - The UI is built from UI5 Web Components (`<ui5-…>` custom elements, registered in
-  `app/src/lib/ui5.ts`). The Svelte documentation does not cover them: for a component's
-  properties, slots and events, read its definition under `app/node_modules/@ui5/` or the UI5 Web
+  `src/lib/ui5.ts`). The Svelte documentation does not cover them: for a component's
+  properties, slots and events, read its definition under `node_modules/@ui5/` or the UI5 Web
   Components documentation.

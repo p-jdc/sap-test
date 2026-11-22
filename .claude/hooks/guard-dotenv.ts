@@ -20,7 +20,7 @@
  */
 const ENV_FILE = /(?<![A-Za-z0-9_.-])\.env((?:\.[A-Za-z0-9_-]+)*)(?![A-Za-z0-9_-])/gi;
 
-/** Templates and test settings that are checked in (as in app/.gitignore). */
+/** Templates and test settings that are checked in (as in .gitignore). */
 const CHECKED_IN = new Set(['.example', '.test']);
 
 /**

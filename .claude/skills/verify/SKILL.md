@@ -24,9 +24,9 @@ restart a server you did not start.
    move on. Check first: `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
 2. **Give it its own data directory** in the scratchpad, so the run history of the user's app
    stays untouched: `TEST_APP_DATA_DIR=<scratchpad>/data`.
-3. **Plain HTTP:** `DEV_HTTP=1`. Without it a checkout with `app/cert/` serves HTTPS.
+3. **Plain HTTP:** `DEV_HTTP=1`. Without it a checkout with `cert/` serves HTTPS.
 4. Start it in the background from the checkout under test and keep the PID:
-   - Dev: `cd app && DEV_HTTP=1 DEV_PORT=<port> TEST_APP_DATA_DIR=<dir> bun run dev`
+   - Dev: `DEV_HTTP=1 DEV_PORT=<port> TEST_APP_DATA_DIR=<dir> bun run dev`
    - Built, as in production: `bun run build`, then
      `PORT=<port> ORIGIN=http://127.0.0.1:<port> TEST_APP_DATA_DIR=<dir> bun run start`.
      **Without `ORIGIN` every command (remote function that changes something) answers
@@ -37,7 +37,7 @@ restart a server you did not start.
 
 Sign-in is off unless `TEST_APP_AUTH=passkey` is set. With it on, a fresh data directory logs a
 one-time setup link for the first admin; `TEST_APP_SETUP_TOKEN` fixes the token (see
-`app/playwright.config.ts` and `app/e2e/sign-in.test.ts` for a working setup with a virtual
+`playwright.config.ts` and `tests/sign-in.test.ts` for a working setup with a virtual
 passkey).
 
 ## Driving it

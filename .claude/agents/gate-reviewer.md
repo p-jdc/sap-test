@@ -29,7 +29,7 @@ Only defects this change adds or makes worse, in the changed files or in a calle
 
 `LENS: security` covers only:
 
-- Who may do this: every remote function and endpoint that changes or reveals something, checked against the sign-in and role rules in `app/src/lib/server/auth/`.
+- Who may do this: every remote function and endpoint that changes or reveals something, checked against the sign-in and role rules in `src/lib/server/auth/`.
 - Secrets: passwords, tokens and session data in logs, run results, reports, error messages, URLs, or sent to the browser.
 - Input that reaches a file path, a command line, a child process's environment, SQL, HTML, or a URL the server fetches.
 - What listens on the network and on which address; cookies, origins, hosts and proxy headers.

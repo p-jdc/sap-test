@@ -8,7 +8,7 @@ import type { Page } from '@playwright/test';
 
 /** Where a system's session is saved: sap-tests/.auth (gitignored), separate from recordings. */
 export function sessionFile(system: string): string {
-	return resolve(__dirname, '..', '.auth', `${system}-session.json`);
+	return resolve(import.meta.dirname, '..', '.auth', `${system}-session.json`);
 }
 
 /**

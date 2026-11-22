@@ -9,7 +9,7 @@
 			"type": "stdio",
 			"command": "${PLAYWRIGHT_NODE:-node}",
 			"args": [
-				"sap-tests/node_modules/@playwright/test/cli.js",
+				"node_modules/@playwright/test/cli.js",
 				"run-test-mcp-server",
 				"-c",
 				"sap-tests/playwright.config.ts"

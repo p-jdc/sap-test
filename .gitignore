@@ -1,6 +1,45 @@
 node_modules/
 .claude/mcp/node_modules/
 .DS_Store
+Thumbs.db
 .claude/worktrees/
 # Scratch files of the Playwright test MCP server (page snapshots, console logs)
 .playwright-mcp/
+
+# SvelteKit and Vite output
+/.svelte-kit
+/build
+/.output
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Secrets: settings and credentials for the app and the SAP tests
+.env
+.env.*
+!.env.example
+!.env.test
+
+# The app's run history and the e2e tests' own data directories (TEST_APP_DATA_DIR)
+/.data/
+/.data-e2e/
+/.data-e2e-auth/
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+/coverage/
+
+# Local TLS certs (bun run setup:cert)
+/cert/
+
+# The app's folder before it moved to the root. An older checkout still has its data, certificate
+# and build output there; `bun run setup` moves .data and cert to the root.
+/app/
+
+# Saved sessions from the sign-in setup and the recorder (cookies of a logged-in user)
+sap-tests/.auth/
+# Generated from sap-tests/odata/metadata by `bun run odata:generate`, which runs after every install
+sap-tests/odata/clients/
+# Test certificates from `bun run idoc:certs`
+sap-tests/idoc/certs/

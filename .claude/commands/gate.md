@@ -62,11 +62,11 @@ reviewer reads the code itself, and a reviewer told the intent tends to confirm 
 Start a second `gate-reviewer` with `LENS: security`, in the same message so both run together,
 only if the diff touches one of these:
 
-- `app/src/lib/server/auth/`, `app/src/lib/server/db/`, `app/drizzle/`
-- `app/src/hooks.server.ts`, `app/src/lib/server/origin.ts`, `host-check.ts`
-- `app/src/lib/server/secret-store.ts`, `env-file.ts`, `setting-value.ts`, `redact.ts`, `systems.ts`
-- `app/src/lib/server/file-response.ts`, any `+server.ts`, any `*.remote.ts`
-- `app/src/lib/server/runner.ts`, `recorder.ts`, `mfs.ts` (they start processes)
+- `src/lib/server/auth/`, `src/lib/server/db/`, `drizzle/`
+- `src/hooks.server.ts`, `src/lib/server/origin.ts`, `host-check.ts`
+- `src/lib/server/secret-store.ts`, `env-file.ts`, `setting-value.ts`, `redact.ts`, `systems.ts`
+- `src/lib/server/file-response.ts`, any `+server.ts`, any `*.remote.ts`
+- `src/lib/server/runner.ts`, `recorder.ts`, `mfs.ts` (they start processes)
 - `sap-tests/sap-plugin/secret.ts`, `systems.ts`, `systems-schema.ts`, `login.ts`, `sign-in.ts`,
   `session.ts`, `secure-url.ts`
 - `sap-tests/mfs/http.mts`, `server.mts`

@@ -19,8 +19,11 @@ import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The install to use: the one the app checked before it started this (TEST_APP_PACKAGES_DIR),
+// else the repository's, two levels up.
+const packages = process.env.TEST_APP_PACKAGES_DIR || resolve(here, '../../node_modules');
 // Inside node_modules, so that the bundles find @playwright/test and git ignores them.
-const cache = resolve(here, '../node_modules/.cache/sap-recorder');
+const cache = resolve(packages, '.cache/sap-recorder');
 const load = (file) => {
 	const outfile = resolve(cache, file.replace(/\.ts$/, '.mjs'));
 	buildSync({
@@ -36,11 +39,12 @@ const load = (file) => {
 
 // The project's formatter. The spec is written one step per line, which is far wider than the
 // format check allows, so a recording would fail the gate until someone formatted it.
-const formatter = resolve(here, '../node_modules/oxfmt/bin/oxfmt');
+const formatter = resolve(packages, 'oxfmt/bin/oxfmt');
 const format = (file) => {
 	if (!existsSync(formatter)) return 'oxfmt is not installed';
 	const { status, error, stderr } = spawnSync(process.execPath, [formatter, file], {
-		cwd: resolve(here, '..'),
+		// The project root, where the formatter's configuration is.
+		cwd: resolve(here, '../..'),
 		encoding: 'utf8'
 	});
 	return status === 0 ? null : (error?.message ?? stderr.trim()) || `oxfmt exited with ${status}`;

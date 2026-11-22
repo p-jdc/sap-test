@@ -55,9 +55,9 @@ Which command proves which claim (from the repo root unless noted):
 
 - **Types:** `bun run check` (svelte-check for `app`, tsc for `sap-tests`). oxlint is a linter; it does not prove types.
 - **Lint and format:** `bun run lint`. `bun run lint:light` (no eslint) is for iterating only.
-- **Unit tests:** `bun run test`, or one file with `cd app && bunx vitest --run <path>`.
+- **Unit tests:** `bun run test`, or one file with `bunx vitest --run <path>`.
 - **The app works in a browser:** `bun run test:e2e`, or the `verify` skill for a flow the e2e tests do not cover. A passing unit test does not prove it.
-- **SAP test code:** `cd sap-tests && bun run test:plugin`, `bun run test:mfs`, `bun run test:api:mock`. These run without an SAP system. A test against a real system proves nothing until it has run against that system: say so when it has not.
+- **SAP test code:** `bun run test:plugin`, `bun run test:mfs`, `bun run test:api:mock`. These run without an SAP system. A test against a real system proves nothing until it has run against that system: say so when it has not.
 - **Ready for a pull request:** `/gate` ended in `GATE: PASS`, or in `PASS-WITH-FIXES` and each listed item is fixed or its reason for staying is written down (it runs `bun run pregate` and a review). The verdict belongs to the commit it ran on: after fix commits, `bun run pregate` must pass again, and `/gate` again only when they change more than the listed items. `bun run pregate` alone is enough only for a documentation change; `CLAUDE.md` files and everything under `.claude/` are not documentation and get the gate. CI on the pushed branch adds the e2e tests.
 - **A regression test works:** name the change you undid and show the test went red.
 - **A worktree:** has no dependencies until `bun run setup`; a failure before that proves nothing.

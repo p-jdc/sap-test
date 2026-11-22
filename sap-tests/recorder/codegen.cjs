@@ -1,4 +1,4 @@
-// Starts the Playwright-SAP recorder (node_modules/@playwright/test/cli.js) with the SAP login taken
+// Starts the Playwright-SAP recorder (node_modules/playwright-sap-recorder/cli.js) with the SAP login taken
 // from the environment instead of the command line. The fork only takes the credentials as
 // `--sap-login <user> <password>`, and a command line can be read by every user of the machine
 // (`ps`) while the recording runs. Here the flag `--sap-login-from-env` stands in for it: this
@@ -13,6 +13,10 @@ const path = require('node:path');
 
 const FLAG = '--sap-login-from-env';
 
+// The install to load the fork and dotenv from: the one the app checked before it started this
+// (TEST_APP_PACKAGES_DIR), else the repository's, two levels up.
+const packages = process.env.TEST_APP_PACKAGES_DIR || path.resolve(__dirname, '../../node_modules');
+
 /** This computer (the same rule as sap-plugin/secure-url.ts, which this CommonJS file cannot load). */
 const loopback = (name) =>
 	name === 'localhost' ||
@@ -23,7 +27,7 @@ const loopback = (name) =>
 const at = process.argv.indexOf(FLAG);
 if (at !== -1) {
 	try {
-		require('../node_modules/dotenv').config({
+		require(path.join(packages, 'dotenv')).config({
 			path: path.resolve(__dirname, '../.env'),
 			quiet: true
 		});
@@ -55,5 +59,5 @@ if (at !== -1) {
 	delete process.env.SAP_PASSWORD;
 }
 
-// oxlint-disable-next-line import/no-unassigned-import -- the fork's CLI parses process.argv as it loads
-require('./node_modules/@playwright/test/cli.js');
+// The fork's CLI parses process.argv as it loads.
+require(path.join(packages, 'playwright-sap-recorder/cli.js'));

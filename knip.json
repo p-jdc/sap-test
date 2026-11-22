@@ -1,0 +1,60 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": [
+		"src/**/*.remote.ts",
+		"reporter/*.ts",
+		"scripts/*.ts",
+		"tests/**/*.ts",
+		"sap-tests/playwright.config.ts",
+		"sap-tests/{tests,setup}/**/*.{ts,mts}",
+		"sap-tests/{mfs,idoc}/*.mts",
+		"sap-tests/odata/**/*.mjs",
+		"sap-tests/sap-plugin/{record.mjs,entries/*.ts}",
+		"sap-tests/recorder/codegen.cjs",
+		"sap-tests/tools/oxlint/*/index.ts"
+	],
+	"project": [
+		"src/**/*.{ts,svelte}",
+		"reporter/**/*.ts",
+		"scripts/**/*.ts",
+		"tests/**/*.ts",
+		"sap-tests/**/*.{ts,mts,mjs,cjs}",
+		"!sap-tests/sap-plugin/vendor/**",
+		"!sap-tests/tools/oxlint/sap-rules/fixtures/**"
+	],
+
+	"ignoreDependencies": [
+		// Used only through the --tsgo flag of svelte-check (package.json "check").
+		"@typescript/native-preview",
+		// Used by the OData clients generated into sap-tests/odata/clients, which git ignores.
+		"@sap-cloud-sdk/odata-v2",
+		"moment",
+		// The Playwright-SAP fork: sap-tests/recorder/codegen.cjs loads it by path from the install
+		// the app names, and setup:recorder installs its browser.
+		"playwright-sap-recorder",
+		// Used by the vendored Playwright-SAP engines, which sap-plugin/engines.ts bundles at run time.
+		"xpath",
+		// An esbuild alias for the vendored engines (sap-plugin/engines.ts).
+		"@injected/sap/*",
+		// UI5 modules (sap/ui/...), loaded in the browser with UI5's own require (sap-plugin/ui5control.ts).
+		"sap"
+	],
+	// Installed by the developer: mkcert (brew install mkcert) for scripts/setup-cert.ts, openssl for
+	// the IDoc receiver's test certificates.
+	"ignoreBinaries": ["mkcert", "openssl"],
+	"ignoreIssues": {
+		// `$app/tsconfig` is SvelteKit 3's generated base config, not an npm package.
+		"tsconfig.json": ["unlisted"],
+		// The SAP test project shares this package.json, so its files count for which dependencies
+		// are used. Unused files and exports inside it were never checked; that is left for later.
+		"sap-tests/**": [
+			"files",
+			"exports",
+			"types",
+			"duplicates",
+			"nsExports",
+			"nsTypes",
+			"enumMembers"
+		]
+	}
+}

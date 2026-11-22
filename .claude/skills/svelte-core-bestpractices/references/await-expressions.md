@@ -4,7 +4,7 @@ Adapted from the official Svelte skill reference. **Read the warning first — i
 contradicts upstream's advice on one point. It comes from the reference app (play-bun-ai), which
 hit the bug; this app streams live runs the same way.**
 
-`compilerOptions.experimental.async` is `true` in `app/vite.config.ts`, so all of this is
+`compilerOptions.experimental.async` is `true` in `vite.config.ts`, so all of this is
 live. The flag goes away in Svelte 6.
 
 Since 5.36, `await` works in three places it previously didn't:

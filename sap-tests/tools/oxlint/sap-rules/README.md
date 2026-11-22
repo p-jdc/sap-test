@@ -31,7 +31,7 @@ excluded from the normal lint run. `lint.json` repeats the import rule's options
 longer has the rules switched on.
 
 The Test-App has rules with the same names for its flow view
-(`app/src/lib/server/spec-parser.ts`). They are related, not identical, so a finding can appear in
+(`src/lib/server/spec-parser.ts`). They are related, not identical, so a finding can appear in
 one tool only:
 
 - The app looks at `fill` alone; the linter also at `type`, `pressSequentially` and

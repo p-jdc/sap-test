@@ -1,11 +1,9 @@
 {
-	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"$schema": "../node_modules/oxlint/configuration_schema.json",
+	// Rules for the SAP test project. oxlint uses this file for everything under sap-tests/ instead of
+	// the app's ../.oxlintrc.json; the options (type-aware, unused directives) are set there.
 	// Recorded flows are where a missing `await` hides: the step runs detached, the test races
 	// ahead and fails somewhere else, intermittently. The type-aware promise rules below catch it.
-	"options": {
-		"reportUnusedDisableDirectives": "error",
-		"typeAware": true
-	},
 	"plugins": ["typescript", "unicorn", "oxc", "promise", "import"],
 	"jsPlugins": [
 		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
