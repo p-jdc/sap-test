@@ -21,13 +21,18 @@ const MCP_PREFIX = 'mcp__playwright-test__';
 const READ_TOOLS = new Set(['Glob', 'Grep', 'Read', 'LS']);
 const WRITE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
 
-/** The Playwright MCP server as both tools start it, from the repository root. */
-const MCP_ARGS = [
-	'node_modules/@playwright/test/cli.js',
+/**
+ * The arguments that start Playwright's MCP server with node. Its two files are given from the
+ * repository root, after `base` where a tool needs them absolute; the subcommand and the flag stay
+ * as they are.
+ */
+export const mcpArgs = (base = '') => [
+	`${base}node_modules/@playwright/test/cli.js`,
 	'run-test-mcp-server',
 	'-c',
-	'sap-tests/playwright.config.ts'
+	`${base}sap-tests/playwright.config.ts`
 ];
+const MCP_ARGS = mcpArgs();
 
 /** A YAML scalar of the front matter: plain, or in single quotes with '' for a quote. */
 function scalar(raw: string): string {
@@ -165,7 +170,7 @@ export function vscodeMcp(): string {
 	const server = {
 		type: 'stdio',
 		command: 'node',
-		args: MCP_ARGS.map((a) => `\${workspaceFolder}/${a}`),
+		args: mcpArgs('${workspaceFolder}/'),
 		cwd: '${workspaceFolder}'
 	};
 	return `${JSON.stringify({ servers: { 'playwright-test': server } }, null, '\t')}\n`;

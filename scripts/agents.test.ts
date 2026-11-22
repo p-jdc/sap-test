@@ -1,9 +1,63 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { adaptPrompt, codexAgent, copilotAgent, generate, parseAgent } from './agents.ts';
+import { z } from 'zod';
+import {
+	adaptPrompt,
+	codexAgent,
+	copilotAgent,
+	generate,
+	parseAgent,
+	vscodeMcp
+} from './agents.ts';
 
 const root = join(import.meta.dir, '..');
+
+const toolsReply = z.object({
+	result: z.object({ tools: z.array(z.object({ name: z.string() })) })
+});
+const vscodeSchema = z.object({
+	servers: z.object({ 'playwright-test': z.object({ args: z.array(z.string()) }) })
+});
+const codexSchema = z.object({
+	mcp_servers: z.object({
+		'playwright-test': z.object({ args: z.array(z.string()), enabled_tools: z.array(z.string()) })
+	})
+});
+
+/** The tool names the MCP server lists when started with these arguments from the repository root. */
+async function serverTools(args: string[]): Promise<string[]> {
+	const child = Bun.spawn(['node', ...args], {
+		cwd: root,
+		stdin: 'pipe',
+		stdout: 'pipe',
+		stderr: 'ignore'
+	});
+	const send = (message: object) => child.stdin.write(`${JSON.stringify(message)}\n`);
+	await send({
+		jsonrpc: '2.0',
+		id: 1,
+		method: 'initialize',
+		params: {
+			protocolVersion: '2025-06-18',
+			capabilities: {},
+			clientInfo: { name: 'agents-test', version: '1' }
+		}
+	});
+	await send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+	await send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+	let output = '';
+	try {
+		for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
+			output += chunk;
+			const line = output.split('\n').find((l) => l.includes('"id":2'));
+			if (line) return toolsReply.parse(JSON.parse(line)).result.tools.map((t) => t.name);
+		}
+		return [];
+	} finally {
+		child.kill();
+	}
+}
 
 const PROMPT =
 	'Check that you can call the `mcp__playwright-test__*` tools, starting with `test_run`. Report that\n' +
@@ -77,6 +131,29 @@ describe('the generated formats', () => {
 			'read-only'
 		);
 	});
+
+	test('VS Code and Codex start the MCP server, and it has every tool the agents name', async () => {
+		const vscode = vscodeSchema.parse(JSON.parse(vscodeMcp()));
+		const vscodeArgs = vscode.servers['playwright-test'].args.map((a) =>
+			a.replaceAll('${workspaceFolder}', root)
+		);
+		expect(vscodeArgs.slice(1, 3)).toEqual(['run-test-mcp-server', '-c']);
+		const codex = ['planner', 'generator', 'healer'].map(
+			(role) =>
+				codexSchema.parse(
+					Bun.TOML.parse(
+						readFileSync(join(root, `.codex/agents/playwright_test_${role}.toml`), 'utf8')
+					)
+				).mcp_servers['playwright-test']
+		);
+		for (const args of [vscodeArgs, ...codex.map((c) => c.args)]) {
+			// oxlint-disable-next-line no-await-in-loop -- one server after the other
+			const tools = await serverTools(args);
+			expect(tools).toContain('test_run');
+			for (const { enabled_tools } of codex)
+				expect(enabled_tools.filter((t) => !tools.includes(t))).toEqual([]);
+		}
+	}, 60_000);
 
 	test('the files in the repository are the ones the script writes', () => {
 		for (const [path, content] of generate(root))
