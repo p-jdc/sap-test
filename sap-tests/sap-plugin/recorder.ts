@@ -46,6 +46,12 @@ export type RecordedStep = {
 	 * element to become enabled, so the replay must click without that check.
 	 */
 	force?: boolean;
+	/**
+	 * The date or time field (sap.m.DatePicker and the like, its control ID) whose picker the step
+	 * used. A fill with this is the value the picker put into the field; the clicks in the picker
+	 * that led to it are left out of the spec, so the test does not depend on the day it runs.
+	 */
+	picker?: string;
 	/** Why the step needs a look, e.g. the selector matches several controls. */
 	problem?: string;
 	/** What was clicked, for the comment on steps that need a look. */
@@ -83,6 +89,21 @@ function recorderScript(binding: string) {
 		findControlSelectorByDOMElement(options: { domElement: Element }): Promise<unknown>;
 	};
 	type Finder = { _findElements(selector: unknown): Element[] };
+	// The few parts of UI5's controls the recorder asks about.
+	type Control = {
+		getId(): string;
+		getParent(): Control | null | undefined;
+		isA(type: string): boolean;
+		hasListeners(event: string): boolean;
+		getDomRef(): Element | null;
+		getFocusDomRef(): Element | null;
+		attachChange?(handler: () => void): void;
+	};
+	type ElementModule = {
+		closestTo?(element: Element): Control | undefined;
+		getElementById?(id: string): Control | undefined;
+		registry?: { get(id: string): Control | undefined };
+	};
 	// A step as the page reports it: the selector is whatever UI5 answered, checked on arrival.
 	type PageStep = Omit<Partial<RecordedStep>, 'selector' | 'action'> & {
 		action: string;
@@ -104,6 +125,7 @@ function recorderScript(binding: string) {
 	const next = () => ({ seq: ++seq, at: performance.timeOrigin + performance.now() });
 	let recordReplay: RecordReplay | undefined;
 	let finder: Finder | undefined;
+	let elements: ElementModule | undefined;
 
 	// Shows that the recorder is on and counts the steps. It takes no clicks.
 	const badge = document.createElement('div');
@@ -129,12 +151,14 @@ function recorderScript(binding: string) {
 			setTimeout(load, 200);
 			return;
 		}
-		require(['sap/ui/test/RecordReplay', 'sap/ui/test/_ControlFinder'], (
+		require(['sap/ui/test/RecordReplay', 'sap/ui/test/_ControlFinder', 'sap/ui/core/Element'], (
 			loadedRecordReplay: RecordReplay,
-			loadedFinder: Finder
+			loadedFinder: Finder,
+			loadedElements: ElementModule
 		) => {
 			recordReplay = loadedRecordReplay;
 			finder = loadedFinder;
+			elements = loadedElements;
 			state.ready = true;
 			showBadge();
 			// The app may have put the cursor into a field before this point.
@@ -225,11 +249,40 @@ function recorderScript(binding: string) {
 		return Object.entries(point).every(([name, value]) => values.get(name) === value);
 	};
 
+	// The control an element belongs to. Element.closestTo is UI5 1.106 and later.
+	const controlOf = (element: Element): Control | undefined => {
+		if (elements?.closestTo) return elements.closestTo(element) ?? undefined;
+		const id = element.closest('[data-sap-ui]')?.id;
+		return id ? (elements?.getElementById?.(id) ?? elements?.registry?.get(id)) : undefined;
+	};
+	// An icon that is only the picture on a button. UI5 describes it by its image ("an Icon whose
+	// source matches cart"); the button around it has the text, tooltip or binding that names it,
+	// and a click on the button does what the click on its icon did. An icon with its own press
+	// handler does something of its own and stays.
+	const PRESSABLE = ['sap.m.Button', 'sap.m.MenuButton', 'sap.m.Link'];
+	const buttonAround = (target: Element): Element | undefined => {
+		const control = controlOf(target);
+		if (!control?.isA('sap.ui.core.Icon') || control.hasListeners('press')) return undefined;
+		const parent = control.getParent();
+		if (!parent || !PRESSABLE.some((type) => parent.isA(type))) return undefined;
+		return parent.getDomRef() ?? undefined;
+	};
+	// The date or time field whose picker (calendar, clock) an element is in, if any. The picker's
+	// popup is an aggregation of the field, so the field is among the element's parents.
+	const pickerOf = (target: Element): Control | undefined => {
+		let control = controlOf(target);
+		for (let level = 0; control && level < 6; level++, control = control.getParent() ?? undefined)
+			if (control.isA('sap.m.DateTimeField')) return control;
+		return undefined;
+	};
+
 	const describe = async (target: Element): Promise<Described> => {
 		if (!state.ready) {
 			const sid = sidFor(target);
 			return sid ? { sid } : { problem: 'neither UI5 nor a WebGUI SID describes this element' };
 		}
+		const button = buttonAround(target);
+		if (button) return describe(button);
 		state.busy++;
 		try {
 			const selector = await selectorFor(target);
@@ -336,6 +389,7 @@ function recorderScript(binding: string) {
 			if (event.button !== 0 || !(event.target instanceof Element)) return;
 			if (!watched(event.target)) return;
 			if (!fresh(event.target, 2_000)?.settled) prepare(event.target);
+			armPicker(event.target);
 		},
 		true
 	);
@@ -347,7 +401,14 @@ function recorderScript(binding: string) {
 			if (!(target instanceof Element) || !watched(target)) return;
 			const entry = prepared.get(target) ?? prepare(target);
 			const force = target.closest('[aria-disabled="true"]') ? { force: true } : {};
-			const step = { ...next(), action: 'click', hint: hintFor(target), ...force };
+			const picker = pickerAt.get(target) ?? pickerOf(target)?.getId();
+			const step = {
+				...next(),
+				action: 'click',
+				hint: hintFor(target),
+				...force,
+				...(picker ? { picker } : {})
+			};
 			prepared.delete(target);
 			void entry.result.then((described) => report({ ...step, ...described }));
 		},
@@ -381,6 +442,40 @@ function recorderScript(binding: string) {
 		fields.set(field, known);
 		return known;
 	};
+	// A date picked in a calendar is recorded as the value the field ends up with, not as the
+	// clicks in the calendar: a day is addressed by its date, which is only on screen while its
+	// month is shown, so a replay on another day would not find it. A click on the field's icon or
+	// in its popup arms the field; its next change event reports the new value as a fill.
+	type Armed = { picker: string; described: Promise<Described>; before: string };
+	const armed = new WeakMap<Element, Armed>();
+	const pickerAt = new WeakMap<Element, string>();
+	const listening = new WeakSet<Control>();
+	const armPicker = (target: Element) => {
+		const picker = pickerOf(target);
+		const field = picker?.getFocusDomRef() ?? null;
+		if (!picker || !isEditable(field)) return;
+		pickerAt.set(target, picker.getId());
+		// A click into the field itself is typing, recorded as such.
+		if (field.contains(target) || armed.has(field)) return;
+		armed.set(field, { picker: picker.getId(), described: describe(field), before: field.value });
+		if (listening.has(picker) || !picker.attachChange) return;
+		listening.add(picker);
+		picker.attachChange(() => {
+			const known = armed.get(field);
+			armed.delete(field);
+			if (!known || known.before === field.value) return;
+			const typed = fields.get(field);
+			if (typed) typed.value = field.value;
+			const step = {
+				...next(),
+				action: 'fill',
+				value: field.value,
+				picker: known.picker,
+				hint: hintFor(field)
+			};
+			void known.described.then((described) => report({ ...step, ...described }));
+		});
+	};
 	const recordTyping = (field: Editable) => {
 		const known = fields.get(field);
 		if (!known || known.value === field.value) return;
@@ -388,6 +483,8 @@ function recorderScript(binding: string) {
 		const typed = known.secret ? { secret: true } : { value: field.value };
 		const step = { ...next(), action: 'fill', ...typed, hint: hintFor(field) };
 		known.value = field.value;
+		// Typed by hand: the picker's change that follows is this value, already recorded.
+		armed.delete(field);
 		void known.described.then((described) => report({ ...step, ...described }));
 	};
 	// Typing is reported when the field is left. A recording that ends with the cursor still in a
@@ -600,6 +697,9 @@ function stepLines(step: RecordedStep): string[] {
 			`await fillSecret(${locator}, ${PASSWORD_VARIABLE}!);`
 		);
 	else if (step.action === 'fill') lines.push(`await ${locator}.fill(${quote(step.value ?? '')});`);
+	// A date or time field takes a typed value on Enter or when it is left, as the picker's
+	// change did right away. The app may wait for that change (a wizard's next button).
+	if (step.action === 'fill' && step.picker) lines.push(`await ${locator}.press('Enter');`);
 	if (step.action === 'press') lines.push(`await ${locator}.press(${quote(step.key ?? '')});`);
 	return lines;
 }
@@ -635,8 +735,22 @@ export function renderSpec(
 	// fill() focuses the field itself: the click a person makes to get into it adds nothing.
 	const target = (step: RecordedStep) =>
 		JSON.stringify([step.selector, step.sid, step.frames, step.innerText, step.chartPoint]);
+	// The clicks in a date picker around the value it put into the field: the fill of the value
+	// stands for them. The calendar sets the value when the mouse button goes up, before the
+	// click event, so the last click of a pick comes right after its fill.
+	const pickerClicks = new Set<RecordedStep>();
+	steps.forEach((step, index) => {
+		if (step.action !== 'fill' || !step.picker) return;
+		for (const direction of [-1, 1])
+			for (let other = index + direction; other >= 0 && other < steps.length; other += direction) {
+				const near = steps[other];
+				if (near?.action !== 'click' || near.picker !== step.picker) break;
+				pickerClicks.add(near);
+			}
+	});
 	const kept = steps.filter((step, index) => {
 		const next = steps[index + 1];
+		if (pickerClicks.has(step)) return false;
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
 	const body = [start, ...kept.flatMap(stepLines)].join('\n');

@@ -74,6 +74,7 @@ async function replay(
 		const control = stepLocator(page, step)!;
 		if (step.action === 'click') await control.click({ force: step.force });
 		if (step.action === 'fill') await control.fill(step.value!);
+		if (step.action === 'fill' && step.picker) await control.press('Enter');
 		if (step.action === 'press') await control.press(step.key!);
 	}
 	await verify(page);
@@ -126,6 +127,10 @@ test('a recorded cart flow replays through the recorded UI5 control selectors', 
 		'click'
 	]);
 	expect(needingALook(steps)).toEqual([]);
+	// The cart button is an icon on a button: the button is recorded, not its picture.
+	const cartButton = steps[4]?.selector;
+	expect(cartButton?.controlType).toBe('sap.m.ToggleButton');
+	expect(JSON.stringify(steps)).not.toContain('sap.ui.core.Icon');
 
 	await replay(browser, cartDemo, steps, async (page) => {
 		await expect(page.getByText('Total: 2,30 EUR')).toBeVisible();
@@ -134,6 +139,7 @@ test('a recorded cart flow replays through the recorded UI5 control selectors', 
 });
 
 test('masked fields and a calendar day are recorded and replay', async ({ browser }, testInfo) => {
+	let picked = '';
 	const steps = await record(browser, testInfo, cartDemo, async (page) => {
 		await putScreenCleanInCart(page);
 		await clickLikeAPerson(page, byId(page, 'cartView--proceedButton'));
@@ -165,24 +171,39 @@ test('masked fields and a calendar day are recorded and replay', async ({ browse
 		await otherMonth.hover({ force: true });
 		await recorderIdle(page);
 		await otherMonth.click({ force: true });
-		await expect(byId(page, 'checkoutView--creditCardExpirationDate-inner')).not.toHaveValue('');
+		const date = byId(page, 'checkoutView--creditCardExpirationDate-inner');
+		await expect(date).not.toHaveValue('');
+		picked = await date.inputValue();
 
 		await clickLikeAPerson(page, byId(page, 'checkoutView--creditCardStep-nextButton'));
 		await expect(byId(page, 'checkoutView--invoiceStep')).toBeVisible();
 	});
 
 	const typed = steps.filter((step) => step.action === 'fill').map((step) => step.value);
-	expect(typed).toEqual(['Screen clean', 'Jane Doe', '1234-5678-9012-3456', '123']);
+	expect(typed).toEqual(['Screen clean', 'Jane Doe', '1234-5678-9012-3456', '123', picked]);
 	expect(needingALook(steps)).toEqual([]);
-	expect(steps.filter((step) => step.force)).toHaveLength(1);
+	// The calendar: three clicks (icon, next month, day) and the value it put into the field. The
+	// calendar sets the value before the click event of the day, so the fill comes before it.
+	const picker = 'container-cart---checkoutView--creditCardExpirationDate';
+	const inPicker = steps.filter((step) => step.picker === picker);
+	expect(inPicker.map((step) => step.action)).toEqual(['click', 'click', 'fill', 'click']);
+	// The spec fills in the date and has no clicks in the calendar, so it does not depend on the
+	// day it runs.
+	const spec = renderSpec(CART, steps, '../../sap-plugin');
+	expect(spec).toContain(`.fill('${picked}')`);
+	expect(spec).not.toContain('-cal');
+	expect(spec).not.toContain('-icon');
 
-	await replay(browser, cartDemo, steps, async (page) => {
+	const written = steps.filter((step) => !(step.action === 'click' && step.picker === picker));
+	await replay(browser, cartDemo, written, async (page) => {
 		await expect(byId(page, 'checkoutView--invoiceStep')).toBeVisible();
+		await expect(byId(page, 'checkoutView--creditCardExpirationDate-inner')).toHaveValue(picked);
 	});
 });
 
 test('the written spec: title, login from the environment, no click before a fill', () => {
 	const field = { id: 'app--name', interaction: { idSuffix: 'inner' } };
+	const date = { id: 'app--date', interaction: { idSuffix: 'inner' } };
 	const steps: RecordedStep[] = [
 		{ seq: 1, action: 'click', selector: field },
 		{ seq: 2, action: 'fill', selector: field, value: "O'Brien" },
@@ -192,7 +213,19 @@ test('the written spec: title, login from the environment, no click before a fil
 			action: 'click',
 			selector: { id: 'app--cal', interaction: { idSuffix: '20261208' } },
 			force: true
-		}
+		},
+		// A date picked in a calendar: only the value it put into the field is written.
+		{ seq: 5, action: 'click', selector: { id: 'app--date-icon' }, picker: 'app--date' },
+		{
+			seq: 6,
+			action: 'click',
+			selector: { id: 'app--date-cal', interaction: { idSuffix: '20261208' } },
+			force: true,
+			picker: 'app--date'
+		},
+		{ seq: 7, action: 'fill', selector: date, value: 'Dec 8, 2026', picker: 'app--date' },
+		// The calendar's last click arrives after the value it set.
+		{ seq: 8, action: 'click', selector: { id: 'app--date-cal--Month0' }, picker: 'app--date' }
 	];
 	expect(
 		renderSpec('https://sap.example.com/fiori', steps, '../../sap-plugin', {
@@ -209,6 +242,8 @@ test('the written spec: title, login from the environment, no click before a fil
 			`\tawait page.locateUI5Control({ id: 'app--name', interaction: { idSuffix: 'inner' } }).fill('O\\'Brien');`,
 			`\tawait page.frameLocator('iframe[name="app"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();`,
 			`\tawait page.locateUI5Control({ id: 'app--cal', interaction: { idSuffix: '20261208' } }).click({ force: true });`,
+			`\tawait page.locateUI5Control({ id: 'app--date', interaction: { idSuffix: 'inner' } }).fill('Dec 8, 2026');`,
+			`\tawait page.locateUI5Control({ id: 'app--date', interaction: { idSuffix: 'inner' } }).press('Enter');`,
 			`});`,
 			``
 		].join('\n')
