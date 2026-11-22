@@ -203,7 +203,8 @@ function recorderScript(binding: string) {
 	// A chart (sap.viz) draws its bars, points and slices as SVG shapes. D3 keeps the record a shape
 	// stands for on its element: the dimensions, the measure's value, and with several measures
 	// which one (`measureNames`). The texts say which data point it is; the numbers are the
-	// measured values, which change with the data, and row numbers, which are positions.
+	// measured values, which change with the data, and row numbers, which are positions. A value
+	// label drawn on a shape carries the same record and stands for the same data point.
 	const chartShapes = (chart: Element) => [...chart.querySelectorAll('.v-datapoint')];
 	// D3 keeps the record on a property of its own on the element.
 	// oxlint-disable-next-line no-underscore-dangle -- D3's name
@@ -233,7 +234,10 @@ function recorderScript(binding: string) {
 		try {
 			const selector = await selectorFor(target);
 			const direct = selector ? { selector, problem: check(selector, target) } : undefined;
-			if (direct && !direct.problem) return direct;
+			// A shape of a chart is never the control itself, even where the chart's middle lies within
+			// the shape's box, as it does for the slices of a pie.
+			const shape = target.closest('.v-datapoint, .v-datalabel');
+			if (direct && !direct.problem && !shape) return direct;
 			// UI5 cannot address this element itself: a part of a control (a day in a calendar,
 			// where it answers with the control and so with another day) or a control it finds
 			// nothing unique for (the icon in a button). The nearest control around it that UI5
@@ -254,12 +258,28 @@ function recorderScript(binding: string) {
 			if (!root || !around) return direct ?? unknown;
 
 			// A data point of a chart, by the values it stands for.
-			const shape = target.closest('.v-datapoint');
 			const chartPoint = shape && root.contains(shape) ? chartPointOf(shape) : undefined;
 			if (shape && chartPoint) {
 				const chart = { ...around, interaction: 'root' };
 				const same = chartShapes(root).filter((other) => sameChartPoint(other, chartPoint));
-				if (same.length === 1 && !check(chart, root)) return { selector: chart, chartPoint };
+				if (same.length === 1 && !check(chart, root)) {
+					// The replay clicks the middle of the shape. Its own value label may lie there; a
+					// neighbour that overlaps it (bubbles) must not.
+					const box = same[0].getBoundingClientRect();
+					const atMiddle = document.elementFromPoint(
+						box.left + box.width / 2,
+						box.top + box.height / 2
+					);
+					const label = atMiddle?.closest('.v-datalabel');
+					const own =
+						!!atMiddle &&
+						(same[0].contains(atMiddle) || (!!label && sameChartPoint(label, chartPoint)));
+					return {
+						selector: chart,
+						chartPoint,
+						problem: own ? undefined : 'another element covers the middle of this data point'
+					};
+				}
 			}
 			// 1. The part by its ID inside the control ("<control>-next"), UI5's own way.
 			const prefix = `${root.id}-`;
