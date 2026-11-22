@@ -248,6 +248,70 @@ test('control API: testers and tests put HUs in and read the state over HTTP', a
 	).toBe(404);
 });
 
+test('a PLC that confirms twice: EWM ignores the second confirmation and sends the crane one task', async ({
+	emulator,
+	ewm
+}) => {
+	emulator.setFaults('CONS', {
+		rules: [{ type: 'WTCO', fields: { hu: '100010', src: 'IP' }, action: 'duplicate' }]
+	});
+	emulator.enter('100010');
+
+	await expect.poll(() => ewm.hu('100010')?.status).toBe('stored');
+	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toEqual([]);
+	const tasks = [...ewm.tasks.values()];
+	expect(tasks.map((task) => [task.dst, task.lateConfirmations])).toEqual([
+		['A1-IN', 1],
+		['A1-01-01', undefined]
+	]);
+});
+
+test('control API: fault rules and telegrams sent on request, checked against the layout', async ({
+	emulator,
+	ewm
+}) => {
+	const api = `http://127.0.0.1:${await emulator.listenControl()}`;
+	const post = (path: string, body: unknown) =>
+		fetch(`${api}${path}`, { method: 'POST', body: JSON.stringify(body) });
+
+	const refused = await post('/plcs/CONS/faults', {
+		rules: [{ type: 'WTCO', action: 'change', set: { colour: 'red' } }]
+	});
+	expect(refused.status).toBe(400);
+	expect(await refused.json()).toMatchObject({
+		error: 'fault rules refused:\n- rule 1: telegram WTCO has no field "colour"'
+	});
+	expect((await post('/plcs/CONS/faults', { rules: [{ type: 'WTCO' }] })).status).toBe(400);
+
+	const rule = { type: 'SCAN', action: 'delay', delayMs: 100, times: 3 };
+	expect((await post('/plcs/CONS/faults', { rules: [rule] })).status).toBe(200);
+	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toEqual([rule]);
+	// Starting from an empty warehouse clears the rules with the other faults.
+	emulator.reset();
+	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toBeUndefined();
+	// A telegram a delay rule still holds does not go out in the next run either.
+	await post('/plcs/CONS/faults', { rules: [{ type: 'WTCO', action: 'delay', delayMs: 60_000 }] });
+	expect((await post('/plcs/CONS/send', { type: 'WTCO', fields: { tanum: '9' } })).status).toBe(
+		200
+	);
+	emulator.reset();
+	expect(
+		emulator
+			.log()
+			.filter((entry) => entry.note === 'dropped while delayed: the warehouse was reset')
+	).toMatchObject([{ type: 'WTCO', notSent: true, fields: { tanum: '9' } }]);
+
+	expect((await post('/plcs/CONS/send', { raw: '\u0002garbage\u0003' })).status).toBe(200);
+	expect((await post('/plcs/CONS/send', { type: 'WTCO', fields: { tanum: 'abc' } })).status).toBe(
+		400
+	);
+	expect((await post('/plcs/NOPE/send', { raw: 'x' })).status).toBe(404);
+	expect(emulator.log().filter((entry) => entry.note === 'raw, sent as written')).toHaveLength(1);
+	ewm.close();
+	await expect.poll(() => emulator.state().plcs.every((plc) => !plc.connected)).toBe(true);
+	expect((await post('/plcs/CONS/send', { raw: 'x' })).status).toBe(409);
+});
+
 test('control API: a request the emulator cannot read is refused and the emulator keeps running', async ({
 	emulator
 }) => {
@@ -347,10 +411,14 @@ test('a telegram EWM never acknowledged goes out again when EWM connects again',
 	await expect
 		.poll(() => emulator.events())
 		.toContainEqual(expect.objectContaining({ kind: 'telegrams-kept', plc: 'CONS', count: 1 }));
+	// It went through the fault rules when it was first sent; a rule set since does not apply to it.
+	const drop = { type: 'STAT', action: 'drop', times: 1 } as const;
+	emulator.setFaults('CONS', { rules: [drop] });
 
 	const second = await silentPeer(port);
 	await expect.poll(() => second.data()).toContain('STAT');
 	expect(second.data()).toContain(device);
+	expect(emulator.state().plcs.find((plc) => plc.id === 'CONS')?.faults.rules).toEqual([drop]);
 	second.socket.destroy();
 });
 

@@ -12,6 +12,7 @@ import {
 	type EmulatorEvent
 } from './emulator.mts';
 import type { FakeEwm } from './fake-ewm.mts';
+import { faultRuleProblems, FaultRuleSchema, type FaultRuleInput } from './channel.mts';
 import { UserError } from './http.mts';
 import { isBinOf, readJson, type LoadedSetup } from './setup.mts';
 import { checkValue } from './telegram.mts';
@@ -86,15 +87,34 @@ const StepSchema = z.union([
 		idPoint: ScanResultSchema.optional(),
 		binOccupied: z.boolean().optional()
 	}),
-	z.strictObject({ title: Title, wait: Condition, timeout: Duration.optional() }),
+	z.strictObject({
+		title: Title,
+		wait: Condition,
+		timeout: Duration.optional(),
+		/**
+		 * Which telegrams and events count: all since the scenario started (default), or only those since the step
+		 * before this one began, e.g. the reconnect after a disconnect rather than the connect before the run.
+		 */
+		since: z.enum(['start', 'last-step']).optional()
+	}),
 	z.strictObject({ title: Title, device: z.string(), status: z.enum(['UP', 'DOWN']) }),
 	z.strictObject({
 		title: Title,
 		faults: z.string(),
 		dropAcks: z.number().int().min(0).optional(),
 		stopLife: z.boolean().optional(),
-		disconnect: z.boolean().optional()
+		disconnect: z.boolean().optional(),
+		/** Replaces the PLC's fault rules ([] clears them); `{A}` in field values stands for A's number. */
+		rules: z.array(FaultRuleSchema).optional()
 	}),
+	/** The PLC sends a telegram no device reported: from type and fields, or raw text as written. */
+	z.strictObject({
+		title: Title,
+		send: z.string(),
+		type: z.string().min(1),
+		fields: z.record(z.string(), z.string()).optional()
+	}),
+	z.strictObject({ title: Title, send: z.string(), raw: z.string().min(1) }),
 	z.strictObject({
 		title: Title,
 		ewm: z.enum(['retrieve', 'picked']),
@@ -216,8 +236,25 @@ export function validateScenario(scenario: Scenario, setup: LoadedSetup): string
 		if ('check' in step) checkCondition(where, step.check);
 		if ('device' in step && !devices.has(step.device))
 			errors.push(`${where}: unknown device "${step.device}"`);
-		if ('faults' in step && !plcs.has(step.faults))
-			errors.push(`${where}: unknown PLC "${step.faults}"`);
+		if ('faults' in step) {
+			if (!plcs.has(step.faults)) errors.push(`${where}: unknown PLC "${step.faults}"`);
+			for (const [number, rule] of (step.rules ?? []).entries())
+				for (const problem of faultRuleProblems(setup.layout, concrete(rule)))
+					errors.push(`${where}, rule ${number + 1}: ${problem}`);
+		}
+		if ('send' in step) {
+			if (!plcs.has(step.send)) errors.push(`${where}: unknown PLC "${step.send}"`);
+			if ('type' in step) {
+				// Checked as a rule that would change these fields: the same type, name and value checks.
+				const set = withoutPlaceholders(step.fields ?? {});
+				const rule: FaultRuleInput =
+					Object.keys(set).length > 0
+						? { type: step.type, action: 'change', fields: step.fields, set }
+						: { type: step.type, action: 'drop', fields: step.fields };
+				for (const problem of faultRuleProblems(setup.layout, rule))
+					errors.push(`${where}: ${problem}`);
+			}
+		}
 		if ('ewm' in step) {
 			huKnown(where, step.hu);
 			if (!scenario.modes.every((mode) => mode === 'demo'))
@@ -231,6 +268,40 @@ export function validateScenario(scenario: Scenario, setup: LoadedSetup): string
 		checkCondition(`expectation ${index + 1}`, condition)
 	);
 	return errors;
+}
+
+/** Values with `{A}` get their HU number only at run time, so their length and characters are checked then. */
+function withoutPlaceholders(fields: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(Object.entries(fields).filter(([, value]) => !/\{[A-Z]/.test(value)));
+}
+
+function concrete(rule: FaultRuleInput): FaultRuleInput {
+	if (rule.action !== 'change') return rule;
+	const set = withoutPlaceholders(rule.set);
+	// Every name in `set` is checked as one of `fields`; only the concrete values are encoded, and a set left
+	// without any has nothing to encode.
+	const fields = { ...rule.fields, ...rule.set };
+	return Object.keys(set).length > 0
+		? { ...rule, fields, set }
+		: { ...rule, action: 'drop', fields };
+}
+
+const fieldList = (fields: Record<string, string> | undefined) => {
+	const list = Object.entries(fields ?? {}).map(([name, value]) => `${name}=${value}`);
+	return list.length > 0 ? ` with ${list.join(' ')}` : '';
+};
+
+/** "drops the next WTCO with result=OK", "delays the next 2 WT by 3000 ms", … */
+function describeRule(rule: FaultRuleInput): string {
+	const times = rule.times ?? 1;
+	const which = `the next ${times === 1 ? '' : `${times} `}${rule.type}${fieldList(rule.fields)}`;
+	if (rule.action === 'drop') return `drops ${which}`;
+	if (rule.action === 'delay') return `delays ${which} by ${rule.delayMs} ms`;
+	if (rule.action === 'duplicate')
+		return `sends ${which} twice${rule.sameSeq ? ' (same sequence number)' : ''}`;
+	return `sends ${which} with ${Object.entries(rule.set)
+		.map(([name, value]) => `${name}=${value}`)
+		.join(' ')}`;
 }
 
 // --- running -------------------------------------------------------------------------------------------------------
@@ -252,6 +323,11 @@ export interface ScenarioRun {
 }
 
 class Stopped extends Error {}
+
+interface Mark {
+	log: number;
+	event: number;
+}
 
 const ms = (duration: string) => {
 	const value = Number.parseFloat(duration);
@@ -291,8 +367,10 @@ export class ScenarioRunner {
 	#run: ScenarioRun | undefined;
 	#paused = false;
 	#stopped = false;
-	#logFrom = 0;
-	#eventFrom = 0;
+	/** Where the run's telegrams and events start, and where those of the current and the previous step start. */
+	#start: Mark = { log: 0, event: 0 };
+	#thisStep: Mark = { log: 0, event: 0 };
+	#lastStep: Mark = { log: 0, event: 0 };
 
 	constructor(options: {
 		emulator: Emulator;
@@ -432,8 +510,9 @@ export class ScenarioRunner {
 			this.#emulator.reset();
 			this.#ewm.reset();
 		}
-		this.#logFrom = this.#emulator.log().at(-1)?.n ?? 0;
-		this.#eventFrom = this.#emulator.events().at(-1)?.n ?? 0;
+		this.#start = this.#mark();
+		this.#thisStep = this.#start;
+		this.#lastStep = this.#start;
 		let index = 0;
 		try {
 			for (; index < scenario.steps.length; index++) {
@@ -442,6 +521,8 @@ export class ScenarioRunner {
 				if (!step || !state) break;
 				// Sequential by nature: each step acts on what the previous one left.
 				await this.#gate();
+				this.#lastStep = this.#thisStep;
+				this.#thisStep = this.#mark();
 				state.status = 'running';
 				state.detail = await this.#step(step, run);
 				state.status = 'done';
@@ -470,6 +551,13 @@ export class ScenarioRunner {
 			for (const rest of run.steps.slice(index + 1)) rest.status = 'skipped';
 		}
 		run.finishedAt = new Date().toISOString();
+	}
+
+	#mark(): Mark {
+		return {
+			log: this.#emulator.log().at(-1)?.n ?? 0,
+			event: this.#emulator.events().at(-1)?.n ?? 0
+		};
 	}
 
 	/** Holds while paused; throws when stopped. */
@@ -514,14 +602,43 @@ export class ScenarioRunner {
 			return `HU ${step.enter} is ${hu}`;
 		}
 		if ('wait' in step)
-			return this.#waitFor(step.wait, run, step.timeout ? ms(step.timeout) : this.#waitTimeoutMs);
+			return this.#waitFor(
+				step.wait,
+				run,
+				step.timeout ? ms(step.timeout) : this.#waitTimeoutMs,
+				step.since === 'last-step' ? this.#lastStep : this.#start
+			);
 		if ('device' in step) {
 			this.#emulator.setDeviceStatus(step.device, step.status);
 			return undefined;
 		}
 		if ('faults' in step) {
-			const { title: _title, faults, ...settings } = step;
-			this.#emulator.setFaults(faults, settings);
+			const { title: _title, faults, rules, ...settings } = step;
+			const fill = (fields: Record<string, string> = {}) =>
+				Object.fromEntries(
+					Object.entries(fields).map(([name, value]) => [name, this.#fill(run, value)])
+				);
+			this.#emulator.setFaults(faults, {
+				...settings,
+				...(rules && {
+					rules: rules.map((rule) => ({
+						...rule,
+						...(rule.fields && { fields: fill(rule.fields) }),
+						...(rule.action === 'change' && { set: fill(rule.set) })
+					}))
+				})
+			});
+			return undefined;
+		}
+		if ('send' in step) {
+			if ('raw' in step) this.#emulator.sendTelegram(step.send, { raw: this.#fill(run, step.raw) });
+			else
+				this.#emulator.sendTelegram(step.send, {
+					type: step.type,
+					fields: Object.fromEntries(
+						Object.entries(step.fields ?? {}).map(([name, value]) => [name, this.#fill(run, value)])
+					)
+				});
 			return undefined;
 		}
 		if ('ewm' in step) {
@@ -549,7 +666,12 @@ export class ScenarioRunner {
 	 * the next step then runs before the warehouse moves on, so "when the HU is on its way, the crane fails" lands
 	 * at the same moment at any speed. A timer covers pause, stop and the timeout.
 	 */
-	#waitFor(condition: ConditionDef, run: ScenarioRun, limit: number): Promise<string | undefined> {
+	#waitFor(
+		condition: ConditionDef,
+		run: ScenarioRun,
+		limit: number,
+		from: Mark
+	): Promise<string | undefined> {
 		return new Promise((resolve, reject) => {
 			const deadline = Date.now() + limit;
 			let finished = false;
@@ -564,7 +686,7 @@ export class ScenarioRunner {
 			const check = () => {
 				if (this.#stopped) return finish(() => reject(new Stopped()));
 				if (this.#paused) return;
-				const { ok, detail } = this.#evaluate(condition, run);
+				const { ok, detail } = this.#evaluate(condition, run, from);
 				if (ok) return finish(() => resolve(detail));
 				if (Date.now() > deadline)
 					finish(() =>
@@ -604,7 +726,11 @@ export class ScenarioRunner {
 		});
 	}
 
-	#evaluate(condition: ConditionDef, run: ScenarioRun): { ok: boolean; detail?: string } {
+	#evaluate(
+		condition: ConditionDef,
+		run: ScenarioRun,
+		from: Mark = this.#start
+	): { ok: boolean; detail?: string } {
 		const setup = this.#emulator.setup;
 		if ('hu' in condition) {
 			const number = run.hus[condition.hu];
@@ -637,9 +763,10 @@ export class ScenarioRunner {
 		if ('telegram' in condition) {
 			const want = condition.telegram;
 			const matching = this.#emulator
-				.log(this.#logFrom)
+				.log(from.log)
 				.filter(
 					(entry) =>
+						!entry.notSent &&
 						entry.type === want.type &&
 						(!want.from || entry.from === want.from) &&
 						(!want.to || entry.to === want.to) &&
@@ -653,7 +780,7 @@ export class ScenarioRunner {
 			return { ok, detail: `${matching.length} found` };
 		}
 		const matching = this.#emulator
-			.events(this.#eventFrom)
+			.events(from.event)
 			.filter((event) => this.#eventMatches(event, condition.event, run));
 		const ok =
 			condition.count === undefined ? matching.length > 0 : matching.length === condition.count;
@@ -698,10 +825,17 @@ export class ScenarioRunner {
 					: step.stopLife === false
 						? 'resumes life telegrams'
 						: '',
-				step.disconnect ? 'drops the connection' : ''
+				step.disconnect ? 'drops the connection' : '',
+				...(step.rules?.length === 0
+					? ['clears its fault rules']
+					: (step.rules ?? []).map(describeRule))
 			].filter(Boolean);
 			return `${step.faults} ${what.join(', ') || 'clears its faults'}`;
 		}
+		if ('send' in step)
+			return 'raw' in step
+				? `${step.send} sends a raw telegram`
+				: `${step.send} sends ${step.type}${fieldList(step.fields)}`;
 		if ('ewm' in step)
 			return step.ewm === 'picked'
 				? `EWM: picking of ${step.hu} is done`

@@ -1,0 +1,25 @@
+{
+	"title": "Confirmation lost on the transfer car",
+	"description": "The transfer car takes an HU to aisle 1, but its confirmation never reaches EWM. The HU stands at the crane's infeed while EWM still waits for the transfer car: it must not send the crane a task for an HU it does not know has arrived.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [
+		{ "enter": "A" },
+		{
+			"title": "CONS will not report the transfer car's move of A",
+			"faults": "CONS",
+			"rules": [{ "type": "WTCO", "fields": { "hu": "{A}", "src": "IP" }, "action": "drop" }]
+		},
+		{ "wait": { "hu": "A", "at": "A1-IN" } },
+		{ "pause": "5s" },
+		{ "title": "Check: A still waits at the infeed", "check": { "hu": "A", "at": "A1-IN" } }
+	],
+	"expect": [
+		{ "hu": "A", "at": "A1-IN", "ewm": "routing" },
+		{
+			"telegram": { "type": "WTCO", "from": "CONS", "fields": { "hu": "{A}", "src": "IP" } },
+			"count": 0
+		},
+		{ "telegram": { "type": "WT", "to": "SRM1" }, "count": 0 }
+	]
+}
