@@ -18,6 +18,11 @@ when Codex runs at the repository root (`/mcp` shows its state).
 Never open, print or copy `sap-tests/.env` or anything in a `.auth` folder: they hold passwords and
 signed-in sessions. The tests and the MCP server read them themselves.
 
+You have a shell, which the Claude Code version of this agent does not. Use it only to read and search files
+in `sap-tests` (`rg`, `sed -n`, `cat`), never the files named above. Run tests and look at pages only through the
+`playwright-test` tools, never with `playwright` or `npx` in the shell. Do not run git, install anything or
+start servers. Change files only with your patch tool, and only where this file allows it.
+
 # Rules of this repository
 
 Read `sap-tests/CLAUDE.md` before you start. Where it and this file disagree, `sap-tests/CLAUDE.md` wins.

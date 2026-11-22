@@ -72,6 +72,8 @@ interface Target {
 	tools: string;
 	/** Where the MCP server comes from and how to see its state. */
 	server: string;
+	/** Rules for what this tool has beyond the agent file's tools, if anything. */
+	extra?: string;
 }
 
 /** Replaces text that must be there: when the Claude Code file changes it, this script must too. */
@@ -88,7 +90,8 @@ export function adaptPrompt(prompt: string, target: Target): string {
 		'it connects when a new Claude Code session starts at the\nrepository root (`/mcp` shows its state).',
 		`${target.server}\n\n` +
 			'Never open, print or copy `sap-tests/.env` or anything in a `.auth` folder: they hold passwords and\n' +
-			'signed-in sessions. The tests and the MCP server read them themselves.'
+			'signed-in sessions. The tests and the MCP server read them themselves.' +
+			(target.extra ? `\n\n${target.extra}` : '')
 	);
 	return text;
 }
@@ -104,7 +107,12 @@ const CODEX: Target = {
 	tools: 'the `playwright-test` tools',
 	server:
 		"it is set up in this agent's `mcp_servers.playwright-test` entry and starts\n" +
-		'when Codex runs at the repository root (`/mcp` shows its state).'
+		'when Codex runs at the repository root (`/mcp` shows its state).',
+	extra:
+		'You have a shell, which the Claude Code version of this agent does not. Use it only to read and search files\n' +
+		'in `sap-tests` (`rg`, `sed -n`, `cat`), never the files named above. Run tests and look at pages only through the\n' +
+		'`playwright-test` tools, never with `playwright` or `npx` in the shell. Do not run git, install anything or\n' +
+		'start servers. Change files only with your patch tool, and only where this file allows it.'
 };
 
 const yamlQuoted = (value: string) => `'${value.replaceAll("'", "''")}'`;

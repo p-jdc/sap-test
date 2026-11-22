@@ -434,7 +434,12 @@ root as the folder they work in.
 
 Copilot and Codex do not read `.claude/settings.json`, so nothing there keeps their agents out of
 `sap-tests/.env` and saved sessions: the generated prompts tell them to stay out, which is weaker
-than a rule that is enforced. The model is the one chosen in Copilot or Codex. Copilot's cloud
+than a rule that is enforced. Codex agents also always have a shell, which the Claude Code agents
+do not: `read-only` stops them from writing, not from reading any file, and `workspace-write` lets
+the healer write anywhere in the repository, not only in `sap-tests/tests` and `sap-tests/helpers`.
+Their prompts limit the shell to reading and searching `sap-tests` and rule out git, installs and
+running Playwright outside the MCP server; Codex's approval settings (`/approvals`) can make every
+command wait for a person. The model is the one chosen in Copilot or Codex. Copilot's cloud
 agent on GitHub cannot reach the SAP systems, so no `copilot-setup-steps.yml` is set up. The
 healer button in the app uses the Claude Code file only.
 
