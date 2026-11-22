@@ -236,7 +236,9 @@ export async function startRecording(
 	};
 	proc = spawn(invocation.cmd, invocation.args, {
 		cwd: TESTS_ROOT,
-		env: childEnv(invocation.env),
+		// The recorders load their packages from the install checked above (needs.path), not from
+		// one they would find on their own.
+		env: childEnv({ ...invocation.env, TEST_APP_PACKAGES_DIR: PACKAGES_DIR }),
 		stdio: ['ignore', 'pipe', 'pipe']
 	});
 	// A recording must not outlive the app: its browser would stay open with nobody to save it, and

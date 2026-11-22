@@ -29,6 +29,9 @@
 		// Used by the OData clients generated into sap-tests/odata/clients, which git ignores.
 		"@sap-cloud-sdk/odata-v2",
 		"moment",
+		// The Playwright-SAP fork: sap-tests/recorder/codegen.cjs loads it by path from the install
+		// the app names, and setup:recorder installs its browser.
+		"playwright-sap-recorder",
 		// Used by the vendored Playwright-SAP engines, which sap-plugin/engines.ts bundles at run time.
 		"xpath",
 		// An esbuild alias for the vendored engines (sap-plugin/engines.ts).

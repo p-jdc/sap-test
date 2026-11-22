@@ -49,6 +49,22 @@ test('stops and keeps both when the data is in the old and the new place', () =>
 	expect(existsSync(join(root, 'sap-tests/node_modules/x'))).toBe(true);
 });
 
+test("moves the app's settings files, not the checked-in templates", () => {
+	const root = checkout(['app/.env', 'app/.env.local', 'app/.env.example', 'app/build/x']);
+	expect(upgrade(root).exitCode).toBe(0);
+	expect(readFileSync(join(root, '.env'), 'utf8')).toBe('app/.env');
+	expect(readFileSync(join(root, '.env.local'), 'utf8')).toBe('app/.env.local');
+	expect(existsSync(join(root, 'app/.env.example'))).toBe(true);
+	expect(existsSync(join(root, '.env.example'))).toBe(false);
+});
+
+test('moves nothing when one of the moves clashes', () => {
+	const root = checkout(['app/.data/app.sqlite', 'app/.env', '.env']);
+	expect(upgrade(root).exitCode).toBe(1);
+	expect(existsSync(join(root, 'app/.data/app.sqlite'))).toBe(true);
+	expect(existsSync(join(root, '.data'))).toBe(false);
+});
+
 test('does nothing in an up-to-date checkout', () => {
 	const root = checkout(['.data/app.sqlite', 'sap-tests/tests/a.spec.ts']);
 	const result = upgrade(root);
