@@ -89,15 +89,17 @@
 		<span class="mono">codegen</span>. Either way the recorded test runs on stock Playwright. The
 		browser opens on the machine that runs this app, so record from a local install. Fiori and
 		WebGUI log in automatically with the system's credentials from
-		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; in other
-		systems you sign in by hand.
+		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>. Other systems
+		start with the session the last test run saved for them; without one you sign in by hand, and
+		then delete the sign-in steps from the test.
 	{:else}
 		Show the app once what to do, and it can repeat it as a test. How it works:
 		<ol class="how">
 			<li>Pick the system and give the test a name.</li>
 			<li>
 				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
-				(in other systems, such as Ariba, you sign in yourself).
+				(other systems, such as Ariba, start signed in once a test run has signed in to them; until
+				then you sign in yourself).
 			</li>
 			<li>
 				Do the task as you normally would. Every click and entry is written down; for Fiori a red

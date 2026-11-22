@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -404,6 +405,40 @@ describe('recorderInvocation', () => {
 		expect(ariba.needs.path).toBe(join(packages, '@playwright', 'test'));
 		// A person signs in to Ariba: its recorder gets no password, not even Ariba's.
 		expect(ariba.env).toEqual(BLANK);
+		expect(ariba.session).toBeUndefined();
+	});
+
+	test("Ariba's recording starts from the session the last test run saved", async () => {
+		const { dir, recorder, systems, system } = await recorderWith(SAP);
+		const record = () =>
+			recorder.recorderInvocation(
+				{ recorder: 'web', name: 'x' },
+				system('ariba'),
+				systems,
+				'ariba/x.spec.ts',
+				'https://ariba.example.com',
+				env
+			);
+		const file = join(dir, '.auth', 'ariba-session.json');
+		mkdirSync(join(dir, '.auth'));
+		// A failed or skipped sign-in leaves an empty session: the recording starts signed out.
+		writeFileSync(file, JSON.stringify({ cookies: [], origins: [] }));
+		expect(record().args).not.toContain('--load-storage');
+		writeFileSync(
+			file,
+			JSON.stringify({
+				cookies: [{ name: 'session', value: 'v', domain: 'ariba.example.com' }],
+				origins: []
+			})
+		);
+		const signedIn = record();
+		expect(signedIn.args.slice(-2)).toEqual(['--load-storage', file]);
+		expect(signedIn.session).toBe(file);
+		// Only the session, still no password.
+		expect(signedIn.env).toEqual(BLANK);
+		// Another system's session is not Ariba's.
+		renameSync(file, join(dir, '.auth', 'sap-session.json'));
+		expect(record().args).not.toContain('--load-storage');
 	});
 
 	test('another SAP system records with its own settings, and the spec reads them by name', async () => {

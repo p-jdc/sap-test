@@ -29,7 +29,8 @@ export const API_SYSTEM = {
  * Where a recording for the system can be saved, and with which recorder: each of its folders
  * except those starting with `_` (reference and agent tests). An SAP system records with the UI5
  * recorder, in a folder named `webgui` with the Playwright-SAP recorder signed in to SAP; any other
- * system with stock Playwright's codegen, where the person signs in. A UI5 recording without
+ * system with stock Playwright's codegen, which starts from the session of the last test run or
+ * else lets the person sign in. A UI5 recording without
  * sign-in goes to a folder the system excludes inside the target (fiori/demokit).
  */
 function recordTargets(system: SignInSystem): RecordTarget[] {
