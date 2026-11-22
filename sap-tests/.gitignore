@@ -7,3 +7,5 @@ playwright-report/
 blob-report/
 # Generated from odata/metadata by `bun run odata:generate`, which runs after every install
 odata/clients/
+# Test certificates from `bun run idoc:certs`
+idoc/certs/
