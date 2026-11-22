@@ -92,9 +92,7 @@ export const ewmPicked = command(z.object({ hu: huNumber }), ({ hu }) =>
 export const startScenario = command(
 	z.object({
 		name: z.string().regex(SETUP_NAME),
-		hus: z
-			.record(z.string().regex(/^[A-Z][A-Z0-9]{0,3}$/), z.string().trim().min(1).max(40))
-			.optional()
+		hus: z.record(z.string().regex(/^[A-Z][A-Z0-9]{0,3}$/), huNumber).optional()
 	}),
 	({ name, hus }) => act('/scenario/start', { name, ...(hus ? { hus } : {}) })
 );

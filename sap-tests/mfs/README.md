@@ -158,15 +158,20 @@ test('crane failure: the waiting HU is stored once the crane runs again', async 
 });
 
 test('putaway against EWM Dev', async ({ mfs, page }) => {
+  // A real EWM takes its time: room for creating the HU, the run and the checks.
+  test.setTimeout(300_000);
   const hu = '…'; // created in EWM first, in the test
-  await mfs.runScenario('putaway-ewm', { hus: { A: hu } });
+  await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
   // then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
 });
 ```
 
 - `runScenario(name | scenario, { timeout, expectPass, hus })` starts the scenario (a file in `scenarios/`, or one written
   in the test), follows it and returns the run: status, steps, expected results, HU numbers.
-- `hus` gives the scenario's HUs their numbers. Against a real EWM every HU needs one.
+- `hus` gives the scenario's HUs their numbers. Against a real EWM every HU needs one, and the whole run is
+  refused at the start when one is missing or does not fit the telegram's HU field.
+- `timeout` (default 120 s) is for the whole run. A wait step's own `timeout` in the scenario should fit within
+  it, and the test's timeout (`test.setTimeout`) must leave room for both.
 - Each scenario step is a step in the Playwright report. The run is attached to the test.
 - The test fails with the failed step or the unmet expectation. `{ expectPass: false }` returns the failed run
   instead.

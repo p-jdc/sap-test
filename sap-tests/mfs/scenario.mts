@@ -7,6 +7,7 @@ import { ScanResultSchema, type Emulator } from './emulator.mts';
 import type { FakeEwm } from './fake-ewm.mts';
 import { UserError } from './http.mts';
 import { isBinOf, readJson, type LoadedSetup } from './setup.mts';
+import { checkValue } from './telegram.mts';
 
 /** HUs are named A, B, … in a scenario; each run gives them real HU numbers. */
 const Alias = z
@@ -92,6 +93,8 @@ type ConditionDef = z.infer<typeof Condition>;
 export type ScenarioInfo = Pick<Scenario, 'name' | 'title' | 'description' | 'setup' | 'modes'> & {
 	/** The HUs that enter in the scenario, by their names (A, B, …). */
 	hus: string[];
+	/** Whether a run needs a number for every one of them: true against a real EWM, which must know the HUs. */
+	needsHuNumbers: boolean;
 };
 
 /**
@@ -273,6 +276,7 @@ export class ScenarioRunner {
 					setup,
 					modes,
 					hus: enteringHus(scenario),
+					needsHuNumbers: this.mode === 'ewm',
 					problems: validateScenario(scenario, this.#emulator.setup)
 				};
 			});
@@ -327,6 +331,15 @@ export class ScenarioRunner {
 			if (!entering.includes(alias)) problems.push(`HU number for ${alias}: no HU ${alias} enters`);
 			if (numbers.filter((other) => other === number).length > 1)
 				problems.push(`HU number ${number} is given to more than one HU`);
+			// Checked before the run, not when the HU enters: against a real EWM the HUs before it would be booked.
+			try {
+				checkValue(this.#emulator.setup.layout, 'scan', 'hu', number);
+				checkValue(this.#emulator.setup.layout, 'task', 'hu', number);
+			} catch (error) {
+				problems.push(
+					`HU number ${number} (${alias}) cannot travel in a telegram: ${error instanceof Error ? error.message : String(error)}`
+				);
+			}
 			const there = this.#emulator.hu(number);
 			// A fresh demo run empties the warehouse first; otherwise the HU would meet itself.
 			if (there && !there.left && !(scenario.fresh && this.#ewm))

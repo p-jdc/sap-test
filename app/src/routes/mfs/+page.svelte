@@ -113,8 +113,11 @@
 	/** Scenarios the running Mock PLC can run (its own list, with reference problems left out). */
 	const runChoices = $derived((snap?.scenarios ?? []).filter((s) => !s.problems?.length));
 	const next = $derived(runChoices.find((s) => s.name === nextScenario) ?? runChoices[0]);
-	/** The HUs the next scenario needs numbers for: all of them against a real EWM, none in the demo. */
-	const neededHus = $derived(demo ? [] : (next?.hus ?? []));
+	/**
+	 * The HUs the next scenario needs numbers for: all of them against a real EWM, none with the simulated EWM. The
+	 * Mock PLC says which, also one the app did not start.
+	 */
+	const neededHus = $derived(next?.needsHuNumbers ? (next.hus ?? []) : []);
 	const husGiven = $derived(neededHus.every((hu) => huNumbers[hu]?.trim()));
 	const scenarioRun = $derived(snap?.run ?? undefined);
 	const scenarioActive = $derived(
@@ -336,7 +339,8 @@
 								id="hu-number-{hu}"
 								value={huNumbers[hu] ?? ''}
 								placeholder="Number of an HU that exists in EWM"
-								oninput={(e: Event) => (huNumbers[hu] = (e.target as HTMLInputElement).value)}
+								oninput={(e: Event) =>
+									(huNumbers[hu] = (e.target as HTMLInputElement).value.trim())}
 							></ui5-input>
 						{/each}
 					</div>

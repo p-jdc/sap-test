@@ -3,6 +3,6 @@
 	"description": "An HU that EWM already knows arrives at goods receipt and passes the identification point. EWM routes it into the rack; the Mock PLC moves it and confirms every task. The HU number comes from the test or the tester. What EWM booked is checked in EWM afterwards.",
 	"setup": "sap-example",
 	"modes": ["ewm"],
-	"steps": [{ "enter": "A" }, { "wait": { "hu": "A", "at": "bin" }, "timeout": "300s" }],
+	"steps": [{ "enter": "A" }, { "wait": { "hu": "A", "at": "bin" }, "timeout": "90s" }],
 	"expect": [{ "hu": "A", "at": "bin" }]
 }

@@ -84,7 +84,9 @@ for (const { name, title } of listScenarios().filter((s) => s.modes.includes('de
 }
 
 test('against a real EWM a scenario runs with the HU numbers it is given', async ({ realEwm }) => {
-	expect(realEwm.available()).toMatchObject([{ name: 'putaway-ewm', hus: ['A'], problems: [] }]);
+	expect(realEwm.available()).toMatchObject([
+		{ name: 'putaway-ewm', hus: ['A'], needsHuNumbers: true, problems: [] }
+	]);
 	realEwm.start('putaway-ewm', { A: '112345678000004711' });
 
 	const run = await finished(realEwm);
@@ -100,6 +102,10 @@ test('against a real EWM a scenario without HU numbers, or with wrong ones, does
 	);
 	expect(() => realEwm.start('putaway-ewm', { A: '1', B: '1' })).toThrow(
 		/HU number 1 is given to more than one HU\n- HU number for B: no HU B enters/
+	);
+	// A number the telegram's HU field cannot hold is refused before anything moves.
+	expect(() => realEwm.start('putaway-ewm', { A: '1'.repeat(21) })).toThrow(
+		/HU number 1{21} \(A\) cannot travel in a telegram: hu: .* is longer than 20 characters/
 	);
 	expect(() => realEwm.start('putaway')).toThrow('needs the demo (simulated EWM)');
 	// An HU still standing in the warehouse cannot arrive again: a real EWM is not reset.
