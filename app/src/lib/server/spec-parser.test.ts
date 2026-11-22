@@ -46,6 +46,24 @@ test('create order', async ({ page }) => {
 		expect(t.issues).toEqual([]);
 	});
 
+	test('names every object has (toString, constructor) are neither locators nor helpers', () => {
+		const spec = parseSpec(
+			'api/raw.spec.ts',
+			`import { test, expect } from '../../sap-plugin';
+test('raw', async () => {
+	expect(body.toString()).toBe('two');
+	await constructor(page).click();
+	await expect(value.valueOf()).toBe(1);
+});`,
+			helpers
+		);
+		const steps = must(spec.tests[0]).steps;
+		expect(steps.map((s) => s.locator?.kind)).toEqual(['other', 'other', 'other']);
+		// The Tests page sends the parsed specs to the browser, which cannot carry a function; neither can
+		// structuredClone.
+		expect(() => structuredClone(spec)).not.toThrow();
+	});
+
 	test('reads the locators of the UI5 recorder as SAP locators, also inside an iframe', () => {
 		const spec = parseSpec(
 			'fiori/recorded.spec.ts',
