@@ -354,7 +354,7 @@ describe('recorderInvocation', () => {
 		expect(invocation.env).toEqual(BLANK);
 	});
 
-	test('WebGUI and Ariba record with the Playwright-SAP recorder, the password not on its command line', async () => {
+	test('WebGUI records with the Playwright-SAP recorder, the password not on its command line', async () => {
 		const { dir, recorder, systems, system } = await recorderWith(SAP);
 		const fork = join(dir, 'recorder', 'node_modules', '@playwright', 'test');
 		const webgui = recorder.recorderInvocation(
@@ -385,7 +385,17 @@ describe('recorderInvocation', () => {
 			'https://ariba.example.com',
 			{ ...env, ARIBA_USER: 'A', ARIBA_PASS: 'AP' }
 		);
-		expect(ariba.args).not.toContain('--sap-login-from-env');
+		// Ariba records with stock Playwright's codegen, not the fork.
+		expect(ariba.args).toEqual([
+			join(dir, 'node_modules', '@playwright', 'test', 'cli.js'),
+			'codegen',
+			'https://ariba.example.com',
+			'--target',
+			'playwright-test',
+			'-o',
+			'tests/ariba/x.spec.ts'
+		]);
+		expect(ariba.needs.path).toBe(join(dir, 'node_modules', '@playwright', 'test'));
 		// A person signs in to Ariba: its recorder gets no password, not even Ariba's.
 		expect(ariba.env).toEqual(BLANK);
 	});

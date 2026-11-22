@@ -117,9 +117,11 @@ A trace still holds the session cookies, which are valid until the SAP session e
 `app/.data/runs` and `sap-tests/.auth` as secret.
 
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
-WebGUI and the systems that do not sign in with SAP's login only, because its codegen is what writes SID locators and the plugin's recorder has
-not been tried on a real WebGUI system. The app starts the matching recorder for "Record a test";
-for the fork it then points the recorded spec's import at `sap-plugin`. The app never imports
+WebGUI only, because its codegen is what writes SID locators and the plugin's recorder has not been
+tried on a real WebGUI system. Systems that do not sign in with SAP's login, such as Ariba, record
+with stock Playwright's codegen: their tests use standard locators. The app starts the matching
+recorder for "Record a test"; for both codegens it then points the recorded spec's import at
+`sap-plugin`. The app never imports
 Playwright itself; it starts the CLIs with real Node.
 
 ## What the app does

@@ -83,12 +83,12 @@
 		The systems and their folders come from <span class="mono">sap-tests/systems.json</span>. Fiori
 		/ UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
 		Playwright: UI5 itself describes each control, so the test names a row by its data and not by
-		its position. WebGUI (a folder named <span class="mono">webgui</span>) and the systems that do
-		not sign in with SAP's login start
-		<span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide §4.4).
-		Either way the recorded test runs on stock Playwright. The browser opens on the machine that
-		runs this app, so record from a local install. Fiori and WebGUI log in automatically with the
-		system's credentials from
+		its position. WebGUI (a folder named <span class="mono">webgui</span>) records with
+		<span class="mono">codegen</span> from the Playwright-SAP recorder (guide §4.4); the systems
+		that do not sign in with SAP's login, such as Ariba, with Playwright's own
+		<span class="mono">codegen</span>. Either way the recorded test runs on stock Playwright. The
+		browser opens on the machine that runs this app, so record from a local install. Fiori and
+		WebGUI log in automatically with the system's credentials from
 		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; in other
 		systems you sign in by hand.
 	{:else}

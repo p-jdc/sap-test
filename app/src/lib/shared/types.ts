@@ -207,7 +207,7 @@ export interface SignInSystemInfo {
 
 /**
  * How a test is recorded: `ui5` with the UI5 recorder of sap-plugin (Fiori), `webgui` with the
- * Playwright-SAP recorder signed in to SAP, `web` with the Playwright-SAP recorder where the person
+ * Playwright-SAP recorder signed in to SAP, `web` with stock Playwright's codegen where the person
  * signs in.
  */
 export type Recorder = 'ui5' | 'webgui' | 'web';
@@ -242,7 +242,7 @@ export interface EnvStatus {
 	playwrightVersion?: string;
 	/** Whether sap-tests/sap-plugin (the SAP locators for stock Playwright) is there. */
 	sapPlugin: boolean;
-	/** The Playwright-SAP fork in sap-tests/recorder, used for recording only. */
+	/** The Playwright-SAP fork in sap-tests/recorder, used to record WebGUI only. */
 	recorderVersion?: string;
 	/** The Node that runs Playwright; `warning` is set when it is not the supported major. */
 	node: { path: string; version: string | null; warning: string | null };

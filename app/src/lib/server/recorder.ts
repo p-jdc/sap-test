@@ -6,6 +6,8 @@ import { lineSplitter } from './lines.js';
 import { allowsCredentials, sameOrigin } from './origin.js';
 import {
 	childEnv,
+	PLAYWRIGHT_PACKAGE,
+	playwrightCommand,
 	playwrightNode,
 	RECORDER_PACKAGE,
 	recorderCommand,
@@ -86,11 +88,12 @@ function blankLogins(systems: SignInSystemInfo[]): Record<string, string> {
  * `ui5` records with the UI5 recorder of sap-plugin (stock Playwright): UI5 itself describes each
  * control, so the locators need no positions. It gets the system's credentials through its
  * environment and writes a spec that starts with page.SAPLogin and reads them by the system's
- * variable names. `webgui` and `web` record with the Playwright-SAP fork in sap-tests/recorder
- * (guide §4.4: `codegen <url> --sap-login <user> <password>` for WebGUI; plain codegen otherwise),
- * because the UI5 recorder's WebGUI support has not been tried on a real system. The fork runs
- * behind recorder/codegen.cjs, which hands it the login from the environment: on the command line
- * every user of the machine could read the password.
+ * variable names. `webgui` records with the Playwright-SAP fork in sap-tests/recorder (guide §4.4:
+ * `codegen <url> --sap-login <user> <password>`), because the UI5 recorder's WebGUI support has
+ * not been tried on a real system. The fork runs behind recorder/codegen.cjs, which hands it the
+ * login from the environment: on the command line every user of the machine could read the
+ * password. `web` (Ariba and other systems where the person signs in) records with stock
+ * Playwright's codegen: those tests use standard locators, which it writes as well.
  */
 export function recorderInvocation(
 	input: Pick<RecordInput, 'name' | 'noLogin'> & { recorder: RecordTarget['recorder'] },
@@ -119,22 +122,20 @@ export function recorderInvocation(
 			}
 		};
 	}
-	const login = input.recorder === 'webgui' ? ['--sap-login-from-env'] : [];
+	const codegen = ['codegen', url, '--target', 'playwright-test', '-o', 'tests/' + file];
+	if (input.recorder === 'web')
+		return {
+			...playwrightCommand(codegen),
+			// A person signs in to these systems: the recorder gets no password.
+			env: blank,
+			needs: {
+				path: PLAYWRIGHT_PACKAGE,
+				hint: `Playwright is not installed in ${TESTS_ROOT}. Run "bun run setup" in the repo root.`
+			}
+		};
 	return {
-		...recorderCommand([
-			'codegen',
-			url,
-			'--target',
-			'playwright-test',
-			'-o',
-			'tests/' + file,
-			...login
-		]),
-		// A person signs in to other systems: their recorder gets no password.
-		env:
-			input.recorder === 'webgui'
-				? { ...blank, SAP_USERNAME: env[user] ?? '', SAP_PASSWORD: env[password] ?? '' }
-				: blank,
+		...recorderCommand([...codegen, '--sap-login-from-env']),
+		env: { ...blank, SAP_USERNAME: env[user] ?? '', SAP_PASSWORD: env[password] ?? '' },
 		needs: {
 			path: RECORDER_PACKAGE,
 			hint: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
@@ -222,7 +223,8 @@ export async function startRecording(
 
 	// The fork's recorder is the one part that still needs the tested Node; say so where a hang
 	// would show.
-	const nodeWarning = target.recorder === 'ui5' ? null : playwrightNode().warning;
+	// The Node warning is about the fork, which only records WebGUI.
+	const nodeWarning = target.recorder === 'webgui' ? playwrightNode().warning : null;
 	state = {
 		status: 'recording',
 		file,
