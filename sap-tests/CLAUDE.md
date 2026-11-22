@@ -45,6 +45,7 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Das Ergebnis enthält die HU-Nummern (`result.hus.A`). Damit in EWM prüfen, was aus den HUs wurde (Lagertask quittiert, Bestand im Platz).
 - Ohne Mock PLC (MFS_EMULATOR_URL, ggf. MFS_EMULATOR_TOKEN) werden diese Tests übersprungen. Lokal und in CI startet `bun run test:mfs` (MFS_MOCK=1) eine Mock PLC mit simuliertem EWM.
 - Szenarien mit `"modes": ["demo"]` laufen nur mit dem simulierten EWM. Gegen ein echtes EWM nur Szenarien mit "ewm" in `modes`.
+- Gegen ein echtes EWM braucht jede HU des Szenarios eine Nummer, die EWM kennt: die HU zuerst im Test in EWM anlegen und mit `mfs.runScenario(name, { hus: { A: nummer } })` übergeben. Keine erfundenen HU-Nummern.
 - Negativfälle mit `{ expectPass: false }` und dem zurückgegebenen Ergebnis prüfen, nicht mit try/catch.
 
 ## Was abgedeckt sein muss

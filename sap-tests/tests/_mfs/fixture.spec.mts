@@ -23,6 +23,18 @@ test('runs a scenario file and returns its HU numbers', async ({ mfs }) => {
 	);
 });
 
+test('HU numbers given by the test are the ones the scenario uses', async ({ mfs }) => {
+	const result = await mfs.runScenario('putaway', { hus: { A: '112345678000004711' } });
+
+	expect(result.hus).toEqual({ A: '112345678000004711' });
+	expect(result.checks.map((check) => check.detail)).toContain(
+		'A (112345678000004711) at A1-01-01'
+	);
+	await expect(mfs.runScenario('putaway', { hus: { B: '1' } })).rejects.toThrow(
+		'HU number for B: no HU B enters'
+	);
+});
+
 test('runs a scenario written in the test', async ({ mfs }) => {
 	const result = await mfs.runScenario({
 		...contourError,

@@ -37,6 +37,12 @@ export interface RunScenarioOptions {
 	 * instead, for tests that check how a scenario fails.
 	 */
 	expectPass?: boolean;
+	/**
+	 * HU numbers for the scenario's HUs: `{ A: '112345678000001234' }`. Against a real EWM every HU
+	 * needs one, created in EWM before the scenario runs; with the simulated EWM the rest get the
+	 * next free numbers.
+	 */
+	hus?: Record<string, string>;
 }
 
 export interface MockPlc {
@@ -107,13 +113,15 @@ export const test = base.extend<{ mfs: MockPlc }>({
 		if (!to) return;
 		let running = false;
 		await use({
-			async runScenario(scenario, { timeout = 120_000, expectPass = true } = {}) {
+			async runScenario(scenario, { timeout = 120_000, expectPass = true, hus } = {}) {
 				const deadline = Date.now() + timeout;
 				const left = () => Math.max(1, deadline - Date.now());
-				const body =
-					typeof scenario === 'string'
+				const body = {
+					...(typeof scenario === 'string'
 						? { name: scenario }
-						: { scenario: { ...scenario, name: undefined }, name: scenario.name };
+						: { scenario: { ...scenario, name: undefined }, name: scenario.name }),
+					...(hus ? { hus } : {})
+				};
 				let run = RunSchema.parse(await call(to, 'POST', '/scenario/start', body));
 				running = true;
 				const refresh = async () => {

@@ -89,7 +89,22 @@ export type Scenario = z.infer<typeof ScenarioSchema> & { name: string };
 export type ScenarioInput = z.input<typeof ScenarioSchema>;
 type Step = z.infer<typeof StepSchema>;
 type ConditionDef = z.infer<typeof Condition>;
-export type ScenarioInfo = Pick<Scenario, 'name' | 'title' | 'description' | 'setup' | 'modes'>;
+export type ScenarioInfo = Pick<Scenario, 'name' | 'title' | 'description' | 'setup' | 'modes'> & {
+	/** The HUs that enter in the scenario, by their names (A, B, …). */
+	hus: string[];
+};
+
+/**
+ * HU numbers for a run: scenario HU name → number. Against a real EWM every HU needs one, because EWM must
+ * know the HU before it arrives; in the demo they are optional and the rest get the next free numbers.
+ */
+export const HuNumbersSchema = z.record(Alias, z.string().min(1));
+export type HuNumbers = z.infer<typeof HuNumbersSchema>;
+
+/** The names of the HUs that enter in a scenario, in order. */
+export function enteringHus(scenario: Pick<Scenario, 'steps'>): string[] {
+	return [...new Set(scenario.steps.flatMap((step) => ('enter' in step ? [step.enter] : [])))];
+}
 
 const scenariosDir = new URL('./scenarios/', import.meta.url);
 export const SCENARIO_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -249,22 +264,29 @@ export class ScenarioRunner {
 				(scenario) =>
 					scenario.setup === this.#emulator.setup.name && scenario.modes.includes(this.mode)
 			)
-			.map(({ name, title, description, setup, modes }) => ({
-				name,
-				title,
-				description,
-				setup,
-				modes,
-				problems: validateScenario(loadScenario(name), this.#emulator.setup)
-			}));
+			.map((scenario) => {
+				const { name, title, description, setup, modes } = scenario;
+				return {
+					name,
+					title,
+					description,
+					setup,
+					modes,
+					hus: enteringHus(scenario),
+					problems: validateScenario(scenario, this.#emulator.setup)
+				};
+			});
 	}
 
 	state(): ScenarioRun | undefined {
 		return this.#run && structuredClone(this.#run);
 	}
 
-	/** Starts a scenario (by file name, or given) and returns at once; the run goes on in the background. Returns the run's first state. */
-	start(nameOrScenario: string | Scenario): ScenarioRun {
+	/**
+	 * Starts a scenario (by file name, or given) and returns at once; the run goes on in the background. Returns
+	 * the run's first state. `hus` gives HUs their numbers (see HuNumbersSchema).
+	 */
+	start(nameOrScenario: string | Scenario, hus: HuNumbers = {}): ScenarioRun {
 		if (this.#run && (this.#run.status === 'running' || this.#run.status === 'paused'))
 			throw new UserError(`scenario "${this.#run.title}" is still running; stop it first`, 409);
 		const scenario =
@@ -275,7 +297,10 @@ export class ScenarioRunner {
 				`"${scenario.title}" needs ${scenario.modes.includes('demo') ? 'the demo (simulated EWM)' : 'a real EWM'}`,
 				409
 			);
-		const problems = validateScenario(scenario, this.#emulator.setup);
+		const problems = [
+			...validateScenario(scenario, this.#emulator.setup),
+			...this.#huNumberProblems(scenario, hus)
+		];
 		if (problems.length > 0)
 			throw new UserError(`scenario "${name}" is invalid:\n- ${problems.join('\n- ')}`);
 		this.#paused = false;
@@ -286,12 +311,35 @@ export class ScenarioRunner {
 			status: 'running',
 			steps: scenario.steps.map((step) => ({ title: this.#stepTitle(step), status: 'pending' })),
 			checks: [],
-			hus: {},
+			hus: { ...hus },
 			startedAt: new Date().toISOString()
 		};
 		this.#run = run;
 		void this.#execute(scenario, run);
 		return structuredClone(run);
+	}
+
+	#huNumberProblems(scenario: Scenario, hus: HuNumbers): string[] {
+		const problems: string[] = [];
+		const entering = enteringHus(scenario);
+		const numbers = Object.values(hus);
+		for (const [alias, number] of Object.entries(hus)) {
+			if (!entering.includes(alias)) problems.push(`HU number for ${alias}: no HU ${alias} enters`);
+			if (numbers.filter((other) => other === number).length > 1)
+				problems.push(`HU number ${number} is given to more than one HU`);
+			const there = this.#emulator.hu(number);
+			// A fresh demo run empties the warehouse first; otherwise the HU would meet itself.
+			if (there && !there.left && !(scenario.fresh && this.#ewm))
+				problems.push(
+					`HU ${number} (${alias}) is already in the layout, at ${there.at ?? 'a device'}`
+				);
+		}
+		const missing = entering.filter((alias) => !hus[alias]);
+		if (this.mode === 'ewm' && missing.length > 0)
+			problems.push(
+				`against a real EWM every HU needs a number that EWM knows: none given for ${missing.join(', ')}`
+			);
+		return [...new Set(problems)];
 	}
 
 	pause(): void {

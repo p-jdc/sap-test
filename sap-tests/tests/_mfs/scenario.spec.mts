@@ -17,7 +17,18 @@ const timing = { ackTimeoutMs: 150, maxResends: 3, lifeIntervalMs: 200 };
 const speed = 50;
 const setup = loadSetup('sap-example');
 
-const test = base.extend<{ runner: ScenarioRunner }>({
+const test = base.extend<{ runner: ScenarioRunner; realEwm: ScenarioRunner }>({
+	// The Mock PLC as it runs against a real EWM: it has no simulated EWM of its own. An EWM is connected all
+	// the same (the same stand-in, from outside), so that tasks arrive.
+	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
+	realEwm: async ({}, use) => {
+		const emulator = new Emulator({ setup, speed, timing });
+		const ewm = new FakeEwm({ setup, timing, reconnectMs: 100 });
+		await ewm.connect(await emulator.start());
+		await use(new ScenarioRunner({ emulator, speed, waitTimeoutMs: 20_000 }));
+		ewm.close();
+		await emulator.stop();
+	},
 	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
 	runner: async ({}, use) => {
 		const emulator = new Emulator({ setup, speed, timing });
@@ -56,13 +67,14 @@ test('every scenario file is valid and fits its setup', () => {
 			'rejected-at-id-point',
 			'bin-occupied',
 			'crane-down',
-			'connection-lost'
+			'connection-lost',
+			'putaway-ewm'
 		])
 	);
 	for (const s of scenarios) expect(validateScenario(s, setup), s.name).toEqual([]);
 });
 
-for (const { name, title } of listScenarios()) {
+for (const { name, title } of listScenarios().filter((s) => s.modes.includes('demo'))) {
 	test(`scenario passes in demo mode: ${title}`, async ({ runner }) => {
 		runner.start(name);
 		const run = await finished(runner);
@@ -70,6 +82,33 @@ for (const { name, title } of listScenarios()) {
 		expect(run?.status, JSON.stringify(run, null, 2)).toBe('passed');
 	});
 }
+
+test('against a real EWM a scenario runs with the HU numbers it is given', async ({ realEwm }) => {
+	expect(realEwm.available()).toMatchObject([{ name: 'putaway-ewm', hus: ['A'], problems: [] }]);
+	realEwm.start('putaway-ewm', { A: '112345678000004711' });
+
+	const run = await finished(realEwm);
+	expect(run?.status, JSON.stringify(run, null, 2)).toBe('passed');
+	expect(run?.hus).toEqual({ A: '112345678000004711' });
+});
+
+test('against a real EWM a scenario without HU numbers, or with wrong ones, does not start', async ({
+	realEwm
+}) => {
+	expect(() => realEwm.start('putaway-ewm')).toThrow(
+		'against a real EWM every HU needs a number that EWM knows: none given for A'
+	);
+	expect(() => realEwm.start('putaway-ewm', { A: '1', B: '1' })).toThrow(
+		/HU number 1 is given to more than one HU\n- HU number for B: no HU B enters/
+	);
+	expect(() => realEwm.start('putaway')).toThrow('needs the demo (simulated EWM)');
+	// An HU still standing in the warehouse cannot arrive again: a real EWM is not reset.
+	realEwm.start('putaway-ewm', { A: '4711' });
+	await finished(realEwm);
+	expect(() => realEwm.start('putaway-ewm', { A: '4711' })).toThrow(
+		/HU 4711 \(A\) is already in the layout, at A1-01-01/
+	);
+});
 
 test('a scenario whose expectation is not met fails and says which check', async ({ runner }) => {
 	runner.start(

@@ -138,3 +138,31 @@ test('Mock PLC: a scenario chosen at the start runs and passes, step by step', a
 	await page.locator('ui5-button[icon="stop"]').click();
 	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
 });
+
+test('Mock PLC: against a real EWM a scenario asks for the HU numbers and runs with them', async ({
+	page
+}) => {
+	await page.goto('/mfs');
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+	// The mode is "real EWM" by default. No EWM connects in this test: the PLCs wait.
+	await expect(page.getByText('Scenarios for a real EWM are run after the start')).toBeVisible();
+	await expect(page.locator('#scenario')).toHaveCount(0);
+	await page.locator('ui5-button[icon="play"]').click();
+
+	const runButton = page.locator('ui5-button', { hasText: 'Run scenario' });
+	await expect(runButton).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByText('An HU that EWM already knows arrives')).toBeVisible();
+	// Without a number EWM would not know the HU: the scenario cannot start.
+	await expect(runButton).toHaveAttribute('disabled');
+	await page.locator('#hu-number-A input').fill('112345678000004711');
+	await expect(runButton).not.toHaveAttribute('disabled');
+	await runButton.click();
+
+	await expect(page.getByText('Scenario: Putaway into the high rack (real EWM)')).toBeVisible();
+	await expect(page.getByText('HU A is 112345678000004711')).toBeVisible();
+
+	await page.locator('ui5-button', { hasText: 'Stop scenario' }).click();
+	await expect(page.locator('ui5-tag', { hasText: 'Stopped' })).toBeVisible();
+	await page.locator('ui5-button[icon="stop"]').last().click();
+	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
+});

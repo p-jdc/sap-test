@@ -126,6 +126,8 @@ export const MfsScenarioInfoSchema = z.object({
 	description: z.string(),
 	setup: z.string(),
 	modes: z.array(z.enum(['demo', 'ewm'])),
+	/** The HUs that enter in the scenario, by their names (A, B, …); only when listed by the Mock PLC. */
+	hus: z.array(z.string()).optional(),
 	/** Reference errors against the running setup (only when listed by the Mock PLC). */
 	problems: z.array(z.string()).optional()
 });
