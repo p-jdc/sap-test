@@ -4,10 +4,10 @@
 	import { flowHref, recorderHref, runHref, settingsHref, testsHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
-	import { duration, SURFACE_LABEL, when } from '#lib/shared/format.js';
+	import { duration, kindLabel, when } from '#lib/shared/format.js';
 	import { getEnvStatus, getSpecs } from '#lib/remote/specs.remote.js';
 	import { getRuns, getStability } from '#lib/remote/runs.remote.js';
-	import type { SettingName, SignInSystemInfo, Surface } from '#lib/shared/types.js';
+	import type { SettingName, SignInSystemInfo } from '#lib/shared/types.js';
 
 	const env = getEnvStatus();
 	const specs = getSpecs();
@@ -18,11 +18,13 @@
 
 	const lastRun = $derived(runs.current?.runs[0]);
 	const tests = $derived(specs.current?.flatMap((f) => f.tests) ?? []);
-	const bySurface = $derived(
-		tests.reduce<Record<string, number>>((acc, t) => {
-			acc[t.surface] = (acc[t.surface] ?? 0) + 1;
-			return acc;
-		}, {})
+	const byKind = $derived(
+		(specs.current ?? [])
+			.flatMap((f) => f.tests.map((t) => kindLabel(t.surface, f.systemTitle)))
+			.reduce<Record<string, number>>((acc, label) => {
+				acc[label] = (acc[label] ?? 0) + 1;
+				return acc;
+			}, {})
 	);
 	// Findings on steps, plus findings on a whole file (an AI-generated test nobody has signed off).
 	const issueCount = $derived(
@@ -224,8 +226,8 @@
 		></ui5-card-header>
 		<div class="card-body">
 			<div class="row">
-				{#each Object.entries(bySurface) as [surface, n] (surface)}
-					<ui5-tag hide-state-icon>{SURFACE_LABEL[surface as Surface]}: {n}</ui5-tag>
+				{#each Object.entries(byKind) as [label, n] (label)}
+					<ui5-tag hide-state-icon>{label}: {n}</ui5-tag>
 				{/each}
 			</div>
 			<div class="row">

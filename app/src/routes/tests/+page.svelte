@@ -4,33 +4,53 @@
 	import { flowHref, recorderHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
-	import { SURFACE_LABEL, specName } from '#lib/shared/format.js';
-	import { getSpecs } from '#lib/remote/specs.remote.js';
+	import { kindLabel, SURFACE_LABEL, specName } from '#lib/shared/format.js';
+	import { getSpecs, getSystems } from '#lib/remote/specs.remote.js';
 	import { getRuns, getStability } from '#lib/remote/runs.remote.js';
-	import type { Surface } from '#lib/shared/types.js';
+	import type { SpecFile, Surface } from '#lib/shared/types.js';
 
 	const specs = getSpecs();
+	const systems = getSystems();
 	const stab = getStability();
 	const runs = getRuns();
 
-	let filter = $state<Surface | 'all'>('all');
+	// Neither a system id (lower case letters, digits, dashes) nor a surface group.
+	const ALL = '*';
+	/**
+	 * Tests that start signed in to no system of sap-tests/systems.json are grouped by what they
+	 * drive (the Fiori demo kit, API, demo, the plugin's own tests).
+	 */
+	const SURFACES: Surface[] = ['fiori', 'webgui', 'api', 'demo', 'other'];
+	const surfaceGroup = (surface: Surface) => `surface:${surface}`;
+
+	let filter = $state(ALL);
 	let error = $state<string | null>(null);
 
-	const SURFACES: Surface[] = ['fiori', 'webgui', 'ariba', 'api', 'demo', 'other'];
-	const counts = $derived(
-		(specs.current ?? []).reduce<Partial<Record<Surface, number>>>((acc, f) => {
-			acc[f.surface] = (acc[f.surface] ?? 0) + f.tests.length;
-			return acc;
-		}, {})
-	);
-	const total = $derived(Object.values(counts).reduce((a, b) => a + b, 0));
-	// Only surfaces that have tests get a filter; the selected one stays even when it empties.
-	const filters = $derived<(Surface | 'all')[]>([
-		'all',
-		...SURFACES.filter((s) => counts[s] || s === filter)
+	const groupOf = (f: SpecFile) => f.system ?? surfaceGroup(f.surface);
+	// The systems in the order of systems.json, then the other tests.
+	const groups = $derived([
+		...new Set([
+			...(systems.current ?? []).map((s) => s.id),
+			...(specs.current ?? []).flatMap((f) => (f.system ? [f.system] : [])),
+			...SURFACES.map((s) => surfaceGroup(s))
+		])
 	]);
+	const title = (group: string) => {
+		const surface = SURFACES.find((s) => surfaceGroup(s) === group);
+		if (surface) return SURFACE_LABEL[surface];
+		return systems.current?.find((s) => s.id === group)?.title ?? group;
+	};
+	const counts = $derived(
+		(specs.current ?? []).reduce((acc, f) => {
+			acc.set(groupOf(f), (acc.get(groupOf(f)) ?? 0) + f.tests.length);
+			return acc;
+		}, new Map<string, number>())
+	);
+	const total = $derived([...counts.values()].reduce((a, b) => a + b, 0));
+	// Only groups that have tests get a filter; the selected one stays even when it empties.
+	const filters = $derived([ALL, ...groups.filter((g) => counts.get(g) || g === filter)]);
 	const files = $derived(
-		(specs.current ?? []).filter((f) => filter === 'all' || f.surface === filter)
+		(specs.current ?? []).filter((f) => filter === ALL || groupOf(f) === filter)
 	);
 	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 	const lastStatus = $derived(
@@ -40,7 +60,7 @@
 
 	function onFilter(e: CustomEvent<{ selectedItems: HTMLElement[] }>) {
 		const value = e.detail.selectedItems[0]?.dataset.value;
-		filter = SURFACES.find((f) => f === value) ?? 'all';
+		filter = filters.find((f) => f === value) ?? ALL;
 	}
 
 	async function run(specFiles: string[]) {
@@ -51,10 +71,10 @@
 <div class="page-head">
 	<ui5-title level="H2">Tests</ui5-title>
 	{#if filters.length > 2}
-		<ui5-segmented-button onselection-change={onFilter} accessible-name="Filter by SAP application">
+		<ui5-segmented-button onselection-change={onFilter} accessible-name="Filter by system">
 			{#each filters as f (f)}
 				<ui5-segmented-button-item data-value={f} selected={filter === f || undefined}>
-					{f === 'all' ? 'All' : SURFACE_LABEL[f]} ({f === 'all' ? total : (counts[f] ?? 0)})
+					{f === ALL ? 'All' : title(f)} ({f === ALL ? total : (counts.get(f) ?? 0)})
 				</ui5-segmented-button-item>
 			{/each}
 		</ui5-segmented-button>
@@ -89,7 +109,7 @@
 	<ui5-panel header-text={name} class="file-panel">
 		<div slot="header" class="file-head">
 			<ui5-title level="H5">{name}</ui5-title>
-			<ui5-tag hide-state-icon>{SURFACE_LABEL[file.surface]}</ui5-tag>
+			<ui5-tag hide-state-icon>{kindLabel(file.surface, file.systemTitle)}</ui5-tag>
 			<span class="spacer"></span>
 			<ui5-button
 				icon="play"

@@ -341,7 +341,8 @@ describe('systems from sap-tests/systems.json', () => {
 				id: 'successfactors',
 				title: 'SuccessFactors',
 				method: 'ias',
-				env: { url: 'SF_URL', user: 'SF_USERNAME', password: 'SF_PASSWORD' }
+				env: { url: 'SF_URL', user: 'SF_USERNAME', password: 'SF_PASSWORD' },
+				record: [{ folder: 'successfactors', recorder: 'web' }]
 			}
 		]);
 		expect(status.vars.map((v) => v.name)).toEqual([

@@ -4,6 +4,8 @@
 //     --login                 log in first with SAP_USERNAME / SAP_PASSWORD from the environment;
 //                             the spec then starts with page.SAPLogin and reads them the same way
 //     --url-from-env          <url> is the configured SAP_URL: the spec reads it from the environment
+//     --env <URL,USER,PASSWORD>  the variables of another system's address, user and password
+//                             (systems.json) instead of SAP_URL, SAP_USERNAME and SAP_PASSWORD
 //     --save-storage <file>   write the session (cookies, storage) for storageState reuse
 // Click through the flow in the window that opens, then close it; the spec is written on close,
 // and also when this process is asked to stop (SIGTERM, which is what the app's Stop button sends).
@@ -45,14 +47,28 @@ const format = (file) => {
 };
 
 const positional = [];
-const options = { name: undefined, login: false, urlFromEnv: false, saveStorage: undefined };
+const options = {
+	name: undefined,
+	login: false,
+	urlFromEnv: false,
+	saveStorage: undefined,
+	env: { url: 'SAP_URL', user: 'SAP_USERNAME', password: 'SAP_PASSWORD' }
+};
+const VARIABLE = /^[A-Z][A-Z0-9_]*$/;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
 	if (args[i] === '--name') options.name = args[++i];
 	else if (args[i] === '--login') options.login = true;
 	else if (args[i] === '--url-from-env') options.urlFromEnv = true;
 	else if (args[i] === '--save-storage') options.saveStorage = args[++i];
-	else positional.push(args[i]);
+	else if (args[i] === '--env') {
+		const [url, user, password] = (args[++i] ?? '').split(',');
+		if (![url, user, password].every((name) => VARIABLE.test(name ?? ''))) {
+			console.error('--env needs three variable names: --env SAP_URL,SAP_USERNAME,SAP_PASSWORD');
+			process.exit(1);
+		}
+		options.env = { url, user, password };
+	} else positional.push(args[i]);
 }
 const [url, output = 'tests/_plugin/recorded.spec.ts'] = positional;
 if (!url) {
@@ -61,9 +77,12 @@ if (!url) {
 	);
 	process.exit(1);
 }
-const { SAP_USERNAME, SAP_PASSWORD } = process.env;
-if (options.login && !(SAP_USERNAME && SAP_PASSWORD)) {
-	console.error('--login needs SAP_USERNAME and SAP_PASSWORD in the environment.');
+const username = process.env[options.env.user];
+const password = process.env[options.env.password];
+if (options.login && !(username && password)) {
+	// The names of the variables, not their values.
+	const loginVariables = [options.env.user, options.env.password].join(' and ');
+	console.error(`--login needs ${loginVariables} in the environment.`);
 	process.exit(1);
 }
 
@@ -126,7 +145,7 @@ browser.once('disconnected', finish);
 
 if (options.login) {
 	const { sapLogin } = await load('login.ts');
-	await sapLogin(page, SAP_USERNAME, SAP_PASSWORD, url);
+	await sapLogin(page, username, password, url);
 	loginSteps = (await steps()).length;
 } else {
 	await page.goto(url);
