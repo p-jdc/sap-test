@@ -206,6 +206,15 @@ test.each<[FlowStep, string]>([
 	[
 		step({ kind: 'assert', action: 'toHaveURL', value: '/orders' }),
 		'Check that the right page opened'
+	],
+	// The recorder leaves a date field after filling in a picked date.
+	[
+		step({
+			kind: 'action',
+			action: 'blur',
+			locator: loc('ui5', `getByRoleUI5('DatePicker', { placeholder: 'Delivery date' })`)
+		}),
+		'Leave the “Delivery date” date picker'
 	]
 ])('describes %o', (s, expected) => {
 	expect(describeStep(s)).toBe(expected);
