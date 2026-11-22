@@ -16,8 +16,22 @@ export default defineConfig({
 			port: 4180,
 			timeout: 180_000,
 			reuseExistingServer: !!process.env.PW_REUSE_SERVER,
-			// Keeps e2e runs out of the real run history.
-			env: { TEST_APP_DATA_DIR: '.data-e2e', DEV_HTTP: '1' }
+			// Keeps e2e runs out of the real run history. The Mock IDoc page's receiver takes a free port on this
+			// computer, whatever receiver settings the environment holds.
+			env: {
+				TEST_APP_DATA_DIR: '.data-e2e',
+				DEV_HTTP: '1',
+				IDOC_PORT: '0',
+				IDOC_HOST: '',
+				IDOC_HUB_URL: '',
+				IDOC_HUB_TOKEN: '',
+				IDOC_TLS_CERT: '',
+				IDOC_TLS_KEY: '',
+				IDOC_TLS_CA: '',
+				IDOC_TLS_CLIENT_FINGERPRINT: '',
+				IDOC_USER: '',
+				IDOC_PASSWORD: ''
+			}
 		},
 		{
 			// The same build with sign-in on (e2e/sign-in.test.ts), from an empty data directory.

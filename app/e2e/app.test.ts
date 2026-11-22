@@ -166,3 +166,46 @@ test('Mock PLC: against a real EWM a scenario asks for the HU numbers and runs w
 	await page.locator('ui5-button[icon="stop"]').last().click();
 	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
 });
+
+test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and the list cleared', async ({
+	page
+}) => {
+	await page.goto('/idoc');
+	await expect(page.getByText('Start the IDoc receiver')).toBeVisible();
+	await page.locator('ui5-button[icon="play"]').click();
+	await expect(page.locator('ui5-tag', { hasText: 'Receiving' })).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByText('/idoc/<partner>')).toBeVisible();
+	await expect(page.getByText('No IDocs yet.')).toBeVisible();
+
+	// The sample stands in for SAP.
+	await page.locator('#sample').click();
+	await page.locator('ui5-option[data-value="orders05.xml"]').click();
+	await page.locator('ui5-button[icon="paper-plane"]').click();
+	await expect(page.getByText('The receiver accepted the IDoc.')).toBeVisible();
+	const first = page.locator('button.idoc', { hasText: 'ORDERS05 · ORDRSP' });
+	await expect(first).toHaveCount(1);
+	// A UI5 tag's text includes its shadow content: match contained text.
+	await expect(first.locator('ui5-tag')).toContainText('Accepted');
+
+	// Opened, it shows its control record and segments.
+	await first.click();
+	await expect(page.getByText('ORDERS05 · ORDRSP for PWMOCK')).toBeVisible();
+	await expect(page.getByText('E1EDP19').first()).toBeVisible();
+	await expect(page.getByText('Müller & Söhne GmbH')).toBeVisible();
+
+	// Refuse PWMOCK's IDocs (the form starts at "Refuse" with HTTP 500).
+	await page.locator('ui5-button', { hasText: /^\s*Set\s*$/ }).click();
+	await expect(page.getByText('Rejected with HTTP 500: Rejected by the IDoc mock')).toBeVisible();
+	await page.locator('ui5-button[icon="paper-plane"]').click();
+	await expect(
+		page.getByText('The receiver refused the IDoc (HTTP 500): Rejected by the IDoc mock')
+	).toBeVisible();
+	await expect(page.locator('button.idoc ui5-tag', { hasText: 'Rejected' })).toHaveCount(1);
+	await page.locator('ui5-button', { hasText: 'Back to accept' }).click();
+	await expect(page.getByText("Every partner's IDocs are accepted.")).toBeVisible();
+
+	await page.locator('ui5-button[icon="delete"]').click();
+	await expect(page.getByText('No IDocs yet.')).toBeVisible();
+	await page.locator('ui5-button[icon="stop"]').click();
+	await expect(page.getByText('Start the IDoc receiver')).toBeVisible();
+});

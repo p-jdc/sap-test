@@ -204,6 +204,7 @@ function idocHandler(inbox: IdocInbox, options: ReceiverOptions) {
 				return;
 			}
 			answer(response, parsed.soap, reply, parsed.idocs.length);
+			if (reply.mode === 'slow') inbox.markAnswered(added.map((idoc) => idoc.seq));
 		} catch (error) {
 			const status =
 				error instanceof UserError ? error.status : error instanceof IdocError ? 400 : 500;
