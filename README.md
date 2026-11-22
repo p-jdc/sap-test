@@ -413,8 +413,34 @@ Ask for a role by name in Claude Code, for example "use the planner agent to pla
 them as not reviewed. What the agents see on screen is sent to the AI provider, so use them on test
 systems with synthetic data only (guide §9).
 
-After a Playwright upgrade, run `init-agents` again in a scratch folder and compare: the tool lists
-in the three files name tools of that Playwright version.
+#### In VS Code (GitHub Copilot) and Codex
+
+The same three agents exist for GitHub Copilot in VS Code and for Codex, in the formats of
+`init-agents --loop=vscode` and `--loop=codex`:
+
+| Tool | Files | Start a role |
+| --- | --- | --- |
+| Claude Code | `.claude/agents/playwright-test-*.md`, server in `.mcp.json` | by name in the chat |
+| GitHub Copilot (VS Code) | `.github/agents/playwright-test-*.agent.md`, server in `.vscode/mcp.json` | pick the agent in the chat's agent list |
+| Codex | `.codex/agents/playwright_test_*.toml`, each with its own server entry | ask for the agent by name, e.g. `playwright_test_planner` |
+
+The Claude Code files are the ones to edit. `bun run agents` writes the others from them: the same
+prompt, the tools named as Copilot and Codex name them (Read, Grep and the like become Copilot's
+`search`, Edit and Write `edit`; in Codex the planner and generator run `read-only`, the healer
+`workspace-write`), and the Claude Code instructions for a missing server replaced by the other
+tool's. `bun run pregate` fails when a generated file is out of date. Copilot and Codex start the
+server with the first `node` on the path (`PLAYWRIGHT_NODE` is not read) and need the repository
+root as the folder they work in.
+
+Copilot and Codex do not read `.claude/settings.json`, so nothing there keeps their agents out of
+`sap-tests/.env` and saved sessions: the generated prompts tell them to stay out, which is weaker
+than a rule that is enforced. The model is the one chosen in Copilot or Codex. Copilot's cloud
+agent on GitHub cannot reach the SAP systems, so no `copilot-setup-steps.yml` is set up. The
+healer button in the app uses the Claude Code file only.
+
+After a Playwright upgrade, run `init-agents` again in a scratch folder (with `--loop=claude`,
+`vscode` and `codex`) and compare: the tool lists in the agent files name tools of that Playwright
+version, and `scripts/agents.ts` follows the other two formats.
 
 ## Development
 

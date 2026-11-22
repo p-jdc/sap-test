@@ -47,6 +47,7 @@
 		"mfs:server": "cd sap-tests && node mfs/server.mts",
 		"idoc:server": "cd sap-tests && node idoc/server.mts",
 		"idoc:certs": "cd sap-tests && node idoc/certs.mts",
+		"agents": "bun scripts/agents.ts",
 		"pregate": "bun scripts/pregate.ts",
 		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"
 	},
