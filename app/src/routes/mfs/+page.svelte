@@ -35,6 +35,8 @@
 	let scenario = $state('');
 	/** Scenario to run next on the running Mock PLC. */
 	let nextScenario = $state('');
+	/** HU numbers typed for the next scenario against a real EWM: HU name → number. */
+	let huNumbers = $state<Record<string, string>>({});
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -103,10 +105,20 @@
 	const startChoices = $derived(
 		(scenarioFiles.current ?? []).filter((s) => s.setup === setup && s.modes.includes(mode))
 	);
-	const chosen = $derived(startChoices.find((s) => s.name === scenario));
+	// Against a real EWM a scenario starts later, on the running Mock PLC: EWM has to connect first, and the
+	// scenario needs HU numbers from EWM.
+	const chosen = $derived(
+		mode === 'demo' ? startChoices.find((s) => s.name === scenario) : undefined
+	);
 	/** Scenarios the running Mock PLC can run (its own list, with reference problems left out). */
 	const runChoices = $derived((snap?.scenarios ?? []).filter((s) => !s.problems?.length));
 	const next = $derived(runChoices.find((s) => s.name === nextScenario) ?? runChoices[0]);
+	/**
+	 * The HUs the next scenario needs numbers for: all of them against a real EWM, none with the simulated EWM. The
+	 * Mock PLC says which, also one the app did not start.
+	 */
+	const neededHus = $derived(next?.needsHuNumbers ? (next.hus ?? []) : []);
+	const husGiven = $derived(neededHus.every((hu) => huNumbers[hu]?.trim()));
 	const scenarioRun = $derived(snap?.run ?? undefined);
 	const scenarioActive = $derived(
 		scenarioRun?.status === 'running' || scenarioRun?.status === 'paused'
@@ -200,26 +212,33 @@
 				{/each}
 			</ui5-select>
 
-			<ui5-label for="scenario" show-colon>Scenario</ui5-label>
-			<ui5-select id="scenario" onchange={select<string>((v) => (scenario = v))}>
-				<ui5-option data-value="" selected={!chosen || undefined}>None: free play</ui5-option>
-				{#each startChoices as choice (choice.name)}
-					<ui5-option data-value={choice.name} selected={choice.name === chosen?.name || undefined}>
-						{choice.title}
-					</ui5-option>
-				{/each}
-			</ui5-select>
+			{#if mode === 'demo'}
+				<ui5-label for="scenario" show-colon>Scenario</ui5-label>
+				<ui5-select id="scenario" onchange={select<string>((v) => (scenario = v))}>
+					<ui5-option data-value="" selected={!chosen || undefined}>None: free play</ui5-option>
+					{#each startChoices as choice (choice.name)}
+						<ui5-option
+							data-value={choice.name}
+							selected={choice.name === chosen?.name || undefined}
+						>
+							{choice.title}
+						</ui5-option>
+					{/each}
+				</ui5-select>
 
-			<span></span>
-			<p class="muted">
-				{#if chosen}
-					{chosen.description}
-				{:else if startChoices.length === 0 && mode === 'ewm'}
-					No scenario runs against a real EWM yet; the first ones need the simulated EWM (Demo).
-				{:else}
-					Run a prepared scenario right after the start, or leave it at free play and act by hand.
-				{/if}
-			</p>
+				<span></span>
+				<p class="muted">
+					{chosen
+						? chosen.description
+						: 'Run a prepared scenario right after the start, or leave it at free play and act by hand.'}
+				</p>
+			{:else if startChoices.length}
+				<span></span>
+				<p class="muted">
+					Scenarios for a real EWM are run after the start, once EWM is connected. They ask for the
+					numbers of HUs that exist in EWM.
+				</p>
+			{/if}
 
 			<span></span>
 			<p class="muted">
@@ -292,13 +311,40 @@
 						<ui5-button
 							design="Emphasized"
 							icon="play"
-							disabled={busy || !next || undefined}
-							onclick={() => next && run(() => startScenario({ name: next.name }))}
+							disabled={busy || !next || !husGiven || undefined}
+							onclick={() =>
+								next &&
+								run(() =>
+									startScenario({
+										name: next.name,
+										...(neededHus.length
+											? {
+													hus: Object.fromEntries(
+														neededHus.map((hu) => [hu, (huNumbers[hu] ?? '').trim()])
+													)
+												}
+											: {})
+									})
+								)}
 						>
 							{scenarioRun ? 'Run' : 'Run scenario'}
 						</ui5-button>
 					{/if}
 				</div>
+				{#if !scenarioActive && neededHus.length}
+					<div class="form">
+						{#each neededHus as hu (hu)}
+							<ui5-label for="hu-number-{hu}" show-colon>HU {hu}</ui5-label>
+							<ui5-input
+								id="hu-number-{hu}"
+								value={huNumbers[hu] ?? ''}
+								placeholder="Number of an HU that exists in EWM"
+								oninput={(e: Event) =>
+									(huNumbers[hu] = (e.target as HTMLInputElement).value.trim())}
+							></ui5-input>
+						{/each}
+					</div>
+				{/if}
 				{#if scenarioRun}
 					<ScenarioRun run={scenarioRun} />
 				{:else if next}

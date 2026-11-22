@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { Emulator } from './emulator.mts';
 import { FakeEwm } from './fake-ewm.mts';
 import { authorize, fail, isLoopback, json, readBody, requestTarget, UserError } from './http.mts';
-import { ScenarioRunner, ScenarioSchema } from './scenario.mts';
+import { HuNumbersSchema, ScenarioRunner, ScenarioSchema } from './scenario.mts';
 import { loadSetup } from './setup.mts';
 
 const env = process.env;
@@ -73,10 +73,14 @@ async function ewmRoute(
 }
 
 const scenarios = new ScenarioRunner({ emulator, ewm, speed });
-/** A scenario file by name, or a whole scenario written by the caller (a test's own, one-off situation). */
+/**
+ * A scenario file by name, or a whole scenario written by the caller (a test's own, one-off situation). `hus`
+ * gives its HUs their numbers: needed against a real EWM, which must know an HU before it arrives.
+ */
+const hus = HuNumbersSchema.optional();
 const StartScenarioBody = z.union([
-	z.strictObject({ name: z.string().min(1) }),
-	z.strictObject({ scenario: ScenarioSchema, name: z.string().min(1).optional() })
+	z.strictObject({ name: z.string().min(1), hus }),
+	z.strictObject({ scenario: ScenarioSchema, name: z.string().min(1).optional(), hus })
 ]);
 
 /** Scenarios: list the ones this Mock PLC can run, start one, and pause, resume or stop the run. */
@@ -94,7 +98,8 @@ async function scenarioRoute(
 			response,
 			201,
 			scenarios.start(
-				'scenario' in body ? { name: body.name ?? 'inline', ...body.scenario } : body.name
+				'scenario' in body ? { name: body.name ?? 'inline', ...body.scenario } : body.name,
+				body.hus
 			)
 		);
 	}

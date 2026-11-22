@@ -130,17 +130,22 @@ Conditions: `{ "hu": "A", "at": "bin" | "<point or bin>" | "A1-*", "notAt": …,
 "count": 1 }`, `{ "event": "HU {A} IP → A1-IN" }`. Every step can have a `"title"`; otherwise one is written from the
 step.
 
-- HUs are named A, B, …; each run gives them numbers (300001 upward). `{A}` in a text stands for A's number.
+- HUs are named A, B, …; `{A}` in a text stands for A's number. In the demo each run gives them numbers (300001
+  upward) unless the caller gives some. Against a real EWM the caller must give every number: EWM has to know an
+  HU before it arrives, so the HU is created in EWM first.
 - Waits react to every event and telegram, not to a poll: "when A is on its way, the crane fails" happens at the same
   moment at any speed.
 - Expectations get a short settling time after the last step: EWM learns from telegrams a moment after the warehouse
   acted.
-- `"modes": ["demo"]` scenarios start from an empty warehouse (`"fresh"`, default true). Against a real EWM that
-  isn't possible: its stock must match the Mock PLC's, so such scenarios will need HUs created in EWM first and
-  stock loaded from EWM (not built yet).
+- `"modes": ["demo"]` scenarios start from an empty warehouse (`"fresh"`, default true). Against a real EWM
+  nothing is reset: its stock must match the Mock PLC's. A scenario with `"ewm"` in `modes` therefore only uses
+  HUs that enter during the run (`scenarios/putaway-ewm.json` is the first), states no EWM status (the test
+  checks that in EWM) and refuses an HU number that still stands in the Mock PLC's warehouse. Stock that is
+  already in EWM's bins cannot be loaded into the Mock PLC yet, so retrieval scenarios against a real EWM have to
+  put their HUs away first.
 
 Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (current or last run),
-`POST /scenario/start {"name":…}`, `POST /scenario/pause`, `/resume`, `/stop`.
+`POST /scenario/start {"name":…, "hus": {"A": "<HU number>"}}` (`hus` is optional in the demo), `POST /scenario/pause`, `/resume`, `/stop`.
 
 ## In tests: the `mfs` fixture
 
@@ -151,10 +156,22 @@ test('crane failure: the waiting HU is stored once the crane runs again', async 
   const result = await mfs.runScenario('crane-down');
   // result.hus.A is the HU number the scenario used: check in EWM what became of it.
 });
+
+test('putaway against EWM Dev', async ({ mfs, page }) => {
+  // A real EWM takes its time: room for creating the HU, the run and the checks.
+  test.setTimeout(300_000);
+  const hu = '…'; // created in EWM first, in the test
+  await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
+  // then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
+});
 ```
 
-- `runScenario(name | scenario, { timeout, expectPass })` starts the scenario (a file in `scenarios/`, or one written
+- `runScenario(name | scenario, { timeout, expectPass, hus })` starts the scenario (a file in `scenarios/`, or one written
   in the test), follows it and returns the run: status, steps, expected results, HU numbers.
+- `hus` gives the scenario's HUs their numbers. Against a real EWM every HU needs one, and the whole run is
+  refused at the start when one is missing or does not fit the telegram's HU field.
+- `timeout` (default 120 s) is for the whole run. A wait step's own `timeout` in the scenario should fit within
+  it, and the test's timeout (`test.setTimeout`) must leave room for both.
 - Each scenario step is a step in the Playwright report. The run is attached to the test.
 - The test fails with the failed step or the unmet expectation. `{ expectPass: false }` returns the failed run
   instead.
@@ -172,4 +189,5 @@ app UI, Kubernetes). Concretely, the next steps are:
    EWM Dev system.
 2. EWM as TCP server (the emulator connects out), if that's how the channels are set up.
 3. More device types (lift, sorter, in-line stations) and setups generated from Customizing.
-4. Scenarios against a real EWM: HUs created in EWM first, stock loaded from EWM.
+4. Scenarios against a real EWM that start from stock: load what is in EWM's bins into the Mock PLC. (Scenarios
+   whose HUs enter during the run work: the caller gives the HU numbers.)

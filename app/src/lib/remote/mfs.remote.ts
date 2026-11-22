@@ -85,9 +85,16 @@ export const ewmPicked = command(z.object({ hu: huNumber }), ({ hu }) =>
 	act(`/ewm/hus/${encodeURIComponent(hu)}/picked`, {})
 );
 
-/** Starts a scenario on the running Mock PLC. */
-export const startScenario = command(z.object({ name: z.string().regex(SETUP_NAME) }), ({ name }) =>
-	act('/scenario/start', { name })
+/**
+ * Starts a scenario on the running Mock PLC. `hus` gives its HUs their numbers: needed against a real EWM, which
+ * must know an HU before it arrives.
+ */
+export const startScenario = command(
+	z.object({
+		name: z.string().regex(SETUP_NAME),
+		hus: z.record(z.string().regex(/^[A-Z][A-Z0-9]{0,3}$/), huNumber).optional()
+	}),
+	({ name, hus }) => act('/scenario/start', { name, ...(hus ? { hus } : {}) })
 );
 
 export const pauseScenario = command(() => act('/scenario/pause', {}));
