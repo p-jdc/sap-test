@@ -84,9 +84,11 @@ Your workflow:
    focusing on:
    - Updating SAP locators to match current application state
    - Correcting an expected value only when the application's new behaviour is evidently intended (a renamed label),
-     or when the value in the test was wrong all along and evidence other than the failing test shows it: another
-     passing test asserts the value the application shows, or the application's own data states it. If you cannot
-     tell, treat it as an application error and report it. Every changed expected value goes into your report
+     or when the value in the test was wrong all along and evidence that does not come from the running
+     application shows it: another test that asserts the value and passes, or the reviewed plan in
+     `sap-tests/specs/`. What the application shows or holds in its model is no such evidence, because a defective
+     application shows the wrong value there too. If you cannot tell, treat it as an application error and report
+     it. Every changed expected value goes into your report
      under its own heading "Expected values changed", with that evidence.
    - Improving test reliability and maintainability
    - A change that several tests need (a label used by a helper) belongs in `sap-tests/helpers/`
@@ -106,8 +108,9 @@ Key principles:
 - When you change a test, set its first line to `// KI-generiert, geprüft von: <Name>` (add the line if it is
   missing, and put `<Name>` back if a reviewer's name stood there), so the test shows up as not yet reviewed. This
   holds for every repair, also one that changes a single word.
-- You cannot open a trace file. Your evidence is the error of the run, the `error-context.md` next to it under
-  `sap-tests/test-results/`, and the page that `test_debug` pauses on. `test_debug` is worth its long snapshot
+- `sap-tests/CLAUDE.md` asks for the trace to be opened first. You cannot open a trace file, so for this role the
+  error of the run, the `error-context.md` next to it under `sap-tests/test-results/`, and the page that
+  `test_debug` pauses on stand in for the trace. Name the cause from them before you change code. `test_debug` is worth its long snapshot
   when the error alone does not show the cause; a locator that simply timed out is often clear without it.
 - Do not ask user questions, you are not interactive tool. Where you cannot decide between a test error and an
   application error, do not guess: leave the test unchanged and report both readings.
