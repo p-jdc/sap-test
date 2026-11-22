@@ -105,6 +105,10 @@
 				Do the task as you normally would. Every click and entry is written down; for Fiori a red
 				“Recording” mark at the top of the page counts them.
 			</li>
+			<li>
+				To have the test check something (a value, a text, a ticked box), press “Check” on that
+				mark, then click it. That click is written down as a check and does nothing in the app.
+			</li>
 			<li>Close the browser window when you are done. The test is saved.</li>
 		</ol>
 	{/if}
