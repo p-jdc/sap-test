@@ -52,12 +52,15 @@
 		"ci": "bun run check && bun run lint && bun run test && bun run test:sap:list && bun run test:e2e"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "4.0.107",
+		"@ai-sdk/google-vertex": "5.0.144",
 		"@better-auth/passkey": "1.7.27",
 		"@ui5/webcomponents": "^2.16.0",
 		"@ui5/webcomponents-base": "^2.16.0",
 		"@ui5/webcomponents-fiori": "^2.16.0",
 		"@ui5/webcomponents-icons": "^2.16.0",
 		"@xyflow/svelte": "2.0.2",
+		"ai": "7.0.179",
 		"better-auth": "1.7.27",
 		"dotenv": "16.6.1",
 		"drizzle-orm": "0.45.4",
