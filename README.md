@@ -462,19 +462,27 @@ report (the cause, test or application, what it changed) and a diff of every fil
   that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
   von:`, and commits, or presses "Discard the repair", which puts back the files as they were
   before (a file someone changed since is left alone).
-- The app, not only the instructions, limits what it may touch: it reads and searches only in
+- With sign-in on, only an admin can start the healer or discard its repair.
+- The app, not only the instructions, limits the tools: it reads and searches only in
   `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, and in the
-  `test-results` its MCP server writes at the repository root (never a settings
-  file or the saved sessions in `sap-tests/.auth`), and changes only `.ts` files in
-  `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`, `_reference` and
-  `_agents`. It has no shell. No settings, hooks or MCP servers of Claude Code's configuration
-  apply.
-- The passwords go to the MCP server, which signs in as a run does; the model process does not get
-  them, and the report and the activity list are masked like a run's log. Through
-  `browser_run_code_unsafe` the healer runs code in the test process, as in Claude Code.
-- One healer at a time, and not during a run (a run waits for the healer as well). Its report is
-  kept with the run (`healer/` in the run's folder) and removed with the run's log under the
-  retention rules.
+  results of its own test runs (never a settings file or the saved sessions in `.auth`), and
+  changes only `.ts` files in `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`,
+  `_reference` and `_agents`. It has no shell. `browser_run_code_unsafe` is refused (it runs code in
+  the MCP server's process) and so is any browser tool given a file to save to or read. No settings,
+  hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
+  Claude login.
+- The passwords go to the MCP server only, which signs in as a run does. They are not in the model
+  process's environment or on its command line (the SDK hands the server's settings over stdin),
+  and a password in what a tool returns is masked before the model sees it, as in a run's log.
+- **What the app cannot prevent:** the healer changes test code and runs it, and test code runs with
+  the test users' passwords. A test the healer wrote can read them and send them anywhere, in a way
+  that no masking catches. A misled model (for example by text on an SAP screen or in an error
+  message) could do that. So use the healer only with test users of test systems, and read every
+  repair before it is committed or run again.
+- One healer at a time, and not during a run (a run waits for the healer as well). Its report, the
+  record of the files before it and the results of its test runs (traces, screenshots and videos
+  of the SAP screens) are kept with the run (`healer/` in the run's folder) and removed with the
+  run's log under the retention rules. Once a run's log is gone, the healer no longer starts on it.
 
 ## Development
 

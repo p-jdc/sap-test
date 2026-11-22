@@ -49,12 +49,19 @@ describe('toolDecision', () => {
 		'Grep',
 		'Edit',
 		'Write',
-		'mcp__playwright-test__test_run'
+		'mcp__playwright-test__test_run',
+		'mcp__playwright-test__browser_snapshot',
+		'mcp__playwright-test__browser_run_code_unsafe'
 	]);
-	const decide = (tool: string, input: ToolInput) => toolDecision(tool, input, root, allowed);
+	// The healer's results folder lies in the app's data, outside the repository.
+	let output = '';
+	const decide = (tool: string, input: ToolInput) =>
+		toolDecision(tool, input, root, allowed, output);
 
 	beforeAll(() => {
 		root = mkdtempSync(join(tmpdir(), 'healer-rules-'));
+		output = mkdtempSync(join(tmpdir(), 'healer-output-'));
+		mkdirSync(join(output, 'a-chromium'), { recursive: true });
 		mkdirSync(join(root, 'sap-tests/tests/fiori'), { recursive: true });
 		mkdirSync(join(root, 'sap-tests/tests/_demo'), { recursive: true });
 		mkdirSync(join(root, 'sap-tests/helpers'), { recursive: true });
@@ -64,7 +71,17 @@ describe('toolDecision', () => {
 	});
 	afterAll(() => {
 		rmSync(root, { recursive: true, force: true });
+		rmSync(output, { recursive: true, force: true });
 	});
+
+	/** OUT in a path stands for the results folder, which is created only before the tests. */
+	const withOutput = (input: ToolInput): ToolInput =>
+		Object.fromEntries(
+			Object.entries(input).map(([k, v]) => [
+				k,
+				typeof v === 'string' ? v.replace('OUT', output) : v
+			])
+		);
 
 	test('allows the tools of the MCP server it lists', () => {
 		expect(decide('mcp__playwright-test__test_run', { locations: [] })).toEqual({ allow: true });
@@ -72,7 +89,17 @@ describe('toolDecision', () => {
 
 	test.each([
 		['a tool the agent file does not list', 'Bash', { command: 'cat sap-tests/.env' }],
-		['a listed tool it cannot use', 'Write', { file_path: 'README.md', content: '' }]
+		['a listed tool it cannot use', 'Write', { file_path: 'README.md', content: '' }],
+		[
+			'code in the process that holds the passwords, even when the agent file lists it',
+			'mcp__playwright-test__browser_run_code_unsafe',
+			{ code: 'async () => process.env' }
+		],
+		[
+			'a browser tool that saves to or reads from a file',
+			'mcp__playwright-test__browser_snapshot',
+			{ filename: '../../sap-tests/.env' }
+		]
 	])('refuses %s', (_what, tool, input) => {
 		expect(decide(tool, input).allow).toBe(false);
 	});
@@ -82,9 +109,10 @@ describe('toolDecision', () => {
 		['the rules', 'Read', { file_path: 'sap-tests/CLAUDE.md' }],
 		['a search in the tests', 'Grep', { pattern: 'getByRoleUI5', path: 'sap-tests/tests' }],
 		['a glob in the helpers', 'Glob', { pattern: '**/*.ts', path: 'sap-tests/helpers' }],
-		['what the MCP server wrote', 'Read', { file_path: 'test-results/a-chromium/error-context.md' }]
+		['what its test runs left', 'Read', { file_path: 'OUT/a-chromium/error-context.md' }],
+		['a search in what its test runs left', 'Grep', { pattern: 'Error', path: 'OUT' }]
 	])('lets it read %s', (_what, tool, input) => {
-		expect(decide(tool, input)).toEqual({ allow: true });
+		expect(decide(tool, withOutput(input))).toEqual({ allow: true });
 	});
 
 	test.each([
@@ -93,6 +121,8 @@ describe('toolDecision', () => {
 		['the saved session', 'Read', { file_path: 'sap-tests/.auth/sap-session.json' }],
 		['a link to the settings file', 'Read', { file_path: 'sap-tests/tests/fiori/link.ts' }],
 		['the app data', 'Read', { file_path: '.data/app.sqlite' }],
+		['the results of other runs', 'Read', { file_path: 'test-results/x/trace.zip' }],
+		['a saved session beside its results', 'Read', { file_path: 'OUT/.auth/sap.json' }],
 		['a search of the whole project', 'Grep', { pattern: 'PASSWORD', path: 'sap-tests' }],
 		['a search without a path', 'Grep', { pattern: 'PASSWORD' }],
 		['a glob that climbs out', 'Glob', { pattern: '../../*', path: 'sap-tests/tests' }],
@@ -102,7 +132,7 @@ describe('toolDecision', () => {
 			{ pattern: 'x', path: 'sap-tests/tests', glob: '../.env' }
 		]
 	])('refuses to read %s', (_what, tool, input) => {
-		expect(decide(tool, input).allow).toBe(false);
+		expect(decide(tool, withOutput(input)).allow).toBe(false);
 	});
 
 	test('lets it change a test and names the file', () => {

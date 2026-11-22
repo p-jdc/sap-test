@@ -143,6 +143,9 @@ const certificate = (system: (typeof systems)[number]) =>
 export default defineConfig<SapOptions>({
 	webServer: webServers.length > 0 ? webServers : undefined,
 	testDir: './tests',
+	// The app's healer starts Playwright's MCP server, which takes no --output: its traces,
+	// screenshots and videos of SAP screens go to the healer's folder of the run this way.
+	...(process.env.SAP_TESTS_OUTPUT_DIR ? { outputDir: process.env.SAP_TESTS_OUTPUT_DIR } : {}),
 	timeout: 120_000,
 	expect: { timeout: 15_000 },
 	workers: 1,

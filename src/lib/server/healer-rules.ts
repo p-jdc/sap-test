@@ -33,9 +33,7 @@ const READ_DIRS = [
 	'sap-tests/sap-plugin',
 	'sap-tests/specs',
 	'sap-tests/setup',
-	'sap-tests/test-results',
-	// Playwright's MCP server writes the results of the runs it starts here, from the repository root.
-	'test-results'
+	'sap-tests/test-results'
 ];
 /** Single files it may read besides. */
 const READ_FILES = new Set([
@@ -56,6 +54,12 @@ const WRITE_EXCLUDED = [
 ];
 
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
+/**
+ * Runs code in the MCP server's process, which holds the test users' passwords, and reads any file
+ * through its `filename`: never allowed, whatever the agent file lists. The healer tries locators
+ * with browser_evaluate, which runs in the page.
+ */
+const DENIED_MCP_TOOLS = new Set(['mcp__playwright-test__browser_run_code_unsafe']);
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
 export type ToolDecision = { allow: true; writes?: string } | { allow: false; reason: string };
@@ -69,20 +73,34 @@ const inside = (rel: string, dir: string) => rel === dir || rel.startsWith(dir +
 function repoPath(root: string, raw: string): { abs: string; rel: string } | null {
 	const abs = within(root, raw);
 	if (!abs) return null;
-	// A file about to be written may not exist yet: follow the links of its nearest existing folder.
-	let existing = abs;
-	while (!existsSync(existing) && nodePath.dirname(existing) !== existing)
-		existing = nodePath.dirname(existing);
-	let real: string;
-	try {
-		real = nodePath.join(realpathSync(existing), nodePath.relative(existing, abs));
-	} catch {
-		return null;
-	}
+	const real = realPath(abs);
+	if (!real) return null;
 	const realRoot = existsSync(root) ? realpathSync(root) : root;
 	const checked = within(realRoot, nodePath.relative(realRoot, real));
 	if (!checked) return null;
 	return { abs, rel: toPosix(nodePath.relative(realRoot, real)) };
+}
+
+/**
+ * The path with the symbolic links of what exists followed. A file about to be written may not
+ * exist yet: the links of its nearest existing folder are followed.
+ */
+function realPath(abs: string): string | null {
+	let existing = abs;
+	while (!existsSync(existing) && nodePath.dirname(existing) !== existing)
+		existing = nodePath.dirname(existing);
+	try {
+		return nodePath.join(realpathSync(existing), nodePath.relative(existing, abs));
+	} catch {
+		return null;
+	}
+}
+
+/** Whether the path lies in the folder (absolute), both with their links followed. */
+function insideFolder(raw: string, root: string, folder: string): boolean {
+	const real = realPath(nodePath.resolve(root, raw));
+	const realFolder = realPath(folder);
+	return !!real && !!realFolder && within(realFolder, nodePath.relative(realFolder, real)) !== null;
 }
 
 /** A name that holds passwords or a signed-in session, wherever it is. */
@@ -108,17 +126,24 @@ const text = (input: ToolInput, key: string) =>
  * Whether the healer may make this tool call. Only the tools its agent file lists are allowed.
  * Reading and searching stay inside the test project's code (never a settings file or a saved
  * session), changes inside sap-tests/tests and sap-tests/helpers, outside the folders the healer
- * must not touch. `writes` is the file a change is about to modify.
+ * must not touch. `outputDir` holds the results of the test runs it starts, which it may read too.
+ * `writes` is the file a change is about to modify.
  */
 export function toolDecision(
 	tool: string,
 	input: ToolInput,
 	root: string,
-	allowed: ReadonlySet<string>
+	allowed: ReadonlySet<string>,
+	outputDir?: string
 ): ToolDecision {
-	if (!allowed.has(tool))
+	if (!allowed.has(tool) || DENIED_MCP_TOOLS.has(tool))
 		return { allow: false, reason: `${tool} is not one of the healer's tools.` };
-	if (tool.startsWith('mcp__playwright-test__')) return { allow: true };
+	if (tool.startsWith('mcp__playwright-test__')) {
+		// Saving to or reading from a file through the browser tools passes no check of the paths.
+		if (input.filename !== undefined)
+			return { allow: false, reason: 'Do not save to files; take the result as the answer.' };
+		return { allow: true };
+	}
 	if (READ_TOOLS.has(tool)) {
 		const raw = text(input, 'file_path') ?? text(input, 'path');
 		if (!raw)
@@ -132,6 +157,8 @@ export function toolDecision(
 			if (value && (value.includes('..') || nodePath.isAbsolute(value)))
 				return { allow: false, reason: `The ${key} must stay inside the folder searched.` };
 		}
+		if (outputDir && !secretName(toPosix(raw)) && insideFolder(raw, root, outputDir))
+			return { allow: true };
 		const path = repoPath(root, raw);
 		if (!path || secretName(path.rel))
 			return { allow: false, reason: `${raw} is not something the healer may read.` };

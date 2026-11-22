@@ -27,7 +27,6 @@
 				(healer.current.active.runId !== runId || healer.current.active.testId !== testId))
 	);
 	let error = $state<string | null>(null);
-	let kept = $state<string[]>([]);
 
 	$effect(() => {
 		if (!working) return;
@@ -43,7 +42,6 @@
 
 	async function start() {
 		error = null;
-		kept = [];
 		try {
 			await startHealer({ id: runId, testId });
 		} catch (e) {
@@ -59,7 +57,7 @@
 	}
 	async function discard() {
 		try {
-			kept = (await discardHealerRepair({ id: runId, testId })).kept;
+			await discardHealerRepair({ id: runId, testId });
 		} catch (e) {
 			error = errorMessage(e);
 		}
@@ -127,9 +125,11 @@
 		{#if heal.changes.length}
 			{#if heal.discarded}
 				<ui5-message-strip design="Information" hide-close-button>
-					These changes were discarded: the files are as they were before the healer.
-					{#if kept.length}
-						Left as they are, because someone changed them since: {kept.join(', ')}.
+					{#if heal.discardKept?.length}
+						These changes were discarded, except in the files someone changed since, which are left
+						as they are: {heal.discardKept.join(', ')}.
+					{:else}
+						These changes were discarded: the files are as they were before the healer.
 					{/if}
 				</ui5-message-strip>
 			{:else if !working}

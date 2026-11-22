@@ -1,11 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { query, type HookCallback, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import {
+	query,
+	type HookCallback,
+	type Options,
+	type SDKMessage
+} from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runSettings } from './env-file.js';
 import {
 	describeTool,
 	parseAgentFile,
+	type AgentFile,
 	toolDecision,
 	toolInput,
 	unifiedDiff
@@ -25,6 +31,8 @@ const HEALER_AGENT = resolve(APP_ROOT, '.claude/agents/playwright-test-healer.md
 const DEFAULT_BUDGET_USD = 5;
 const MAX_TURNS = 80;
 const ACTIVITY_TAIL = 300;
+/** The built-in tools that change files. */
+const CHANGING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
 
 /**
  * Why the healer cannot be started here, or undefined when it can. It sends the test, its error
@@ -55,7 +63,11 @@ export function activeHealing(): { runId: string; testId: string; title: string 
 
 const SAFE_ID = /^[\w-]{1,200}$/;
 
-/** The healer's files of one test of a run: its state, and the files as they were before it. */
+/**
+ * The healer's files of one test of a run: its state, the files as they were before it, and the
+ * results of the test runs it starts (traces, screenshots, videos of the SAP screens). All of them
+ * are removed with the run's log under the retention rules.
+ */
 function healerFiles(runId: string, testId: string) {
 	const run = within(RUNS_DIR, runId);
 	if (!run || run === RUNS_DIR || !SAFE_ID.test(testId)) return null;
@@ -63,7 +75,10 @@ function healerFiles(runId: string, testId: string) {
 	return {
 		dir,
 		state: join(dir, `${testId}.json`),
-		originals: join(dir, `${testId}.originals.json`)
+		originals: join(dir, `${testId}.originals.json`),
+		// Playwright empties the results folder before each run, so the server runs in another.
+		output: join(dir, `${testId}-results`),
+		server: join(dir, `${testId}-server`)
 	};
 }
 
@@ -93,6 +108,7 @@ const stateSchema = z.object({
 	error: z.string().optional(),
 	changes: z.array(z.object({ file: z.string(), diff: z.string() })),
 	discarded: z.boolean().optional(),
+	discardKept: z.array(z.string()).optional(),
 	costUsd: z.number().optional()
 }) satisfies z.ZodType<HealerState>;
 
@@ -149,14 +165,79 @@ function failedTest(runId: string, testId: string): RunTest | string {
 /** The task for the healer: the test and how it failed in this run. */
 function healerTask(test: RunTest, runId: string): string {
 	const location = `sap-tests/tests/${test.file}:${test.line}`;
+	// The MCP server runs in the healer's results folder, so the location it runs is absolute.
+	const runLocation = `${resolve(TESTS_DIR, test.file)}:${test.line}`;
 	const error = test.error?.message
 		? `It failed with this error:\n\n\`\`\`\n${test.error.message}\n\`\`\``
 		: 'The error message of the run is no longer kept; run the test to see it.';
 	return [
 		`Repair the failing test "${test.title}" at ${location}. It failed in the Test Lab run ${runId}.`,
 		error,
-		`Run only this test (\`${location}\` as the location). You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews your change.`
+		`Run only this test (\`${runLocation}\` as the location). You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews your change.`,
+		'In this app `browser_run_code_unsafe` is not available: try a locator on the paused page with `browser_evaluate` or `browser_generate_locator` instead. Do not save tool results to files.'
 	].join('\n\n');
+}
+
+type SessionOptions = {
+	budget: number;
+	abort: AbortController;
+	hooks: NonNullable<Options['hooks']>;
+	serverEnv: Record<string, string>;
+	serverCwd: string;
+	secrets: readonly string[];
+};
+
+/** The Agent SDK session of the healer, with the playwright-test MCP server of this repository. */
+function healerSession(test: RunTest, runId: string, agent: AgentFile, o: SessionOptions) {
+	const server = playwrightCommand([
+		'run-test-mcp-server',
+		'--headless',
+		'-c',
+		resolve(TESTS_ROOT, 'playwright.config.ts')
+	]);
+	// The browser tools write their logs into the folder the server runs in.
+	const inFolder = ['-c', 'cd "$0" && exec "$@"', o.serverCwd, server.cmd, ...server.args];
+	// The model process gets no password, neither in its environment nor on its command line.
+	const secretValues = new Set(o.secrets);
+	const modelEnv = Object.fromEntries(
+		Object.entries(childEnv({ CLAUDE_AGENT_SDK_CLIENT_APP: 'sap-test-lab' })).filter(
+			([, value]) => value !== undefined && !secretValues.has(value)
+		)
+	);
+	return query({
+		prompt: healerTask(test, runId),
+		options: {
+			cwd: APP_ROOT,
+			systemPrompt: agent.prompt,
+			...(agent.model ? { model: agent.model } : {}),
+			// Only the agent file's built-in tools, every call through the hooks. No settings, hooks or
+			// MCP servers from the user's or the project's configuration.
+			tools: agent.tools.filter((t) => !t.startsWith('mcp__')),
+			allowedTools: agent.tools,
+			permissionMode: 'dontAsk',
+			settingSources: [],
+			hooks: o.hooks,
+			mcpServers: {
+				'playwright-test': {
+					type: 'stdio',
+					command: '/bin/sh',
+					args: inFolder,
+					env: o.serverEnv,
+					alwaysLoad: true
+				}
+			},
+			// Over stdin, not on Claude Code's command line, where anyone on the machine could read
+			// the server's environment and with it the passwords.
+			mcpServersDelivery: 'initialize',
+			// Only this server: no claude.ai connectors of the Claude login, no .mcp.json, no plugins.
+			strictMcpConfig: true,
+			env: modelEnv,
+			maxTurns: MAX_TURNS,
+			maxBudgetUsd: o.budget,
+			abortController: o.abort,
+			persistSession: false
+		}
+	});
 }
 
 /**
@@ -175,6 +256,9 @@ export async function startHealing(
 	if (!files) return { ok: false, error: 'Unknown run or test.' };
 	const test = failedTest(runId, testId);
 	if (typeof test === 'string') return { ok: false, error: test };
+	// Its report would outlive the run's details, which the retention rules remove with the log.
+	if (!existsSync(join(files.dir, '..', 'output.log')))
+		return { ok: false, error: 'The details of this run are no longer kept.' };
 	if (!within(TESTS_DIR, test.file) || !existsSync(resolve(TESTS_DIR, test.file)))
 		return { ok: false, error: `The test file ${test.file} no longer exists.` };
 	let agent;
@@ -204,6 +288,7 @@ export async function startHealing(
 		activity: [],
 		changes: []
 	};
+	mkdirSync(files.server, { recursive: true });
 	active = { state, abort };
 	save(state);
 
@@ -218,7 +303,7 @@ export async function startHealing(
 	const gate: HookCallback = (input) => {
 		if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
 		const args = toolInput(input.tool_input);
-		const decision = toolDecision(input.tool_name, args, APP_ROOT, allowed);
+		const decision = toolDecision(input.tool_name, args, APP_ROOT, allowed, files.output);
 		if (!decision.allow) {
 			note(`Not allowed: ${describeTool(input.tool_name, args, APP_ROOT)} (${decision.reason})`);
 			return Promise.resolve({
@@ -229,31 +314,31 @@ export async function startHealing(
 				}
 			});
 		}
-		if (decision.writes && !originals.has(decision.writes))
+		if (decision.writes && !originals.has(decision.writes)) {
 			originals.set(decision.writes, { before: readText(decision.writes) });
+			// On disk before the change: if the app stops now, the change can still be undone.
+			save(state, originals);
+		}
 		return Promise.resolve({
 			hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' }
 		});
 	};
 
-	const budget = Number(process.env.TEST_APP_HEALER_BUDGET_USD) || DEFAULT_BUDGET_USD;
-	const server = playwrightCommand([
-		'run-test-mcp-server',
-		'--headless',
-		'-c',
-		resolve(TESTS_ROOT, 'playwright.config.ts')
-	]);
-	// The model process gets no password: those go to the MCP server only, which runs the tests.
-	const secretValues = new Set(settings.secrets);
-	const modelEnv = Object.fromEntries(
-		Object.entries(childEnv({ CLAUDE_AGENT_SDK_CLIENT_APP: 'sap-test-lab' })).filter(
-			([, value]) => value !== undefined && !secretValues.has(value)
-		)
-	);
-	const stopWithApp = () => {
-		abort.abort();
+	// After every tool call: a password in what a tool returns (a test's output, a page, a file) is
+	// masked before the model sees it, and after a change the diff is saved.
+	const afterTool: HookCallback = (input) => {
+		if (input.hook_event_name !== 'PostToolUse') return Promise.resolve({});
+		if (CHANGING_TOOLS.has(input.tool_name)) {
+			state.changes = redact(changesOf(originals));
+			save(state, originals);
+		}
+		return Promise.resolve({
+			hookSpecificOutput: {
+				hookEventName: 'PostToolUse',
+				updatedToolOutput: redact(input.tool_response)
+			}
+		});
 	};
-	process.once('exit', stopWithApp);
 
 	const finish = (status: HealerState['status'], error?: string) => {
 		if (state.finishedAt) return;
@@ -265,36 +350,36 @@ export async function startHealing(
 		save(state, originals);
 		if (active?.state === state) active = null;
 	};
+	const stopWithApp = () => {
+		abort.abort();
+	};
+	process.once('exit', stopWithApp);
 
-	const messages = query({
-		prompt: healerTask(test, runId),
-		options: {
-			cwd: APP_ROOT,
-			systemPrompt: agent.prompt,
-			...(agent.model ? { model: agent.model } : {}),
-			// Only the agent file's built-in tools, every call through the gate above. No settings,
-			// hooks or MCP servers from the user's or the project's configuration.
-			tools: agent.tools.filter((t) => !t.startsWith('mcp__')),
-			allowedTools: agent.tools,
-			permissionMode: 'dontAsk',
-			settingSources: [],
-			hooks: { PreToolUse: [{ hooks: [gate], onFailure: 'block' }] },
-			mcpServers: {
-				'playwright-test': {
-					type: 'stdio',
-					command: server.cmd,
-					args: server.args,
-					env: { ...settings.env, ...idocTestEnv(), FORCE_COLOR: '0' },
-					alwaysLoad: true
-				}
+	const budget = Number(process.env.TEST_APP_HEALER_BUDGET_USD) || DEFAULT_BUDGET_USD;
+	let messages: AsyncIterable<SDKMessage>;
+	try {
+		messages = healerSession(test, runId, agent, {
+			budget,
+			abort,
+			hooks: {
+				PreToolUse: [{ hooks: [gate], onFailure: 'block' }],
+				PostToolUse: [{ hooks: [afterTool] }]
 			},
-			env: modelEnv,
-			maxTurns: MAX_TURNS,
-			maxBudgetUsd: budget,
-			abortController: abort,
-			persistSession: false
-		}
-	});
+			// The test users' passwords go to the MCP server only, which runs the tests. Its results
+			// go to the healer's folder, which the retention rules remove with the run's log.
+			serverEnv: {
+				...settings.env,
+				...idocTestEnv(),
+				SAP_TESTS_OUTPUT_DIR: files.output,
+				FORCE_COLOR: '0'
+			},
+			serverCwd: files.server,
+			secrets: settings.secrets
+		});
+	} catch (e) {
+		finish('failed', errorText(e));
+		return { ok: false, error: `The healer could not start: ${redact(errorText(e))}` };
+	}
 
 	void (async () => {
 		try {
@@ -348,8 +433,17 @@ export function discardRepair(
 	const state = healingState(runId, testId);
 	if (!files || !state) return { ok: false, error: 'The healer did not work on this test.' };
 	if (state.status === 'running') return { ok: false, error: 'The healer is still working.' };
-	if (state.discarded) return { ok: true, kept: [] };
-	const originals = readJson(files.originals, originalsSchema) ?? {};
+	if (state.discarded) return { ok: true, kept: state.discardKept ?? [] };
+	const originals = readJson(files.originals, originalsSchema);
+	if (!originals) {
+		if (state.changes.length > 0)
+			return {
+				ok: false,
+				error: 'The record of the files before the repair is missing; nothing was put back.'
+			};
+		save({ ...state, discarded: true, discardKept: [] });
+		return { ok: true, kept: [] };
+	}
 	const kept: string[] = [];
 	for (const [abs, original] of Object.entries(originals)) {
 		// Only files the healer could change: the gate recorded them, but the file is data.
@@ -366,6 +460,6 @@ export function discardRepair(
 			writeFileSync(abs, original.before);
 		}
 	}
-	save({ ...state, discarded: true });
+	save({ ...state, discarded: true, discardKept: kept });
 	return { ok: true, kept };
 }

@@ -56,9 +56,12 @@ export const startTestRun = command(
 	async (input) => {
 		// The healer runs the test it repairs itself; a run beside it would share the browser's
 		// session and the test results folder.
-		const healing = activeHealing();
-		if (healing) error(409, `The healer is working on "${healing.title}". Wait or stop it first.`);
-		const result = await startRun(input);
+		const result = await startRun(input, () => {
+			const healing = activeHealing();
+			return healing
+				? `The healer is working on "${healing.title}". Wait or stop it first.`
+				: undefined;
+		});
 		if (!result.ok) error(409, result.error);
 		await recordActivity(
 			'Started a run',

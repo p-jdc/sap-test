@@ -276,6 +276,8 @@ export interface HealerState {
 	changes: HealerChange[];
 	/** The changes were undone from this app. */
 	discarded?: boolean;
+	/** Files the undo left as they were, because someone changed them after the healer. */
+	discardKept?: string[];
 	/** The estimated cost of the model calls, in US dollars. */
 	costUsd?: number;
 }
