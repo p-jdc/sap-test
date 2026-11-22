@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
 import type { SapOptions } from './sap-plugin';
+import { acceptsSelfSigned, SELF_SIGNED_SETTING } from './sap-plugin/self-signed';
 import { signInSystems, signInTag, testFiles } from './sap-plugin/systems';
 
 // Optional escape hatch for machines where `npx playwright install` cannot download
@@ -27,7 +28,8 @@ if (odataMock)
 // 47200 and 47201, lie in the range Linux hands out for free ports and outgoing connections, so another process
 // can hold them (in CI, the Mock PLC that runs just before did). Playwright reads both addresses from the
 // receiver's ready line (`wait` below) into IDOC_HUB_URL, its control API, and IDOC_MOCK_URL, the endpoint tests
-// post IDocs to in SAP's place. That replaces any IDOC_HUB_URL from the environment file, and the workers
+// post IDocs to in SAP's place. IDocs the tests send into SAP (idocSender) go to a stand-in for SAP in the
+// receiver's process (IDOC_FAKE_SAP). That replaces any IDOC_HUB_URL from the environment file, and the workers
 // inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
 if (idocMock) process.env.IDOC_HUB_TOKEN = '';
@@ -69,6 +71,10 @@ const webServers: WebServer[] = [
 						MFS_FAKE_EWM: '1',
 						MFS_CONTROL_PORT: String(mfsMockPort),
 						MFS_BASE_PORT: '0',
+						// The PLC ports stay on this computer and the tests get the warehouse they are written
+						// for, whatever the environment file sets up for a real EWM (MFS_HOST, MFS_SETUP).
+						MFS_HOST: '127.0.0.1',
+						MFS_SETUP: 'sap-example',
 						MFS_SPEED: process.env.MFS_SPEED || '10'
 					},
 					reuseExistingServer: false
@@ -97,7 +103,17 @@ const webServers: WebServer[] = [
 						IDOC_TLS_KEY: '',
 						IDOC_TLS_CA: '',
 						IDOC_TLS_CLIENT_FINGERPRINT: '',
-						IDOC_CONTROL_TOKEN: ''
+						IDOC_CONTROL_TOKEN: '',
+						IDOC_FAKE_SAP: '1',
+						IDOC_SAP_URL: '',
+						IDOC_SAP_CLIENT: '',
+						IDOC_SAP_SERVICE: '',
+						IDOC_SAP_USER: '',
+						IDOC_SAP_PASSWORD: '',
+						IDOC_SAP_TLS_CERT: '',
+						IDOC_SAP_TLS_KEY: '',
+						IDOC_SAP_TLS_CA: '',
+						IDOC_SAP_TIMEOUT_MS: ''
 					},
 					reuseExistingServer: false
 				}
@@ -114,6 +130,15 @@ const browser = { ...devices['Desktop Chrome'] };
 // The password is typed only in the sign-in projects: no trace (it would record the filled field
 // and the login request) and no video.
 const signIn = { ...browser, trace: 'off', video: 'off' } as const;
+// An SAP system on the host of SAP_SELF_SIGNED_HOST (a trial appliance with its own certificate)
+// gets a browser without the certificate check, for every address it reaches (self-signed.ts);
+// every other system keeps the full check.
+const certificate = (system: (typeof systems)[number]) =>
+	system.signIn.method === 'sapLogin' &&
+	acceptsSelfSigned(process.env[system.env.url], process.env[SELF_SIGNED_SETTING])
+		? // oxlint-disable-next-line secure-coding/require-secure-defaults -- off by default; only for an SAP system on the host the person named in SAP_SELF_SIGNED_HOST (README)
+			{ ignoreHTTPSErrors: true }
+		: {};
 
 export default defineConfig<SapOptions>({
 	webServer: webServers.length > 0 ? webServers : undefined,
@@ -136,7 +161,7 @@ export default defineConfig<SapOptions>({
 			testDir: './setup',
 			testMatch: 'sign-in.setup.ts',
 			grep: new RegExp(`${signInTag(system)}(?:\\s|$)`),
-			use: { ...signIn, baseURL: process.env[system.env.url] }
+			use: { ...signIn, ...certificate(system), baseURL: process.env[system.env.url] }
 		})),
 		// First of the projects no other one depends on: the test agents' MCP server uses it when a
 		// tool call names no project.
@@ -150,7 +175,12 @@ export default defineConfig<SapOptions>({
 			testMatch: [testFiles(system), SIGNED_IN_SEED],
 			dependencies: [`${system.id}-sign-in`],
 			// A relative address in a test of this system means this system, not SAP.
-			use: { ...browser, system: system.id, baseURL: process.env[system.env.url] }
+			use: {
+				...browser,
+				...certificate(system),
+				system: system.id,
+				baseURL: process.env[system.env.url]
+			}
 		}))
 	]
 });

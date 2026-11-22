@@ -1,0 +1,15 @@
+{
+	"servers": {
+		"playwright-test": {
+			"type": "stdio",
+			"command": "node",
+			"args": [
+				"${workspaceFolder}/node_modules/@playwright/test/cli.js",
+				"run-test-mcp-server",
+				"-c",
+				"${workspaceFolder}/sap-tests/playwright.config.ts"
+			],
+			"cwd": "${workspaceFolder}"
+		}
+	}
+}

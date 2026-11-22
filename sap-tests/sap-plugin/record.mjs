@@ -7,6 +7,8 @@
 //     --env <URL,USER,PASSWORD>  the variables of another system's address, user and password
 //                             (systems.json) instead of SAP_URL, SAP_USERNAME and SAP_PASSWORD
 //     --save-storage <file>   write the session (cookies, storage) for storageState reuse
+//     --ignore-https-errors   accept a self-signed certificate (a trial system reached by its IP);
+//                             the test app passes it only for the host of SAP_SELF_SIGNED_HOST
 // Click through the flow in the window that opens, then close it; the spec is written on close,
 // and also when this process is asked to stop (SIGTERM, which is what the app's Stop button sends).
 // The plugin files are TypeScript, so they are bundled for Node here, the way engines.ts bundles
@@ -56,6 +58,7 @@ const options = {
 	login: false,
 	urlFromEnv: false,
 	saveStorage: undefined,
+	ignoreHttpsErrors: false,
 	env: { url: 'SAP_URL', user: 'SAP_USERNAME', password: 'SAP_PASSWORD' }
 };
 const VARIABLE = /^[A-Z][A-Z0-9_]*$/;
@@ -65,6 +68,7 @@ for (let i = 0; i < args.length; i++) {
 	else if (args[i] === '--login') options.login = true;
 	else if (args[i] === '--url-from-env') options.urlFromEnv = true;
 	else if (args[i] === '--save-storage') options.saveStorage = args[++i];
+	else if (args[i] === '--ignore-https-errors') options.ignoreHttpsErrors = true;
 	else if (args[i] === '--env') {
 		const [url, user, password] = (args[++i] ?? '').split(',');
 		if (![url, user, password].every((name) => VARIABLE.test(name ?? ''))) {
@@ -106,7 +110,11 @@ const browser = await chromium.launch({
 	args: debugPort ? [`--remote-debugging-port=${debugPort}`] : []
 });
 // Tests run in English; a recording in another language would name buttons the tests never see.
-const context = await browser.newContext({ viewport: null, locale: 'en-US' });
+const context = await browser.newContext({
+	viewport: null,
+	locale: 'en-US',
+	ignoreHTTPSErrors: options.ignoreHttpsErrors
+});
 const steps = await installRecorder(context);
 const page = await context.newPage();
 

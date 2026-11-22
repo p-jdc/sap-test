@@ -30,6 +30,19 @@ test('the SAP client is three digits', () => {
 	expect(settingProblem('SAP_CLIENT', 'abc')).toMatch(/three digits/);
 });
 
+test('the self-signed host is a host name or IP address only', () => {
+	expect(settingProblem('SAP_SELF_SIGNED_HOST', '203.0.113.10')).toBeUndefined();
+	expect(settingProblem('SAP_SELF_SIGNED_HOST', 'S4H.Trial.Example.com')).toBeUndefined();
+	for (const value of [
+		'https://203.0.113.10',
+		'203.0.113.10:44301',
+		'203.0.113.10/sap',
+		'',
+		'two words'
+	])
+		expect(settingProblem('SAP_SELF_SIGNED_HOST', value)).toMatch(/host name or IP address only/);
+});
+
 test('other settings take any value', () => {
 	expect(settingProblem('SAP_API_USERNAME', 'ANY USER')).toBeUndefined();
 });

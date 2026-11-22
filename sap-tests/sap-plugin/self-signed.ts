@@ -1,0 +1,33 @@
+// A test system with a self-signed certificate, such as an SAP Cloud Appliance Library appliance
+// reached by its IP address. The setting SAP_SELF_SIGNED_HOST names that host. The browsers of a
+// system that signs in with the SAP login skip the certificate check while the system's address is
+// on that host: pointing the address at another system ends the exception by itself, and other
+// systems (Ariba) are never affected. Once on, the check is off for that browser as a whole
+// (Playwright's ignoreHTTPSErrors), so it also accepts a bad certificate of any other address the
+// system's pages reach. Pinning the appliance's key would be narrower, but the WebGUI recorder
+// (Playwright-SAP's codegen) cannot pass the Chromium option for it.
+// No imports: the test app bundles this file (setting-value.ts, recorder.ts).
+
+/** The setting that holds the host whose self-signed certificate is accepted. */
+export const SELF_SIGNED_SETTING = 'SAP_SELF_SIGNED_HOST';
+
+const asHost = (value: string) => value.trim().toLowerCase();
+
+/** Why `value` cannot be the host of SAP_SELF_SIGNED_HOST, or undefined when it can. */
+export function selfSignedHostProblem(value: string): string | undefined {
+	const host = asHost(value);
+	const url = URL.canParse(`https://${host}/`) ? new URL(`https://${host}/`) : undefined;
+	if (!host || url?.hostname !== host || url.port)
+		return `${SELF_SIGNED_SETTING} must be a host name or IP address only, without https://, port or path, for example 203.0.113.10.`;
+	return undefined;
+}
+
+/**
+ * Whether the browser for `address` accepts a self-signed certificate: it is an https:// address
+ * on `host`, the value of SAP_SELF_SIGNED_HOST. False when either is missing.
+ */
+export function acceptsSelfSigned(address: string | undefined, host: string | undefined): boolean {
+	if (!address || !host || !URL.canParse(address)) return false;
+	const url = new URL(address);
+	return url.protocol === 'https:' && url.hostname === asHost(host);
+}

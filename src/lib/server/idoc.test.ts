@@ -2,16 +2,18 @@
  * The app's side of the IDoc receiver: it starts the real receiver from sap-tests/idoc as its own process and
  * drives it only through the control API, like the page does. Samples stand in for SAP.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { IdocSnapshot } from '#lib/shared/idoc.js';
 import { must } from '../../test/must.js';
 import {
 	clearInbox,
+	clearSent,
 	idocStatus,
 	idocTestEnv,
 	listSamples,
 	rawRequest,
 	sendSample,
+	sendSampleToSap,
 	setPartnerReply,
 	startReceiver,
 	stopReceiver,
@@ -19,6 +21,11 @@ import {
 } from './idoc.js';
 import { importedPackages, missingPackages } from './mfs.js';
 import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
+
+// What the app reads from sap-tests/.env: a stand-in, so no test depends on (or reads) the real file. Vitest
+// hoists both above the imports.
+const envFile = vi.hoisted((): { values: Record<string, string> } => ({ values: {} }));
+vi.mock('./env-file.js', () => ({ readTestEnv: () => Promise.resolve(envFile.values) }));
 
 /** Reads the live view until a snapshot passes `check`. Leaving the loop closes the live view. */
 async function waitFor(
@@ -50,7 +57,8 @@ async function nextUntil(
 
 const stopped = (s: IdocSnapshot) => !s.status.running;
 
-// A developer's own receiver settings must not reach these tests: they start a plain one on this computer.
+// A developer's own receiver settings must not reach these tests: they start a plain one on this computer. Set
+// empty rather than deleted: an empty variable wins over a value in sap-tests/.env, which the app also reads.
 const SETTINGS = [
 	'IDOC_HUB_URL',
 	'IDOC_HUB_TOKEN',
@@ -60,13 +68,23 @@ const SETTINGS = [
 	'IDOC_TLS_CA',
 	'IDOC_TLS_CLIENT_FINGERPRINT',
 	'IDOC_USER',
-	'IDOC_PASSWORD'
+	'IDOC_PASSWORD',
+	'IDOC_FAKE_SAP',
+	'IDOC_SAP_URL',
+	'IDOC_SAP_CLIENT',
+	'IDOC_SAP_SERVICE',
+	'IDOC_SAP_USER',
+	'IDOC_SAP_PASSWORD',
+	'IDOC_SAP_TLS_CERT',
+	'IDOC_SAP_TLS_KEY',
+	'IDOC_SAP_TLS_CA',
+	'IDOC_SAP_TIMEOUT_MS'
 ];
 const saved = new Map<string, string | undefined>();
 beforeAll(() => {
 	for (const name of SETTINGS) {
 		saved.set(name, process.env[name]);
-		delete process.env[name];
+		process.env[name] = '';
 	}
 	// A free port, so a receiver someone left running doesn't get in the way.
 	saved.set('IDOC_PORT', process.env.IDOC_PORT);
@@ -91,6 +109,7 @@ describe('IDoc receiver', () => {
 	test('lists the samples of sap-tests/idoc, described by their comment', () => {
 		const samples = listSamples();
 		expect(samples.map((s) => s.name)).toEqual([
+			'orders05-inbound.xml',
 			'orders05-soap.xml',
 			'orders05.xml',
 			'zpwmock01.xml'
@@ -195,6 +214,37 @@ describe('IDoc receiver', () => {
 		}
 	});
 
+	test('sends a sample into SAP (here the stand-in) and lists the sends with SAP’s answer', async () => {
+		process.env.IDOC_FAKE_SAP = '1';
+		try {
+			await startReceiver();
+			const ready = await waitFor((s) => s.sap !== null);
+			expect(ready.sap).toMatchObject({ service: 'soap', login: 'none', standIn: true });
+			expect(ready.sent).toEqual([]);
+
+			const { result } = await sendSampleToSap('orders05-inbound.xml');
+			expect(result).toMatchObject({ ok: true, idocNumbers: ['0000000000000001'] });
+			const listed = await waitFor((s) => s.sent.length === 1);
+			expect(listed.sent[0]).toMatchObject({ seq: 1, by: 'person', result: { ok: true } });
+
+			// An outbound sample is refused before it goes out, and not listed.
+			await expect(sendSampleToSap('orders05.xml')).rejects.toThrow(/DIRECT 1/);
+			await expect(sendSampleToSap('../secret.xml')).rejects.toThrow(/no sample/);
+
+			await clearSent();
+			await waitFor((s) => s.sent.length === 0);
+		} finally {
+			delete process.env.IDOC_FAKE_SAP;
+		}
+	});
+
+	test('without an SAP system set, the page shows none and sending is refused', async () => {
+		await startReceiver();
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.sap).toBeNull();
+		await expect(sendSampleToSap('orders05-inbound.xml')).rejects.toThrow(/no SAP system/);
+	});
+
 	test('a receiver that refuses its settings reports why', async () => {
 		// Reachable from the network, but without HTTPS: the receiver refuses to start.
 		process.env.IDOC_HOST = '0.0.0.0';
@@ -203,7 +253,53 @@ describe('IDoc receiver', () => {
 			expect(idocStatus()).toMatchObject({ running: false });
 			expect(idocStatus().error).toMatch(/TLS certificate/);
 		} finally {
-			delete process.env.IDOC_HOST;
+			process.env.IDOC_HOST = '';
 		}
+	});
+
+	test('the page shows and uses the login the receiver was started with', async () => {
+		process.env.IDOC_USER = 'SAPIDOC';
+		process.env.IDOC_PASSWORD = 'mock-only';
+		try {
+			await startReceiver();
+		} finally {
+			// The receiver keeps what it was started with; the page must keep the same.
+			process.env.IDOC_USER = '';
+			process.env.IDOC_PASSWORD = '';
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('user');
+		// Sent with the receiver's login, so it is accepted.
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
+	});
+
+	test('settings from the file count where the environment of the app has none', async () => {
+		envFile.values = { IDOC_USER: 'SAPIDOC', IDOC_PASSWORD: 'from-the-file' };
+		delete process.env.IDOC_USER;
+		delete process.env.IDOC_PASSWORD;
+		try {
+			await startReceiver();
+		} finally {
+			process.env.IDOC_USER = '';
+			process.env.IDOC_PASSWORD = '';
+			envFile.values = {};
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('user');
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
+	});
+
+	test('an empty variable in the environment of the app wins over the file', async () => {
+		// As set in beforeAll: empty in the environment, a login in the file.
+		envFile.values = { IDOC_USER: 'SAPIDOC', IDOC_PASSWORD: 'from-the-file' };
+		try {
+			await startReceiver();
+		} finally {
+			envFile.values = {};
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('none');
+		// The receiver asks for no login either, so a sample without one is accepted.
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
 	});
 });

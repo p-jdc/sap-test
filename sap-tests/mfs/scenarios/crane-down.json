@@ -7,7 +7,7 @@
 		{ "enter": "A" },
 		{
 			"title": "Wait until the transfer car takes A to aisle 1",
-			"wait": { "event": "HU {A} IP → A1-IN" }
+			"wait": { "event": { "kind": "task-taken", "hu": "A", "from": "IP", "to": "A1-IN" } }
 		},
 		{ "title": "SRM1 fails while A is on its way to it", "device": "SRM1", "status": "DOWN" },
 		{ "wait": { "hu": "A", "at": "A1-IN" } },

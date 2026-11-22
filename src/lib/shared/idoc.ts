@@ -55,9 +55,49 @@ export const IdocReplyInEffectSchema = z.intersection(
 	z.object({ setBy: z.enum(['test', 'person']) })
 );
 
-export const IdocInfoSchema = z.object({ idocUrl: z.string(), instance: z.string() });
+/** The SAP system the receiver sends IDocs into, in CPI's place: which login, never the login itself. */
+const SapTargetSchema = z.object({
+	url: z.string(),
+	client: z.string().optional(),
+	service: z.enum(['soap', 'xml']),
+	login: z.enum(['none', 'user', 'certificate', 'user-and-certificate']),
+	/** A stand-in in the receiver's process (IDOC_FAKE_SAP), not an SAP system. */
+	standIn: z.boolean().default(false)
+});
+
+export const IdocInfoSchema = z.object({
+	idocUrl: z.string(),
+	instance: z.string(),
+	/** Null when no SAP system is set. A receiver from before sending existed doesn't say. */
+	sap: SapTargetSchema.nullable().default(null)
+});
+
+const IdocBodySchema = z.object({
+	control: z.record(z.string(), z.string()),
+	segments: z.array(SegmentSchema)
+});
+
+/** One send into SAP and SAP's answer. */
+export const SentIdocsSchema = z.object({
+	seq: z.number().int(),
+	sentAt: z.string(),
+	by: z.enum(['test', 'person']),
+	idocs: z.array(IdocBodySchema),
+	result: z.object({
+		ok: z.boolean(),
+		/** 0 when SAP couldn't be reached or didn't answer in time. */
+		status: z.number().int(),
+		service: z.enum(['soap', 'xml']),
+		idocNumbers: z.array(z.string()),
+		reason: z.string().optional(),
+		body: z.string(),
+		durationMs: z.number()
+	})
+});
 
 export type IdocReply = z.infer<typeof IdocReplySchema>;
+export type IdocSapTarget = z.infer<typeof SapTargetSchema>;
+export type SentIdocs = z.infer<typeof SentIdocsSchema>;
 type IdocReplyInEffect = z.infer<typeof IdocReplyInEffectSchema>;
 export type ReceivedIdoc = z.infer<typeof ReceivedIdocSchema>;
 type IdocFailure = z.infer<typeof IdocFailureSchema>;
@@ -90,6 +130,10 @@ export type IdocSnapshot = {
 	/** Whether the page may post a sample IDoc itself: only to a receiver it started, on this computer, without
 	 * TLS. */
 	canSendSamples: boolean;
+	/** The SAP system the receiver sends IDocs into; null when none is set. */
+	sap: IdocSapTarget | null;
+	/** The newest sends into SAP, newest last. */
+	sent: SentIdocs[];
 };
 
 /** A sample IDoc from sap-tests/idoc/samples, for trying the receiver without SAP. */

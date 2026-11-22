@@ -62,12 +62,14 @@ test('settings page lists the settings without showing values', async ({ page })
 	);
 });
 
-test('settings page shows the setting names and the browser path with technical details', async ({
+test('settings page shows the setting names and the browser settings with technical details', async ({
 	page
 }) => {
 	await technical(page);
 	await page.goto('/settings');
-	await expect(page.locator('[data-setting]')).toHaveCount(11);
+	// The two browser settings: the Chromium path and the self-signed host.
+	await expect(page.locator('[data-setting]')).toHaveCount(12);
+	await expect(page.locator('[data-setting="SAP_SELF_SIGNED_HOST"]')).toBeVisible();
 	await expect(page.getByText('SAP_PASSWORD')).toBeVisible();
 });
 

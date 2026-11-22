@@ -15,7 +15,7 @@
 		"@rsvelte/oxlint-plugin",
 		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
 		{ "name": "browser-security", "specifier": "eslint-plugin-browser-security" },
-		{ "name": "anti-slop", "specifier": "./sap-tests/tools/oxlint/anti-slop/index.ts" }
+		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }
 	],
 	"categories": {
 		"correctness": "error",
@@ -37,6 +37,8 @@
 		"playwright-report",
 		".data",
 		".data-e2e",
+		// Third-party rules kept as they came (see its README).
+		"tools/oxlint/anti-slop",
 		// Claude Code's hooks run on Bun and are tested with bun test (scripts/pregate.ts).
 		".claude"
 	],
@@ -114,7 +116,7 @@
 		"svelte/no-navigation-without-resolve": "off",
 
 		// Patterns that get around the type checker (rules from https://github.com/dmmulroy/anti-slop,
-		// vendored in sap-tests/tools/oxlint/anti-slop).
+		// vendored in tools/oxlint/anti-slop).
 		"anti-slop/no-reflect-apply": "error",
 		"anti-slop/no-reflect-get": "error",
 		"anti-slop/no-unknown-type-aliases": "error",

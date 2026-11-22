@@ -353,7 +353,8 @@ describe('systems from sap-tests/systems.json', () => {
 			'SAP_API_USERNAME',
 			'SAP_API_PASSWORD',
 			'SAP_CLIENT',
-			'CHROMIUM_PATH'
+			'CHROMIUM_PATH',
+			'SAP_SELF_SIGNED_HOST'
 		]);
 		expect((await env.runSettings(NONE)).secrets).toEqual(['sf-pw']);
 

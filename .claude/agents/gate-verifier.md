@@ -29,8 +29,8 @@ One JSON object and nothing else:
 
 ```json
 {
-	"verdict": "confirmed | refuted | uncertain",
-	"severity": "blocker | high | medium | low",
-	"reason": "<what you followed and what you found, with path:line>"
+  "verdict": "confirmed | refuted | uncertain",
+  "severity": "blocker | high | medium | low",
+  "reason": "<what you followed and what you found, with path:line>"
 }
 ```

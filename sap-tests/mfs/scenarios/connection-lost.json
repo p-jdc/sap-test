@@ -7,15 +7,15 @@
 		{ "enter": "A" },
 		{
 			"title": "Wait until the transfer car takes A to aisle 1",
-			"wait": { "event": "HU {A} IP → A1-IN" }
+			"wait": { "event": { "kind": "task-taken", "hu": "A", "from": "IP", "to": "A1-IN" } }
 		},
 		{ "faults": "CONS", "disconnect": true },
-		{ "wait": { "event": "CONS: EWM connected" } },
+		{ "wait": { "event": { "kind": "ewm-connected", "plc": "CONS" } } },
 		{ "wait": { "hu": "A", "at": "bin" } }
 	],
 	"expect": [
 		{ "hu": "A", "at": "bin", "ewm": "stored" },
-		{ "event": "CONS: EWM disconnected" },
+		{ "event": { "kind": "ewm-disconnected", "plc": "CONS" } },
 		{
 			"telegram": { "type": "WTCO", "from": "CONS", "fields": { "hu": "{A}", "result": "OK" } },
 			"count": 1

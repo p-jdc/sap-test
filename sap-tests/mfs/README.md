@@ -127,8 +127,31 @@ serves the app (choose one on the start card, or run one on a running Mock PLC),
 
 Conditions: `{ "hu": "A", "at": "bin" | "<point or bin>" | "A1-*", "notAt": …, "movingOn": "TCAR", "left": true,
 "ewm": "stored" }`, `{ "telegram": { "type": "WTCO", "from": "SRM1", "fields": { "hu": "{A}", "result": "OCCU" } },
-"count": 1 }`, `{ "event": "HU {A} IP → A1-IN" }`. Every step can have a `"title"`; otherwise one is written from the
-step.
+"count": 1 }`, `{ "event": { "kind": "task-taken", "hu": "A", "from": "IP", "to": "A1-IN" }, "count": 1 }`. Every
+step can have a `"title"`; otherwise one is written from the step.
+
+An event condition matches what the Mock PLC did, by the event's kind and fields, never by its text: the text in
+"What happened" is for people and may change. `count` means exactly that many since the scenario started; without
+it, at least one. `hu` is the scenario's HU name; `from`, `to` and `point` take an id, `bin` or a pattern with `*`,
+as in HU conditions. `result` is the emulator's name, not the telegram's code, so the condition holds with any
+telegram layout. A condition may name only the fields its kind has (table below) and only the results it reports;
+anything else is refused when the scenario is checked, because it could never match and a `"count": 0` with it
+would always pass. The event's own `count` (how many telegrams were kept or dropped) cannot be matched.
+
+| Kind                                                                                                   | Fields                                                                     |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `hu-entered`, `hu-left`                                                                                | `hu`, `point`                                                              |
+| `task-taken`, `delivered`, `bin-occupied`                                                              | `plc`, `device`, `hu`, `from`, `to`, `task` (as in the telegram)           |
+| `task-refused`                                                                                         | `plc`, `hu`, `from`, `to`, `task`, `result`: `noRoute`, `wrongPlc`, `noHu` |
+| `scanned`                                                                                              | `plc`, `device`, `hu`, `point`, `result`: `OK`, `NORD`, `CONT`, `WGHT`     |
+| `device-status`                                                                                        | `plc`, `device`, `status`: `UP`, `DOWN`                                    |
+| `ewm-connected`, `ewm-disconnected`, `connection-refused`, `connection-replaced`, `connection-dropped` | `plc`                                                                      |
+| `telegram-queued`, `telegram-not-sent`, `telegram-ignored`                                             | `plc`, `telegram` (its type)                                               |
+| `telegrams-kept`, `telegrams-dropped`                                                                  | `plc`, `count`                                                             |
+| `no-telegram`                                                                                          | `plc`, `message` (the report the layout has no telegram for)               |
+| `reset`                                                                                                |                                                                            |
+
+`GET /events` and `events()` return the same fields, with `n`, `at` (time) and `text`.
 
 - HUs are named A, B, …; `{A}` in a text stands for A's number. In the demo each run gives them numbers (300001
   upward) unless the caller gives some. Against a real EWM the caller must give every number: EWM has to know an

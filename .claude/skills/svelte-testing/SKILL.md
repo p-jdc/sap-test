@@ -27,11 +27,11 @@ import { expect } from 'vitest';
 import Button from './button.svelte';
 
 test('button click increments counter', async () => {
-	const { page } = render(Button);
-	const button = page.getByRole('button', { name: /click me/i });
+  const { page } = render(Button);
+  const button = page.getByRole('button', { name: /click me/i });
 
-	await button.click();
-	await expect.element(button).toHaveTextContent('Clicked: 1');
+  await button.click();
+  await expect.element(button).toHaveTextContent('Clicked: 1');
 });
 ```
 
