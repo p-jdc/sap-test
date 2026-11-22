@@ -16,11 +16,17 @@ export default defineConfig({
 			port: 4180,
 			timeout: 180_000,
 			reuseExistingServer: !!process.env.PW_REUSE_SERVER,
-			// Keeps e2e runs out of the real run history. The Mock IDoc page's receiver takes a free port on this
-			// computer, whatever receiver settings the environment holds.
+			// Keeps e2e runs out of the real run history. The Mock IDoc page's receiver and the Mock PLC's PLC ports
+			// (mode "Wait for EWM") take free ports on this computer, whatever the environment sets up for SAP. Fixed
+			// ones, such as the PLCs' default 47101 and up, lie in the range Linux hands out for free ports and
+			// outgoing connections, so another process can hold them (it did in CI).
 			env: {
 				TEST_APP_DATA_DIR: '.data-e2e',
 				DEV_HTTP: '1',
+				MFS_HOST: '127.0.0.1',
+				MFS_BASE_PORT: '0',
+				MFS_EMULATOR_URL: '',
+				MFS_EMULATOR_TOKEN: '',
 				IDOC_PORT: '0',
 				IDOC_HOST: '',
 				IDOC_HUB_URL: '',
