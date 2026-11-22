@@ -44,9 +44,11 @@ const STATIC: Step[] = [
 			'bun',
 			'test',
 			'./.claude/hooks/guard-dotenv.test.ts',
-			'./scripts/upgrade-layout.test.ts'
+			'./scripts/upgrade-layout.test.ts',
+			'./scripts/agents.test.ts'
 		]
 	},
+	{ name: 'Copilot and Codex agents in step', command: ['bun', 'scripts/agents.ts', '--check'] },
 	{ name: 'sap-tests: specs load', command: ['bun', 'run', 'test:sap:list'] }
 ];
 
