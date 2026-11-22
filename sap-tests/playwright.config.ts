@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { defineConfig, devices } from '@playwright/test';
 import type { SapOptions } from './sap-plugin';
+import { acceptsSelfSigned, SELF_SIGNED_SETTING } from './sap-plugin/self-signed';
 import { signInSystems, signInTag, testFiles } from './sap-plugin/systems';
 
 // Optional escape hatch for machines where `npx playwright install` cannot download
@@ -114,6 +115,15 @@ const browser = { ...devices['Desktop Chrome'] };
 // The password is typed only in the sign-in projects: no trace (it would record the filled field
 // and the login request) and no video.
 const signIn = { ...browser, trace: 'off', video: 'off' } as const;
+// An SAP system on the host of SAP_SELF_SIGNED_HOST (a trial appliance with its own certificate)
+// gets a browser without the certificate check, for every address it reaches (self-signed.ts);
+// every other system keeps the full check.
+const certificate = (system: (typeof systems)[number]) =>
+	system.signIn.method === 'sapLogin' &&
+	acceptsSelfSigned(process.env[system.env.url], process.env[SELF_SIGNED_SETTING])
+		? // oxlint-disable-next-line secure-coding/require-secure-defaults -- off by default; only for an SAP system on the host the person named in SAP_SELF_SIGNED_HOST (README)
+			{ ignoreHTTPSErrors: true }
+		: {};
 
 export default defineConfig<SapOptions>({
 	webServer: webServers.length > 0 ? webServers : undefined,
@@ -136,7 +146,7 @@ export default defineConfig<SapOptions>({
 			testDir: './setup',
 			testMatch: 'sign-in.setup.ts',
 			grep: new RegExp(`${signInTag(system)}(?:\\s|$)`),
-			use: { ...signIn, baseURL: process.env[system.env.url] }
+			use: { ...signIn, ...certificate(system), baseURL: process.env[system.env.url] }
 		})),
 		// First of the projects no other one depends on: the test agents' MCP server uses it when a
 		// tool call names no project.
@@ -150,7 +160,12 @@ export default defineConfig<SapOptions>({
 			testMatch: [testFiles(system), SIGNED_IN_SEED],
 			dependencies: [`${system.id}-sign-in`],
 			// A relative address in a test of this system means this system, not SAP.
-			use: { ...browser, system: system.id, baseURL: process.env[system.env.url] }
+			use: {
+				...browser,
+				...certificate(system),
+				system: system.id,
+				baseURL: process.env[system.env.url]
+			}
 		}))
 	]
 });

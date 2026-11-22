@@ -1,3 +1,7 @@
+import {
+	SELF_SIGNED_SETTING,
+	selfSignedHostProblem
+} from '../../../sap-tests/sap-plugin/self-signed.js';
 import { allowsCredentials } from './origin.js';
 import type { SettingName } from '#lib/shared/types.js';
 
@@ -20,5 +24,6 @@ export function settingProblem(setting: SettingName, value: string): string | un
 	if (setting === 'SAP_CLIENT' && !/^\d{3}$/.test(value)) {
 		return `${setting} must be the three digits of an SAP client, for example 100.`;
 	}
+	if (setting === SELF_SIGNED_SETTING) return selfSignedHostProblem(value);
 	return undefined;
 }

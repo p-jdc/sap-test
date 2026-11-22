@@ -1,6 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
+import {
+	acceptsSelfSigned,
+	SELF_SIGNED_SETTING
+} from '../../../sap-tests/sap-plugin/self-signed.js';
 import { readTestEnv } from './env-file.js';
 import { lineSplitter } from './lines.js';
 import { allowsCredentials, sameOrigin } from './origin.js';
@@ -105,9 +109,22 @@ export function recorderInvocation(
 ): Invocation {
 	const blank = blankLogins(systems);
 	const { url: urlVar, user, password } = system.env;
+	// An SAP system with its own certificate on the host of SAP_SELF_SIGNED_HOST: its recorders
+	// accept that certificate, as its test runs do (playwright.config.ts). Never for `web`.
+	const certificate =
+		system.method === 'sapLogin' && acceptsSelfSigned(url, env[SELF_SIGNED_SETTING])
+			? ['--ignore-https-errors']
+			: [];
 	if (input.recorder === 'ui5') {
 		const login = input.noLogin ? [] : ['--login'];
-		const flags = ['--name', input.name.trim(), ...login, '--env', `${urlVar},${user},${password}`];
+		const flags = [
+			'--name',
+			input.name.trim(),
+			...login,
+			'--env',
+			`${urlVar},${user},${password}`,
+			...certificate
+		];
 		if (url === env[urlVar]) flags.push('--url-from-env');
 		return {
 			...ui5RecorderCommand([url, 'tests/' + file, ...flags]),
@@ -134,7 +151,7 @@ export function recorderInvocation(
 			}
 		};
 	return {
-		...recorderCommand([...codegen, '--sap-login-from-env']),
+		...recorderCommand([...codegen, ...certificate, '--sap-login-from-env']),
 		env: { ...blank, SAP_USERNAME: env[user] ?? '', SAP_PASSWORD: env[password] ?? '' },
 		needs: {
 			path: RECORDER_PACKAGE,
