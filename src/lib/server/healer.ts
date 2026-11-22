@@ -67,7 +67,7 @@ export function modelAccess(
 	const status = aiStatus(env);
 	if (status.provider === 'off') {
 		if (status.problem) return { problem: status.problem };
-		let local = false;
+		let local: boolean;
 		try {
 			local = authMode(env.TEST_APP_AUTH) === 'off' && listensLocally(env.HOST);
 		} catch {
