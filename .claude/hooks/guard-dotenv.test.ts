@@ -39,6 +39,13 @@ const BLOCKED = [
 	'cat ${F:-sap-tests/.env}',
 	'cat sap-tests/.env/',
 	'ls {sap-tests/.env,/tmp}',
+	'cat \\.env',
+	'cd sap-tests && cat \\.env',
+	'cat sap-tests/""\\.env',
+	'grep -hf.env /dev/null',
+	'tee -a.env',
+	// A mention is refused like the name itself.
+	"grep -n '\\.env' README.md",
 	// Other dotenv files that are not checked in.
 	'cat sap-tests/.env.local',
 	'cat app/.env.production',
@@ -65,8 +72,9 @@ const ALLOWED = [
 	'ls -la sap-tests/.env 2>/dev/null',
 	'cat app/.env.test',
 	'cat app/.env.EXAMPLE',
-	"grep -n '\\.env' README.md",
-	'cat settings.env'
+	'cat settings.env',
+	'grep -f patterns.env x',
+	'ls -la'
 ];
 
 test.each(BLOCKED)('blocks: %s', (command) => {
@@ -86,6 +94,13 @@ test('the answer denies a refused command and is empty for an allowed one', () =
 		permissionDecision: 'deny'
 	});
 	expect(answer(payload('git status'))).toBeUndefined();
+});
+
+test('a Monitor on a WebSocket has no command to check', () => {
+	expect(answer(JSON.stringify({ tool_name: 'Monitor', tool_input: { ws: { url: 'wss://x' } } }))).toBeUndefined();
+	expect(
+		answer(JSON.stringify({ tool_name: 'Monitor', tool_input: { command: 'tail -f sap-tests/.env' } }))
+	).toContain('deny');
 });
 
 test.each(['', 'not json', '{}', payload(42), '{"tool_input":null}'])(

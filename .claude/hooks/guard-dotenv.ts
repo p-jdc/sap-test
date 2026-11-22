@@ -1,4 +1,4 @@
-// PreToolUse hook for Bash: refuses shell commands that name a real .env file.
+// PreToolUse hook for Bash and Monitor: refuses shell commands that name a real .env file.
 //
 // .claude/settings.json already denies the Read, Edit and Write tools on sap-tests/.env, which
 // holds the SAP passwords. Without this hook `cat sap-tests/.env` still prints them into the
@@ -8,8 +8,8 @@
 // (`cat sap-tests/.e*`), or a search of the whole folder (`grep -r PASSWORD sap-tests`), gets past
 // it. It stops the file being named outright.
 //
-// It cannot tell a file name from a mention of it: a commit message that says ".env" is refused
-// too. The refusal says how to pass such text in a file.
+// It cannot tell a file name from a mention of it: a commit message that says ".env", or a search
+// for `'\.env'`, is refused too. The refusal says how to pass such text in a file.
 //
 // When it cannot decide (unreadable input, an error) it refuses.
 
@@ -18,7 +18,7 @@
  * `.envrc`, `.environment` or `--env-file`. Whatever follows that cannot continue a file name ends
  * it (`.env:`, `.env,`, `.env}`), and the case does not matter (one file on macOS).
  */
-const ENV_FILE = /(?<![A-Za-z0-9_.\\-])\.env((?:\.[A-Za-z0-9_-]+)*)(?![A-Za-z0-9_-])/gi;
+const ENV_FILE = /(?<![A-Za-z0-9_.-])\.env((?:\.[A-Za-z0-9_-]+)*)(?![A-Za-z0-9_-])/gi;
 
 /** Templates and test settings that are checked in (as in app/.gitignore). */
 const CHECKED_IN = new Set(['.example', '.test']);
@@ -31,8 +31,11 @@ const HARMLESS =
 	/^[ \t]*(?:ls(?:[ \t]+-[A-Za-z]+)*|test[ \t]+-[ef]|\[[ \t]+-[ef]|stat|git[ \t]+(?:check-ignore|status|ls-files))(?:[ \t]+[^\s|;&<>`$(){}]+)*(?:[ \t]+\])?(?:[ \t]+2>[ \t]*\/dev\/null)?[ \t]*$/;
 
 function namesEnvFile(command: string): boolean {
-	// `sap-tests/\.env` is the same path to the shell.
-	const text = command.replaceAll(/\/\\+/g, '/');
+	const text = command
+		// `\.env` is the same name to the shell.
+		.replaceAll(/\\+(?=\.env)/gi, '')
+		// An option with the name attached: `grep -f.env`.
+		.replaceAll(/(^|\s)-[A-Za-z]+(?=\.env)/gi, '$1');
 	return [...text.matchAll(ENV_FILE)].some(([, suffix]) => !CHECKED_IN.has(suffix.toLowerCase()));
 }
 
@@ -44,8 +47,9 @@ export function refusal(command: string): string | undefined {
 		'delete it from the shell. The app reads it itself; a person edits it by hand or on the ' +
 		'Settings page. To ask whether it exists, run `ls <path>` or `test -f <path>` as the whole ' +
 		'command (one line, nothing chained; `test` answers with its exit status). If the command ' +
-		'only mentions the name in text (a commit message, a pull request description), write the ' +
-		'text to a file and pass the file (`git commit -F`, `gh pr create --body-file`).'
+		'only mentions the name in text (a commit message, a pull request description, a search ' +
+		'pattern), write the text to a file and pass the file (`git commit -F`, `gh pr create ' +
+		'--body-file`, `grep -f`).'
 	);
 }
 
@@ -71,6 +75,9 @@ export function answer(stdin: string): string | undefined {
 			typeof toolInput === 'object' && toolInput && 'command' in toolInput
 				? toolInput.command
 				: undefined;
+		// A Monitor on a WebSocket runs no shell command.
+		if (typeof toolInput === 'object' && toolInput && 'ws' in toolInput && command === undefined)
+			return undefined;
 	} catch {
 		command = undefined;
 	}
