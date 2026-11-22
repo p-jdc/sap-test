@@ -76,7 +76,7 @@ test('cart demo', async ({ page }) => {
 			id: 'container-cart---checkoutView--creditCardExpirationDate',
 			interaction: { idSuffix: 'inner' }
 		})
-		.press('Enter');
+		.blur();
 	await page
 		.locateUI5Control({
 			id: 'container-cart---checkoutView--creditCardStep-nextButton',

@@ -74,7 +74,7 @@ async function replay(
 		const control = stepLocator(page, step)!;
 		if (step.action === 'click') await control.click({ force: step.force });
 		if (step.action === 'fill') await control.fill(step.value!);
-		if (step.action === 'fill' && step.picker) await control.press('Enter');
+		if (step.action === 'fill' && step.picker) await control.blur();
 		if (step.action === 'press') await control.press(step.key!);
 	}
 	await verify(page);
@@ -243,7 +243,7 @@ test('the written spec: title, login from the environment, no click before a fil
 			`\tawait page.frameLocator('iframe[name="app"]').locator(locateSIDSelector('wnd[0]/tbar[1]/btn[8]')).click();`,
 			`\tawait page.locateUI5Control({ id: 'app--cal', interaction: { idSuffix: '20261208' } }).click({ force: true });`,
 			`\tawait page.locateUI5Control({ id: 'app--date', interaction: { idSuffix: 'inner' } }).fill('Dec 8, 2026');`,
-			`\tawait page.locateUI5Control({ id: 'app--date', interaction: { idSuffix: 'inner' } }).press('Enter');`,
+			`\tawait page.locateUI5Control({ id: 'app--date', interaction: { idSuffix: 'inner' } }).blur();`,
 			`});`,
 			``
 		].join('\n')
@@ -527,6 +527,89 @@ test('a point of a line chart is recorded by its values and replays', async ({
 		await expect
 			.poll(() => selectedInChart(page))
 			.toEqual([`${point?.['Item Category']} / ${point?.measureNames}`]);
+	});
+});
+
+// SAP's date picker sample. Its first field has no value at the start.
+const DATE_PICKER =
+	'https://ui5.sap.com/resources/sap/ui/documentation/sdk/index.html?sap-ui-xx-sample-id=sap.m.sample.DatePicker&sap-ui-xx-sample-lib=sap.m&sap-ui-xx-sample-origin=.&sap-ui-xx-dk-origin=https://ui5.sap.com';
+const firstDateField = (page: Page) => page.locator('[id$="--DP1-inner"]');
+
+/** Opens the first field's calendar, picks `day` of the month shown and returns the new value. */
+async function pickDay(page: Page, day: string) {
+	await clickLikeAPerson(page, page.locator('[id$="--DP1-icon"]'));
+	await clickLikeAPerson(
+		page,
+		page.locator('.sapUiCalItem:not(.sapUiCalItemOtherMonth)').getByText(day, { exact: true })
+	);
+	await expect(page.locator('[id$="--DP1-RP-popover"]')).toBeHidden();
+	return firstDateField(page).inputValue();
+}
+
+// What a test does to the page itself, through UI5: draw the view of the first field again, or
+// set the field to another day of its month, as the app would.
+type Ui5Page = { sap: { ui: { require(name: string): unknown } } };
+const actOnPage = (page: Page, act: 'redraw' | 'setDate') =>
+	page.evaluate((what) => {
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-chained-type-assertions -- UI5's loader is a global of the page
+		const ui5 = (window as unknown as Ui5Page).sap.ui;
+		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- sap/ui/core/Element
+		const elements = ui5.require('sap/ui/core/Element') as {
+			getElementById(id: string): {
+				invalidate(): void;
+				getDateValue(): Date | null;
+				setDateValue(date: Date): void;
+			};
+		};
+		const picker = document.querySelector('[id$="--DP1"]');
+		if (!picker) throw new Error('date field not found');
+		const field = elements.getElementById(picker.id);
+		// The 20th of the month the field shows, so its calendar opens on that month.
+		const shown = field.getDateValue() ?? new Date();
+		if (what === 'setDate') field.setDateValue(new Date(shown.getFullYear(), shown.getMonth(), 20));
+		else elements.getElementById(picker.closest('.sapUiView')!.id).invalidate();
+	}, act);
+
+test('every date picked is recorded: after the view is drawn again and after a cancelled pick', async ({
+	browser
+}, testInfo) => {
+	const picked: string[] = [];
+	const steps = await record(browser, testInfo, { url: DATE_PICKER }, async (page) => {
+		await ui5Started(page);
+		picked.push(await pickDay(page, '10'));
+
+		// The view is drawn again: the field gets a new input element, the control stays.
+		await firstDateField(page).evaluate((input) => input.setAttribute('data-drawn-before', ''));
+		await actOnPage(page, 'redraw');
+		await page.waitForUI5();
+		await expect(firstDateField(page)).not.toHaveAttribute('data-drawn-before');
+		picked.push(await pickDay(page, '12'));
+
+		// The calendar opened and closed without a pick, then the app sets another date itself.
+		await clickLikeAPerson(page, page.locator('[id$="--DP1-icon"]'));
+		await page.keyboard.press('Escape');
+		await expect(page.locator('[id$="--DP1-RP-popover"]')).toBeHidden();
+		// Not while the field has the focus: whatever changes in a focused field counts as typed.
+		await firstDateField(page).blur();
+		await actOnPage(page, 'setDate');
+		// The user picks the date from before again: a change of the field, so a step.
+		picked.push(await pickDay(page, '12'));
+	});
+
+	expect(picked[0]).not.toBe(picked[1]);
+	expect(picked[2]).toBe(picked[1]);
+	const fills = steps.filter((step) => step.action === 'fill');
+	expect(fills.map((step) => step.value)).toEqual(picked);
+	expect(fills.every((step) => step.picker?.endsWith('--DP1'))).toBe(true);
+	expect(needingALook(steps)).toEqual([]);
+	const spec = renderSpec(DATE_PICKER, steps, '../../sap-plugin');
+	expect(spec).not.toContain('-cal');
+	expect(spec).not.toContain('-icon');
+	expect(spec).not.toContain(`press('Enter')`);
+
+	const written = steps.filter((step) => !(step.action === 'click' && step.picker));
+	await replay(browser, { url: DATE_PICKER }, written, async (page) => {
+		await expect(firstDateField(page)).toHaveValue(picked[1] ?? '');
 	});
 });
 

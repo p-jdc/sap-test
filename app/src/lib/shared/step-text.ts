@@ -177,6 +177,8 @@ function actionText(step: FlowStep): string {
 			return `Point at ${target}`;
 		case 'focus':
 			return `Go to ${target}`;
+		case 'blur':
+			return `Leave ${target}`;
 		case 'setInputFiles':
 			return `Upload a file to ${target}`;
 		case 'dragTo':

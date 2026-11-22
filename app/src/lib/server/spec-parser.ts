@@ -48,6 +48,7 @@ const ACTIONS = new Set([
 	'selectOption',
 	'hover',
 	'focus',
+	'blur',
 	'clear',
 	'setInputFiles',
 	'tap',

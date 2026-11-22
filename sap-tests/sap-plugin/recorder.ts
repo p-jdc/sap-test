@@ -446,34 +446,50 @@ function recorderScript(binding: string) {
 	// clicks in the calendar: a day is addressed by its date, which is only on screen while its
 	// month is shown, so a replay on another day would not find it. A click on the field's icon or
 	// in its popup arms the field; its next change event reports the new value as a fill.
-	type Armed = { picker: string; described: Promise<Described>; before: string };
-	const armed = new WeakMap<Element, Armed>();
+	//
+	// Kept per control, not per input element: a view that is drawn again replaces the field's
+	// input, while the control and its change listener stay. Every click in the picker takes the
+	// field's value again, so a pick that was cancelled leaves no stale value behind.
+	type Armed = { field: Editable; described: Promise<Described>; before: string };
+	const armed = new WeakMap<Control, Armed>();
 	const pickerAt = new WeakMap<Element, string>();
 	const listening = new WeakSet<Control>();
+	const fieldOf = (picker: Control) => {
+		const field = picker.getFocusDomRef();
+		return isEditable(field) ? field : undefined;
+	};
 	const armPicker = (target: Element) => {
 		const picker = pickerOf(target);
-		const field = picker?.getFocusDomRef() ?? null;
-		if (!picker || !isEditable(field)) return;
+		const field = picker && fieldOf(picker);
+		if (!picker || !field) return;
 		pickerAt.set(target, picker.getId());
 		// A click into the field itself is typing, recorded as such.
-		if (field.contains(target) || armed.has(field)) return;
-		armed.set(field, { picker: picker.getId(), described: describe(field), before: field.value });
+		if (field.contains(target)) return;
+		const known = armed.get(picker);
+		armed.set(picker, {
+			field,
+			// Described once per input element, before its value changes.
+			described: known?.field === field ? known.described : describe(field),
+			before: field.value
+		});
 		if (listening.has(picker) || !picker.attachChange) return;
 		listening.add(picker);
 		picker.attachChange(() => {
-			const known = armed.get(field);
-			armed.delete(field);
-			if (!known || known.before === field.value) return;
-			const typed = fields.get(field);
-			if (typed) typed.value = field.value;
+			const pick = armed.get(picker);
+			armed.delete(picker);
+			const now = fieldOf(picker);
+			if (!pick || !now || pick.before === now.value) return;
+			const typed = fields.get(now);
+			if (typed) typed.value = now.value;
 			const step = {
 				...next(),
 				action: 'fill',
-				value: field.value,
-				picker: known.picker,
-				hint: hintFor(field)
+				value: now.value,
+				picker: picker.getId(),
+				hint: hintFor(now)
 			};
-			void known.described.then((described) => report({ ...step, ...described }));
+			const described = pick.field === now ? pick.described : describe(now);
+			void described.then((found) => report({ ...step, ...found }));
 		});
 	};
 	const recordTyping = (field: Editable) => {
@@ -484,7 +500,8 @@ function recorderScript(binding: string) {
 		const step = { ...next(), action: 'fill', ...typed, hint: hintFor(field) };
 		known.value = field.value;
 		// Typed by hand: the picker's change that follows is this value, already recorded.
-		armed.delete(field);
+		const picker = pickerOf(field);
+		if (picker) armed.delete(picker);
 		void known.described.then((described) => report({ ...step, ...described }));
 	};
 	// Typing is reported when the field is left. A recording that ends with the cursor still in a
@@ -697,9 +714,11 @@ function stepLines(step: RecordedStep): string[] {
 			`await fillSecret(${locator}, ${PASSWORD_VARIABLE}!);`
 		);
 	else if (step.action === 'fill') lines.push(`await ${locator}.fill(${quote(step.value ?? '')});`);
-	// A date or time field takes a typed value on Enter or when it is left, as the picker's
-	// change did right away. The app may wait for that change (a wizard's next button).
-	if (step.action === 'fill' && step.picker) lines.push(`await ${locator}.press('Enter');`);
+	// A date or time field takes a filled-in value when it is left, as the picker's change did
+	// right away. The app may wait for that change (a wizard's next button). Leaving the field,
+	// not Enter: Enter may do more (start the search of a filter bar), and an Enter the user
+	// pressed is recorded as a step of its own.
+	if (step.action === 'fill' && step.picker) lines.push(`await ${locator}.blur();`);
 	if (step.action === 'press') lines.push(`await ${locator}.press(${quote(step.key ?? '')});`);
 	return lines;
 }
