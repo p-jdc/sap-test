@@ -2,6 +2,7 @@ import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import { recordActivity } from '#lib/server/auth/access.js';
+import { activeHealing } from '#lib/server/healer.js';
 import {
 	activeRunId,
 	getLiveState,
@@ -53,6 +54,10 @@ export const startTestRun = command(
 		headed: z.boolean().optional()
 	}),
 	async (input) => {
+		// The healer runs the test it repairs itself; a run beside it would share the browser's
+		// session and the test results folder.
+		const healing = activeHealing();
+		if (healing) error(409, `The healer is working on "${healing.title}". Wait or stop it first.`);
 		const result = await startRun(input);
 		if (!result.ok) error(409, result.error);
 		await recordActivity(

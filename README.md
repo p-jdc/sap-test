@@ -290,6 +290,8 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `TEST_APP_KEEP_STEPS_DAYS`   | `30`                           | Days a run keeps the steps of its tests and its log                                                                                                                                                                                                                  |
 | `TEST_APP_KEEP_FAILURE_DAYS` | `90`                           | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows                                                                                                                                              |
 | `TEST_APP_RETENTION`         | on                             | `off` never deletes anything from a run                                                                                                                                                                                                                              |
+| `TEST_APP_HEALER`            | off                            | `on` shows "Diagnose with healer" on failed tests (see "The healer in the app"). Sends the test, its error and what the screens show to Anthropic: turn it on once that is approved (guide §9)                                                                       |
+| `TEST_APP_HEALER_BUDGET_USD` | `5`                            | The most one healer session may cost, as the Agent SDK estimates it; it stops there                                                                                                                                                                                  |
 | `PLAYWRIGHT_NODE`            | first `node` on PATH           | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version                                                                                                       |
 | `DEV_PORT`                   | `5180`                         | Port of `bun run dev` (fails if taken instead of moving to another port)                                                                                                                                                                                             |
 | `PREVIEW_PORT`               | `4180`                         | Port of `bun run preview` and of the e2e tests                                                                                                                                                                                                                       |
@@ -446,6 +448,33 @@ healer button in the app uses the Claude Code file only.
 After a Playwright upgrade, run `init-agents` again in a scratch folder (with `--loop=claude`,
 `vscode` and `codex`) and compare: the tool lists in the agent files name tools of that Playwright
 version, and `scripts/agents.ts` follows the other two formats.
+
+#### The healer in the app
+
+With `TEST_APP_HEALER=on`, every failed test of a finished run has a button "Diagnose with healer".
+The app then starts the healer of `.claude/agents/playwright-test-healer.md` through the Claude Agent
+SDK (`src/lib/server/healer.ts`): the same instructions, model and tools as in Claude Code, with
+Playwright's `run-test-mcp-server` in a headless browser. It needs an API key (`ANTHROPIC_API_KEY`)
+or a Claude login on the computer running the app. The run page shows what it does, its closing
+report (the cause, test or application, what it changed) and a diff of every file it changed.
+
+- Its changes stay in the working tree of the app's checkout. Nothing is committed: a person checks
+  that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
+  von:`, and commits, or presses "Discard the repair", which puts back the files as they were
+  before (a file someone changed since is left alone).
+- The app, not only the instructions, limits what it may touch: it reads and searches only in
+  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, and in the
+  `test-results` its MCP server writes at the repository root (never a settings
+  file or the saved sessions in `sap-tests/.auth`), and changes only `.ts` files in
+  `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`, `_reference` and
+  `_agents`. It has no shell. No settings, hooks or MCP servers of Claude Code's configuration
+  apply.
+- The passwords go to the MCP server, which signs in as a run does; the model process does not get
+  them, and the report and the activity list are masked like a run's log. Through
+  `browser_run_code_unsafe` the healer runs code in the test process, as in Claude Code.
+- One healer at a time, and not during a run (a run waits for the healer as well). Its report is
+  kept with the run (`healer/` in the run's folder) and removed with the run's log under the
+  retention rules.
 
 ## Development
 

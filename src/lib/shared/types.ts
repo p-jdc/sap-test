@@ -247,3 +247,35 @@ export interface EnvStatus {
 	/** The Node that runs Playwright; `warning` is set when it is not the supported major. */
 	node: { path: string; version: string | null; warning: string | null };
 }
+
+/** A file the healer changed, as a unified diff against what it was before. */
+interface HealerChange {
+	/** Relative to the repository root, e.g. sap-tests/tests/fiori/a.spec.ts. */
+	file: string;
+	diff: string;
+}
+
+/**
+ * The healer (.claude/agents/playwright-test-healer.md) working on one failed test of a run, or
+ * what it found. Its changes stay in the working tree for a person to review.
+ */
+export interface HealerState {
+	runId: string;
+	testId: string;
+	title: string;
+	/** The test as Playwright locates it, relative to sap-tests/tests: `<file>:<line>`. */
+	location: string;
+	status: 'running' | 'finished' | 'failed' | 'stopped';
+	startedAt: string;
+	finishedAt?: string;
+	/** What it did, one line per tool call. */
+	activity: string[];
+	/** Its closing report: the cause, test or application, what it changed, the last result. */
+	report?: string;
+	error?: string;
+	changes: HealerChange[];
+	/** The changes were undone from this app. */
+	discarded?: boolean;
+	/** The estimated cost of the model calls, in US dollars. */
+	costUsd?: number;
+}

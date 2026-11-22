@@ -457,7 +457,11 @@ export function applyRetention(
 		}
 		if (decision.details !== 'all' && !r.detailsRemovedAt) {
 			if (removeDetails(r.id, decision.details)) touched = true;
-			if (!decision.log) rmSync(join(dir, 'output.log'), { force: true });
+			if (!decision.log) {
+				rmSync(join(dir, 'output.log'), { force: true });
+				// The healer's reports quote the error messages and the test code.
+				rmSync(join(dir, 'healer'), { recursive: true, force: true });
+			}
 			// Nothing left to remove later: the run is not read again.
 			if (decision.details.size === 0 && !decision.log) {
 				set.detailsRemovedAt = new Date(now);
