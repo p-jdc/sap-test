@@ -57,6 +57,20 @@ export function withPluginImport(source: string, specFile: string): string {
 	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
 }
 
+const RECORDED_SESSION = /^[ \t]*storageState: '(?:[^'\\\n]|\\.)*',?[ \t]*\n/m;
+const EMPTY_USE = /^test\.use\(\{\s*\}\);\n+/m;
+
+/**
+ * Codegen started with `--load-storage <file>` writes `test.use({ storageState: '<file>' })` into
+ * the spec. That absolute path exists only on this machine, and the line would replace the
+ * session the system's project gives each test (sap-plugin's storageState fixture). Returns the
+ * spec without it.
+ */
+export function withoutRecordedSession(source: string): string {
+	const without = source.replace(RECORDED_SESSION, '');
+	return without === source ? source : without.replace(EMPTY_USE, '');
+}
+
 export type Invocation = {
 	cmd: string;
 	args: string[];
@@ -148,8 +162,12 @@ export function recorderInvocation(
 	const codegen = ['codegen', url, '--target', 'playwright-test', '-o', 'tests/' + file];
 	if (input.recorder === 'web') {
 		// Starting signed in keeps the sign-in out of the recording: codegen writes what is typed
-		// into a password field into the spec as it is.
-		const session = savedSession(system.id);
+		// into a password field into the spec as it is. The session goes only to a recording that
+		// starts on the system's own address: its browser would otherwise open a page of the
+		// caller's choosing signed in to the system.
+		const home = env[urlVar];
+		const onSystem = !!home && sameOrigin(url, home) && allowsCredentials(url);
+		const session = onSystem ? savedSession(system.id) : undefined;
 		return {
 			...playwrightCommand(session ? [...codegen, '--load-storage', session] : codegen),
 			// The recorder gets no password, only the session.
@@ -175,7 +193,7 @@ export function recorderInvocation(
 function webSessionNote(title: string, invocation: Invocation): string {
 	if (invocation.session)
 		return `Starting with the session the last test run saved for ${title}. If it has expired, the page asks you to sign in: delete those steps from the test afterwards.`;
-	return `No saved session for ${title}: sign in in the browser window, then delete the sign-in steps from the test. A test run of ${title} saves a session for the next recording.`;
+	return `Starting signed out (no saved session for ${title}, or a start page on another host): sign in in the browser window, then delete the sign-in steps from the test. A test run of ${title} saves a session for the next recording.`;
 }
 
 /**
@@ -310,7 +328,11 @@ export async function startRecording(
 		proc = null;
 		for (const lines of outputs) lines.flush();
 		const saved = existsSync(full);
-		if (saved) writeFileSync(full, withPluginImport(readFileSync(full, 'utf8'), full));
+		if (saved)
+			writeFileSync(
+				full,
+				withPluginImport(withoutRecordedSession(readFileSync(full, 'utf8')), full)
+			);
 		state = {
 			...state,
 			status: saved ? 'saved' : 'error',
