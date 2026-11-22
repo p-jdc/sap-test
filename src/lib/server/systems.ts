@@ -7,7 +7,7 @@ import {
 	parseSystems,
 	systemOfFile,
 	type SignInSystem
-} from '../../../../sap-tests/sap-plugin/systems-schema.js';
+} from '../../../sap-tests/sap-plugin/systems-schema.js';
 import { TESTS_ROOT } from './paths.js';
 import type { RecordTarget, SettingName, SignInSystemInfo } from '#lib/shared/types.js';
 

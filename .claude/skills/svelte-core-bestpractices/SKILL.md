@@ -88,7 +88,7 @@ that is what `$derived` is for. Writing state inside an effect is the single mos
 
 ## Async Svelte — enabled in this repo
 
-`compilerOptions.experimental.async` is `true` in `app/vite.config.ts`, so `await` in components is
+`compilerOptions.experimental.async` is `true` in `vite.config.ts`, so `await` in components is
 live here. Two traps the reference app has already hit:
 
 - **Never `await` inside the reactive graph on a streaming-hot path**. A `$derived(await …)`

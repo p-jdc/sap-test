@@ -18,7 +18,7 @@ import {
 	watchIdoc
 } from './idoc.js';
 import { importedPackages, missingPackages } from './mfs.js';
-import { TESTS_ROOT } from './paths.js';
+import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 /** Reads the live view until a snapshot passes `check`. Leaving the loop closes the live view. */
 async function waitFor(
@@ -85,7 +85,7 @@ afterEach(async () => {
 
 describe('IDoc receiver', () => {
 	test('its packages are installed by the setup', () => {
-		expect(missingPackages(TESTS_ROOT, importedPackages(`${TESTS_ROOT}/idoc`))).toEqual([]);
+		expect(missingPackages(PACKAGES_DIR, importedPackages(`${TESTS_ROOT}/idoc`))).toEqual([]);
 	});
 
 	test('lists the samples of sap-tests/idoc, described by their comment', () => {

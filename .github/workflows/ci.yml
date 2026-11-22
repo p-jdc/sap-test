@@ -12,16 +12,15 @@ concurrency:
 permissions:
   contents: read
 
-# The Playwright-SAP fork (Playwright 1.53, sap-tests/recorder) cannot install browsers on newer
-# Ubuntu releases. It is used for recording only and is not installed here, so CI needs no pin.
+# One install at the repository root serves both jobs: the app at the root and the SAP test project
+# in sap-tests/ share package.json and bun.lock. The Playwright-SAP fork (Playwright 1.53, installed
+# as playwright-sap-recorder) cannot install browsers on newer Ubuntu releases. It records WebGUI
+# only, so CI installs no browser for it.
 jobs:
   sap-tests:
-    name: sap-tests (types, lint, format, spec discovery, plugin tests, API tests on mock)
+    name: sap-tests (types, spec discovery, plugin, Mock PLC, IDoc and API tests on mocks)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: sap-tests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Node runs Playwright (the CLI's shebang); Bun only installs and runs scripts.
@@ -34,12 +33,10 @@ jobs:
       - run: bun install --frozen-lockfile
       # The hook that keeps Claude Code's shell commands away from .env files.
       - run: bun test ./.claude/hooks/guard-dotenv.test.ts
-        working-directory: .
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run format:check
+      - run: bunx tsc -p sap-tests --noEmit
+      # Linting and formatting of sap-tests run in the app job, which lints the whole repository.
       # Loads every spec without running it: catches syntax and import errors in recorded flows. The SAP flows themselves need a test system (not in CI).
-      - run: bunx playwright test --list
+      - run: bun run test:sap:list
       # The OData tests against the local mock of their services (odata/mock). No browser needed;
       # `bun install` above has generated the clients.
       - run: bun run test:api:mock
@@ -66,7 +63,7 @@ jobs:
           retention-days: 7
 
   app:
-    name: app (check, lint, unit, e2e)
+    name: app (check, lint of everything, unit, e2e)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -79,27 +76,19 @@ jobs:
         with:
           bun-version: 1.4.4
 
-      # The e2e suite starts a real run of the offline _demo tests through the app,
-      # so sap-tests and its browser are needed here too.
-      - name: Install sap-tests
-        working-directory: sap-tests
-        run: |
-          bun install --frozen-lockfile
-          bunx playwright install --with-deps chromium
-
-      - name: Install app
-        working-directory: app
+      # One install for the app and sap-tests: the e2e suite starts a real run of the offline _demo
+      # tests through the app.
+      - name: Install
         run: |
           bun install --frozen-lockfile
           bunx playwright install --with-deps chromium
 
       - name: Type check
-        working-directory: app
         run: bun run check
       # One step per tool, like `bun run lint`, but every tool runs and each failure is its own
-      # log group. Runs after the type check: oxlint --type-aware needs .svelte-kit/types.
+      # log group. Runs after the type check: oxlint --type-aware needs .svelte-kit/types. It lints
+      # the app and sap-tests (sap-tests/.oxlintrc.json for the files there).
       - name: Lint
-        working-directory: app
         run: |
           fail=0
           echo "::group::oxlint (type-aware)"; bunx oxlint --type-aware --deny-warnings || fail=1; echo "::endgroup::"
@@ -109,10 +98,8 @@ jobs:
           echo "::group::eslint";              bunx eslint .                            || fail=1; echo "::endgroup::"
           exit $fail
       - name: Unit and component tests
-        working-directory: app
         run: bun run test
       - name: End-to-end tests
-        working-directory: app
         run: bun run test:e2e
 
       - name: Upload e2e report
@@ -121,6 +108,6 @@ jobs:
         with:
           name: app-e2e-report
           path: |
-            app/playwright-report/
-            app/test-results/
+            playwright-report/
+            test-results/
           retention-days: 7

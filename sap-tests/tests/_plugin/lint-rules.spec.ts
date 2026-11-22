@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '../../sap-plugin';
 
-const root = join(__dirname, '..', '..');
+const root = join(import.meta.dirname, '..', '..');
 const fixtures = join('tools', 'oxlint', 'sap-rules', 'fixtures');
 
 interface Diagnostic {
@@ -19,7 +19,7 @@ interface Diagnostic {
 /** What oxlint prints. It exits with 1 when it reports errors, which is the point here. */
 function oxlint(args: string[]): string {
 	try {
-		return execFileSync(join(root, 'node_modules', '.bin', 'oxlint'), args, {
+		return execFileSync(join(root, '..', 'node_modules', '.bin', 'oxlint'), args, {
 			cwd: root,
 			encoding: 'utf8'
 		});

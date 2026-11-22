@@ -14,7 +14,9 @@ import { must } from '../../test/must.js';
 import { copySystems } from '../../test/systems.js';
 
 async function recorderWith(envFile: string, systemsJson?: string) {
-	const dir = mkdtempSync(join(tmpdir(), 'recorder-'));
+	// A stand-in project: the test project in sap-tests/, the install next to it.
+	const dir = join(mkdtempSync(join(tmpdir(), 'recorder-')), 'sap-tests');
+	mkdirSync(dir);
 	writeFileSync(join(dir, '.env'), envFile);
 	if (systemsJson) writeFileSync(join(dir, 'systems.json'), systemsJson);
 	else copySystems(dir);
@@ -40,7 +42,7 @@ const BLANK = {
 const SAP = `SAP_URL=https://sap.example.com/fiori\nSAP_USERNAME=U\nSAP_PASSWORD=P\n`;
 
 /** This repository's wrapper around the fork's CLI, which the stand-in test projects get a copy of. */
-const CODEGEN_WRAPPER = resolve(import.meta.dirname, '../../../../sap-tests/recorder/codegen.cjs');
+const CODEGEN_WRAPPER = resolve(import.meta.dirname, '../../../sap-tests/recorder/codegen.cjs');
 
 beforeEach(() => {
 	vi.unstubAllEnvs();
@@ -150,9 +152,10 @@ type Recorder = Awaited<ReturnType<typeof recorderWith>>['recorder'];
 
 async function installedRecorder(mode: 'save' | 'empty' | 'hang' | 'stuck') {
 	const made = await recorderWith(SAP);
-	const pkg = join(made.dir, 'recorder/node_modules/@playwright/test');
+	const pkg = join(made.dir, '../node_modules/playwright-sap-recorder');
 	mkdirSync(pkg, { recursive: true });
 	writeFileSync(join(pkg, 'cli.js'), FAKE_RECORDER);
+	mkdirSync(join(made.dir, 'recorder'), { recursive: true });
 	copyFileSync(CODEGEN_WRAPPER, join(made.dir, 'recorder/codegen.cjs'));
 	mkdirSync(join(made.dir, 'sap-plugin'), { recursive: true });
 	writeFileSync(join(made.dir, 'sap-plugin/record.mjs'), FAKE_UI5_RECORDER);
@@ -356,7 +359,7 @@ describe('recorderInvocation', () => {
 
 	test('WebGUI records with the Playwright-SAP recorder, the password not on its command line', async () => {
 		const { dir, recorder, systems, system } = await recorderWith(SAP);
-		const fork = join(dir, 'recorder', 'node_modules', '@playwright', 'test');
+		const fork = join(dir, '..', 'node_modules', 'playwright-sap-recorder');
 		const webgui = recorder.recorderInvocation(
 			{ recorder: 'webgui', name: 'x' },
 			system('sap'),
@@ -387,7 +390,7 @@ describe('recorderInvocation', () => {
 		);
 		// Ariba records with stock Playwright's codegen, not the fork.
 		expect(ariba.args).toEqual([
-			join(dir, 'node_modules', '@playwright', 'test', 'cli.js'),
+			join(dir, '..', 'node_modules', '@playwright', 'test', 'cli.js'),
 			'codegen',
 			'https://ariba.example.com',
 			'--target',
@@ -395,7 +398,7 @@ describe('recorderInvocation', () => {
 			'-o',
 			'tests/ariba/x.spec.ts'
 		]);
-		expect(ariba.needs.path).toBe(join(dir, 'node_modules', '@playwright', 'test'));
+		expect(ariba.needs.path).toBe(join(dir, '..', 'node_modules', '@playwright', 'test'));
 		// A person signs in to Ariba: its recorder gets no password, not even Ariba's.
 		expect(ariba.env).toEqual(BLANK);
 	});

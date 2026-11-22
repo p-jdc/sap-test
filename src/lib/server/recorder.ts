@@ -14,7 +14,7 @@ import {
 	UI5_RECORDER,
 	ui5RecorderCommand
 } from './node-cli.js';
-import { TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
+import { PACKAGES_DIR, TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
 import { API_SYSTEM, readSystems } from './systems.js';
 import type { RecordTarget, SignInSystemInfo } from '#lib/shared/types.js';
 
@@ -130,7 +130,7 @@ export function recorderInvocation(
 			env: blank,
 			needs: {
 				path: PLAYWRIGHT_PACKAGE,
-				hint: `Playwright is not installed in ${TESTS_ROOT}. Run "bun run setup" in the repo root.`
+				hint: `Playwright is not installed in ${PACKAGES_DIR}. Run "bun run setup" in the repo root.`
 			}
 		};
 	return {
@@ -138,7 +138,7 @@ export function recorderInvocation(
 		env: { ...blank, SAP_USERNAME: env[user] ?? '', SAP_PASSWORD: env[password] ?? '' },
 		needs: {
 			path: RECORDER_PACKAGE,
-			hint: `The recorder is not installed in ${TESTS_ROOT}/recorder. Run "bun run setup" in the repo root.`
+			hint: `The WebGUI recorder (Playwright-SAP) is not installed in ${PACKAGES_DIR}. Run "bun run setup" in the repo root.`
 		}
 	};
 }

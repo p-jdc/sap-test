@@ -6,13 +6,26 @@ shows them as step flows, streams runs live, and tracks the pilot's exit criteri
 
 ```
 sap-test/
-├── app/          SvelteKit 3 + Bun + UI5 Web Components – the Test-App
-└── sap-tests/    SAP test project (guide §4), driven by the app
+├── src/, static/     The Test-App: SvelteKit 3 + Bun + UI5 Web Components
+├── tests/            The app's own browser tests (Playwright)
+├── reporter/         Playwright reporter the app adds to every run (live steps)
+├── drizzle/          Migrations of the app's database
+├── scripts/          setup-cert, pregate
+├── package.json      One install for everything (bun.lock next to it)
+└── sap-tests/        SAP test project (guide §4), driven by the app
+    ├── tests/, helpers/, setup/, specs/, systems.json
     ├── sap-plugin/   SAP locators for stock Playwright (ported from Playwright-SAP),
-    │                 plus OData fixtures (sap-plugin/odata.ts)
-    ├── odata/        Service metadata and the typed OData clients generated from it
-    └── recorder/     Playwright-SAP fork, used for recording only
+    │                 plus OData, Mock PLC and IDoc fixtures, and the UI5 recorder
+    ├── odata/        Service metadata, the typed OData clients generated from it, and a mock
+    ├── mfs/, idoc/   Mock PLC and IDoc receiver
+    └── recorder/     Starts the Playwright-SAP fork, used to record WebGUI only
 ```
+
+The app sits at the root, as a SvelteKit project does. The SAP test project in `sap-tests/` has no
+install of its own: both share the root `package.json`, one `bun.lock` and one `node_modules`, so
+`bun install` at the root installs everything. The Playwright-SAP fork is a dependency under its own
+name, `playwright-sap-recorder`, so it does not clash with stock Playwright. Only the Svelte MCP
+server for Claude Code keeps a separate install (`.claude/mcp`, see below).
 
 The tests run on stock Playwright. `sap-tests/sap-plugin` adds the SAP locators of the
 [Playwright-SAP](https://github.com/ArpitSureka/playwright-sap) fork to it (`page.getByRoleUI5`,
@@ -114,9 +127,9 @@ SAP: `fiori/demokit`). A recorder gets only the chosen system's login; every oth
 and password are blanked in its environment.
 
 A trace still holds the session cookies, which are valid until the SAP session ends. Treat
-`app/.data/runs` and `sap-tests/.auth` as secret.
+`.data/runs` and `sap-tests/.auth` as secret.
 
-The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
+The fork itself (Playwright 1.53) is installed as `playwright-sap-recorder` and used for recording
 WebGUI only, because its codegen is what writes SID locators and the plugin's recorder has not been
 tried on a real WebGUI system. Systems that do not sign in with SAP's login, such as Ariba, record
 with stock Playwright's codegen: their tests use standard locators. The app starts the matching
@@ -144,8 +157,8 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Settings | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 
 The run history (each run and the result and steps of each test) is kept in the app's database,
-`app/.data/app.sqlite`, next to sign-in. The log, HTML report, screenshots, videos and traces of a
-run stay files in `app/.data/runs/<id>/`. Runs kept in files by an earlier version
+`.data/app.sqlite`, next to sign-in. The log, HTML report, screenshots, videos and traces of a
+run stay files in `.data/runs/<id>/`. Runs kept in files by an earlier version
 (`state.json`, `meta.json`) move into the database at the first start, and those files are
 deleted (the retention rules delete steps and error messages in the database only). An earlier
 version started afterwards shows no runs: it reads only those files. What retention deletes is
@@ -170,7 +183,7 @@ while it extracts the browser.
 Run everything from the repo root:
 
 ```bash
-bun run setup          # installs app/ and sap-tests/ plus both Chromium builds
+bun run setup          # installs everything (one bun install) plus both Chromium builds
 cp sap-tests/.env.example sap-tests/.env   # optional: SAP_URL / SAP_USERNAME / SAP_PASSWORD; or enter them on the Settings page
 bun run setup:cert     # optional, once: HTTPS + HTTP/2 via mkcert (brew install mkcert)
 bun run dev            # https://localhost:5180 with a cert, otherwise http://localhost:5180
@@ -178,28 +191,30 @@ bun run dev            # https://localhost:5180 with a cert, otherwise http://lo
 
 HTTPS is there for HTTP/2, not for security: each live run or flow view holds a streaming request
 open, and HTTP/1.1 allows only six connections per host, so a few open tabs stall the app. With
-`app/cert/` present, `dev`, `preview` and `start` serve HTTPS + HTTP/2 (`start` through a small patch
-to `@sveltejs/adapter-bun`, `app/patches/`, the same approach as the reference app). Without it, or with
+`cert/` present, `dev`, `preview` and `start` serve HTTPS + HTTP/2 (`start` through a small patch
+to `@sveltejs/adapter-bun`, `patches/`, the same approach as the reference app). Without it, or with
 `DEV_HTTP=1` (e2e tests, CI), they stay on plain HTTP.
 
 | Root script | Does |
 | --- | --- |
-| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `app/cert/` exists) |
-| `setup:cert` | Creates `app/cert/` with mkcert (trusted local certificate for localhost) |
+| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `cert/` exists) |
+| `setup:cert` | Creates `cert/` with mkcert (trusted local certificate for localhost) |
 | `check` | svelte-check for the app, `tsc` for sap-tests |
-| `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint for the app, oxlint/oxfmt for sap-tests |
+| `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint, one run for the app and sap-tests (oxlint takes `sap-tests/.oxlintrc.json` for the files there) |
 | `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
-| `test:coverage` | Vitest with v8 coverage of `app/src/lib` (text summary + HTML in `app/coverage/`) |
+| `test:coverage` | Vitest with v8 coverage of `src/lib` (text summary + HTML in `coverage/`) |
 | `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
-| `codegen`, `report` | Playwright-SAP recorder (from `sap-tests/recorder`) and HTML report |
+| `test:plugin`, `test:mfs`, `test:idoc`, `test:api:mock`, `test:demokit` | The sap-tests suites that need no SAP system (plugin, Mock PLC, IDoc receiver, OData mock, UI5 demo kit) |
+| `codegen`, `report` | Playwright-SAP recorder (WebGUI) and HTML report of the last SAP run |
+| `odata:fetch`, `odata:generate`, `mfs:server`, `mfs:demo`, `idoc:server`, `idoc:certs` | sap-tests tools, see their sections |
 | `record` | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save |
 | `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
 | `pregate` | Every mechanical check before a pull request, short of the e2e tests: types, lint and format side by side (all failures in one round), then the app's unit tests and the sap-tests suites that need no SAP system. About five minutes; `bun run pregate --only static` for the first part alone |
 | `ci` | Everything CI runs, in order |
 | `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
 
-The root is deliberately not a workspace: `sap-tests/recorder` holds the fork aliased as
-`@playwright/test`, and separate dependency trees keep it from colliding with stock Playwright.
+The SAP scripts change into `sap-tests/` before they start Playwright, so its config, `.env` and
+`.auth` are found as before. Run every script from the root; `sap-tests/` has no `package.json`.
 
 ### OData API tests
 
@@ -235,11 +250,10 @@ against SAP's business logic, so a pass on the mock does not replace a run on a 
 To add or update a service:
 
 ```bash
-cd sap-tests
-# new service: put its $metadata into odata/metadata/<NAME>.edmx
+# new service: put its $metadata into sap-tests/odata/metadata/<NAME>.edmx
 bun run odata:fetch      # refreshes every odata/metadata/*.edmx from SAP_API_URL
 bun run odata:generate   # regenerates odata/clients (also writes odata/metadata/options-per-service.json)
-bun run typecheck        # tests that use a changed or removed field fail here
+bun run check            # tests that use a changed or removed field fail here
 ```
 
 Commit the metadata: its diff shows the change to the interface in review. The generated clients
@@ -285,8 +299,8 @@ People sign in with a passkey (Touch ID, Windows Hello, a phone or a security ke
 passwords. Users, sessions and passkeys are kept by [Better Auth](https://better-auth.com) in the
 app's database, `<data dir>/app.sqlite` (Bun's built-in SQLite through
 [Drizzle](https://orm.drizzle.team)), readable by this user only. Its schema is in
-`app/src/lib/server/db`; `bun run db:generate` turns a change there into a migration in
-`app/drizzle`, which the app applies when it starts.
+`src/lib/server/db`; `bun run db:generate` turns a change there into a migration in
+`drizzle/`, which the app applies when it starts.
 
 - **First admin.** While nobody is registered, the server logs a one-time link
   (`/signin?setup=…`). Whoever opens it registers a passkey and becomes the admin. On a cluster,
@@ -378,8 +392,7 @@ in the three files name tools of that Playwright version.
 ## Development
 
 ```bash
-cd app
-bun run check      # svelte-check
+bun run check      # svelte-check for the app, tsc for sap-tests
 bun run test       # Vitest, two projects (like the reference app):
                    #   server – on Bun, like the app (Bun's SQLite): spec parser, guide rules,
                    #            run overlay, run history. Never touches this computer's
@@ -398,7 +411,7 @@ bun run format     # oxfmt + prettier for .svelte
 
 Same layout as the reference app, but stricter:
 
-- **oxlint** (`app/.oxlintrc.json`) does almost all linting, type-aware through `oxlint-tsgolint`,
+- **oxlint** (`.oxlintrc.json`) does almost all linting, type-aware through `oxlint-tsgolint`,
   with Svelte rules from `@rsvelte/oxlint-plugin`. Instead of a hand-picked rule list, the whole
   `correctness`, `suspicious`, `perf` and `pedantic` categories are errors, and the scripts run with
   `--deny-warnings`, so the app stays at zero findings. The few pedantic rules that do not fit are
@@ -467,7 +480,7 @@ README there lists them and where each came from.
 
 ### Notes
 
-- SSR is off (`app/src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
+- SSR is off (`src/routes/+layout.ts`): UI5 Web Components need `window`/`customElements` at
   import time and have no server renderer. Remote functions and `+server` routes still run on the server.
 - UI5 loads its "72" font from a CDN by default; behind a strict proxy the app falls back to system fonts.
 - Bun installs everything. Stock Playwright runs on Bun 1.4 (the app's own Playwright 1.63 lists and
@@ -475,10 +488,11 @@ README there lists them and where each came from.
   it exits 0 without loading any test. The app therefore starts both Playwright CLIs with the first
   real `node` on PATH (`PLAYWRIGHT_NODE` overrides). `sap-tests` moved to stock Playwright after this
   was observed; whether its suite also runs on Bun alone has not been tried.
-- `sap-tests/package.json` deliberately has no `"type": "module"`. As ES modules the specs go through
-  Playwright's loader thread, and on newer Node (seen on 26 with the fork) its source maps arrive after the spec has
-  run, so Playwright reports the transpiled line numbers. `file:line` runs then find no tests and the
-  flow overlay matches the wrong steps. Loaded as CommonJS the source maps are set in-process.
+- The specs load as ES modules (the root `package.json` has `"type": "module"`). They were kept as
+  CommonJS before: with the fork running the tests, on Node 26, Playwright reported the transpiled
+  line numbers, so `file:line` runs found no tests and the flow overlay matched the wrong steps. On
+  stock Playwright 1.63 and Node 26 test and step lines come out right (checked when the app moved
+  to the root). If they go wrong again, that is the cause.
 - The Playwright-SAP recorder takes the SAP login only as `codegen --sap-login <user> <password>`,
   and a command line can be read by every user of the machine. So it runs behind
   `sap-tests/recorder/codegen.cjs`: with `--sap-login-from-env` it reads `SAP_USERNAME` and

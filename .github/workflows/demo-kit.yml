@@ -22,9 +22,7 @@ jobs:
     name: sap-tests (Fiori flows on the UI5 demo kit)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: sap-tests
+    # One install at the repository root, shared with the app; the script runs the tests in sap-tests/.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Node runs Playwright (the CLI's shebang); Bun only installs and runs scripts.

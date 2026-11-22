@@ -1,5 +1,0 @@
-{
-	"//": "Lets Node load these TypeScript files as ES modules when oxlint imports the plugin.",
-	"private": true,
-	"type": "module"
-}

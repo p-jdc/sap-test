@@ -662,8 +662,8 @@ test('the recorder command writes the spec in the project format', async () => {
 		expect(spec).toContain(`.fill('Screen clean')`);
 		const check = spawnSync(
 			process.execPath,
-			[join(root, 'node_modules/oxfmt/bin/oxfmt'), '--check', output],
-			{ cwd: root, encoding: 'utf8' }
+			[join(root, '..', 'node_modules/oxfmt/bin/oxfmt'), '--check', output],
+			{ cwd: join(root, '..'), encoding: 'utf8' }
 		);
 		expect(check.stdout + check.stderr).toContain('All matched files use the correct format');
 		expect(check.status).toBe(0);

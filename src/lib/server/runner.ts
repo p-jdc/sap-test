@@ -1,11 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { runSettings } from './env-file.js';
 import { idocTestEnv } from './idoc.js';
 import { lineSplitter } from './lines.js';
-import { childEnv, playwrightCommand } from './node-cli.js';
-import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
+import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
+import { LIVE_REPORTER, PACKAGES_DIR, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
 import { redactor } from './redact.js';
 import { systemsProblem } from './systems.js';
 import {
@@ -82,10 +82,10 @@ export async function startRun(
 	// reach the run state, the log or the UI that way.
 	const redact = redactor(settings.secrets);
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
-	if (!existsSync(resolve(TESTS_ROOT, 'node_modules/@playwright/test'))) {
+	if (!existsSync(PLAYWRIGHT_PACKAGE)) {
 		return {
 			ok: false,
-			error: `Playwright is not installed in ${TESTS_ROOT}. Run "bun run setup" in the repo root.`
+			error: `Playwright is not installed in ${PACKAGES_DIR}. Run "bun run setup" in the repo root.`
 		};
 	}
 	const files = (input.files ?? []).filter((f) => {

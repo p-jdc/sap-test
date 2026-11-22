@@ -23,7 +23,7 @@ import {
 import { lineSplitter } from './lines.js';
 import { importedPackages, missingPackages } from './mfs.js';
 import { childEnv } from './node-cli.js';
-import { TESTS_ROOT } from './paths.js';
+import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 const IDOC_DIR = resolve(TESTS_ROOT, 'idoc');
 const SAMPLES_DIR = resolve(IDOC_DIR, 'samples');
@@ -103,10 +103,10 @@ export async function startReceiver(): Promise<void> {
 async function launch(): Promise<void> {
 	if (externalUrl()) throw new Error('The receiver is managed elsewhere (IDOC_HUB_URL).');
 	if (running) throw new Error('The receiver is already running.');
-	const missing = missingPackages(TESTS_ROOT, importedPackages(IDOC_DIR));
+	const missing = missingPackages(PACKAGES_DIR, importedPackages(IDOC_DIR));
 	if (missing.length > 0)
 		throw new Error(
-			`The receiver needs ${missing.join(', ')} in ${TESTS_ROOT}, which ${missing.length === 1 ? 'is' : 'are'} not installed. ${SETUP_HINT}`
+			`The receiver needs ${missing.join(', ')} in ${PACKAGES_DIR}, which ${missing.length === 1 ? 'is' : 'are'} not installed. ${SETUP_HINT}`
 		);
 	lastError = undefined;
 	const token = randomBytes(24).toString('hex');

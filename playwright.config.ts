@@ -1,11 +1,11 @@
 import { defineConfig } from '@playwright/test';
 
-// The app's own end-to-end tests (not the SAP suite in ../sap-tests). They build and preview the
+// The app's own end-to-end tests (not the SAP suite in sap-tests/). They build and preview the
 // app, then drive it like a user, including a real run of the offline _demo tests.
 const executablePath = process.env.CHROMIUM_PATH || undefined;
 
 export default defineConfig({
-	testDir: 'e2e',
+	testDir: 'tests',
 	timeout: 60_000,
 	// CI uploads the HTML report as an artifact when the job fails.
 	reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
@@ -34,7 +34,7 @@ export default defineConfig({
 			}
 		},
 		{
-			// The same build with sign-in on (e2e/sign-in.test.ts), from an empty data directory.
+			// The same build with sign-in on (tests/sign-in.test.ts), from an empty data directory.
 			// Waits for the first server, which builds.
 			command:
 				'rm -rf .data-e2e-auth && until curl -sf -o /dev/null http://localhost:4180/; do sleep 1; done && bun run preview',

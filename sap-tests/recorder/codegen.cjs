@@ -1,4 +1,4 @@
-// Starts the Playwright-SAP recorder (node_modules/@playwright/test/cli.js) with the SAP login taken
+// Starts the Playwright-SAP recorder (node_modules/playwright-sap-recorder/cli.js) with the SAP login taken
 // from the environment instead of the command line. The fork only takes the credentials as
 // `--sap-login <user> <password>`, and a command line can be read by every user of the machine
 // (`ps`) while the recording runs. Here the flag `--sap-login-from-env` stands in for it: this
@@ -23,7 +23,7 @@ const loopback = (name) =>
 const at = process.argv.indexOf(FLAG);
 if (at !== -1) {
 	try {
-		require('../node_modules/dotenv').config({
+		require('../../node_modules/dotenv').config({
 			path: path.resolve(__dirname, '../.env'),
 			quiet: true
 		});
@@ -56,4 +56,4 @@ if (at !== -1) {
 }
 
 // oxlint-disable-next-line import/no-unassigned-import -- the fork's CLI parses process.argv as it loads
-require('./node_modules/@playwright/test/cli.js');
+require('../../node_modules/playwright-sap-recorder/cli.js');

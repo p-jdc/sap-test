@@ -4,7 +4,7 @@
 import { buildSync } from 'esbuild';
 import { resolve } from 'node:path';
 
-const VENDOR = resolve(__dirname, 'vendor/playwright-sap');
+const VENDOR = resolve(import.meta.dirname, 'vendor/playwright-sap');
 
 /**
  * Engine names as registered with Playwright. Stock Playwright allows no colon in a custom engine
@@ -18,7 +18,7 @@ export const ENGINE_NAMES = ['ui5role', 'ui5xpath', 'sid'] as const;
 /** Source of one engine: an expression that evaluates to `{ queryAll }` inside the page. */
 export function engineSource(name: keyof typeof ENGINES): string {
 	const result = buildSync({
-		entryPoints: [resolve(__dirname, 'entries', name + '.ts')],
+		entryPoints: [resolve(import.meta.dirname, 'entries', name + '.ts')],
 		bundle: true,
 		write: false,
 		format: 'iife',

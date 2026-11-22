@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
-import { TESTS_ROOT } from './paths.js';
+import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 /**
  * Playwright (and the Playwright-SAP recorder) must run on Node. When the app runs under `bun --bun`,
@@ -77,20 +77,21 @@ export function playwrightNode(): PlaywrightNode {
 	return checked;
 }
 
-/** Stock Playwright in sap-tests: runs the tests, and records Ariba and other web pages. */
-export const PLAYWRIGHT_PACKAGE = resolve(TESTS_ROOT, 'node_modules/@playwright/test');
+/** Stock Playwright: runs the SAP tests, and records Ariba and other web pages. */
+export const PLAYWRIGHT_PACKAGE = resolve(PACKAGES_DIR, '@playwright/test');
 
-/** `node <sap-tests>/node_modules/@playwright/test/cli.js <args>` */
+/** `node node_modules/@playwright/test/cli.js <args>` */
 export function playwrightCommand(args: string[]): { cmd: string; args: string[] } {
 	return { cmd: realNode(), args: [resolve(PLAYWRIGHT_PACKAGE, 'cli.js'), ...args] };
 }
 
 /**
- * Where the Playwright-SAP fork is installed. It records WebGUI only: its codegen signs in to SAP
+ * Where the Playwright-SAP fork is installed, under its own name so it does not clash with stock
+ * Playwright. It records WebGUI only: its codegen signs in to SAP
  * and writes SID locators (getByRoleSID, locateSID), which sap-tests/sap-plugin runs on stock
  * Playwright.
  */
-export const RECORDER_PACKAGE = resolve(TESTS_ROOT, 'recorder/node_modules/@playwright/test');
+export const RECORDER_PACKAGE = resolve(PACKAGES_DIR, 'playwright-sap-recorder');
 
 /**
  * `node <sap-tests>/recorder/codegen.cjs <args>`: the fork's CLI behind a wrapper that takes the SAP

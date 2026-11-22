@@ -108,9 +108,11 @@ async function freshRunner(
 ) {
 	// The real path: the stand-in reports files under its working directory, and on macOS the
 	// temporary folder is reached through a link.
-	testsRoot = realpathSync(mkdtempSync(join(tmpdir(), 'runner-tests-')));
+	// A stand-in project: the test project in sap-tests/, the install next to it.
+	testsRoot = join(realpathSync(mkdtempSync(join(tmpdir(), 'runner-tests-'))), 'sap-tests');
+	mkdirSync(testsRoot);
 	if (installed) {
-		const pkg = join(testsRoot, 'node_modules/@playwright/test');
+		const pkg = join(testsRoot, '../node_modules/@playwright/test');
 		mkdirSync(pkg, { recursive: true });
 		writeFileSync(join(pkg, 'cli.js'), FAKE_CLI);
 	}

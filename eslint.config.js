@@ -15,7 +15,17 @@ const gitignorePath = path.resolve(import.meta.dirname, '.gitignore');
 // oxlint already runs, so nothing is reported twice.
 export default defineConfig(
 	includeIgnoreFile(gitignorePath),
-	{ ignores: ['.data/', '.data-e2e/', 'playwright-report/', 'test-results/'] },
+	// sap-tests/ is the SAP test project: oxlint covers it (sap-tests/.oxlintrc.json), it has no Svelte.
+	{
+		ignores: [
+			'.data/',
+			'.data-e2e/',
+			'playwright-report/',
+			'test-results/',
+			'sap-tests/',
+			'.claude/'
+		]
+	},
 	js.configs.recommended,
 	ts.configs.recommended,
 	svelte.configs.recommended,

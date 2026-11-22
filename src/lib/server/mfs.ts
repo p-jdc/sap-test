@@ -24,7 +24,7 @@ import {
 } from '#lib/shared/mfs.js';
 import { lineSplitter } from './lines.js';
 import { childEnv } from './node-cli.js';
-import { TESTS_ROOT } from './paths.js';
+import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 const MFS_DIR = resolve(TESTS_ROOT, 'mfs');
 export const SETUP_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -112,11 +112,9 @@ export function importedPackages(sourceDir: string): string[] {
 	return [...names].toSorted();
 }
 
-/** Those of `packages` that are not installed in `root`/node_modules. */
-export function missingPackages(root: string, packages: string[]): string[] {
-	return packages.filter(
-		(name) => !existsSync(resolve(root, 'node_modules', name, 'package.json'))
-	);
+/** Those of `packages` that are not installed in `modules` (a node_modules folder). */
+export function missingPackages(modules: string, packages: string[]): string[] {
+	return packages.filter((name) => !existsSync(resolve(modules, name, 'package.json')));
 }
 
 /** Bun runs the emulator's TypeScript directly; the app itself runs on Bun, so it is always there. */
@@ -147,10 +145,10 @@ async function launch(input: StartInput): Promise<void> {
 	if (running) throw new Error('The emulator is already running.');
 	if (!listSetups().includes(input.setup)) throw new Error(`There is no setup "${input.setup}".`);
 	// Checked before starting: a missing package otherwise surfaces as Bun's resolver error.
-	const missing = missingPackages(TESTS_ROOT, importedPackages(MFS_DIR));
+	const missing = missingPackages(PACKAGES_DIR, importedPackages(MFS_DIR));
 	if (missing.length > 0)
 		throw new Error(
-			`The Mock PLC needs ${missing.join(', ')} in ${TESTS_ROOT}, which ${missing.length === 1 ? 'is' : 'are'} not installed. ${SETUP_HINT}`
+			`The Mock PLC needs ${missing.join(', ')} in ${PACKAGES_DIR}, which ${missing.length === 1 ? 'is' : 'are'} not installed. ${SETUP_HINT}`
 		);
 	lastError = undefined;
 	const demo = input.mode === 'demo';

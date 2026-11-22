@@ -18,7 +18,7 @@ import {
 	stopEmulator,
 	watchMfs
 } from './mfs.js';
-import { TESTS_ROOT } from './paths.js';
+import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 /** Reads the live view until a snapshot passes `check`. Leaving the loop closes the live view. */
 async function waitFor(
@@ -63,13 +63,16 @@ describe('Mock PLC dependencies', () => {
 
 		mkdirSync(join(dir, 'node_modules', 'zod'), { recursive: true });
 		writeFileSync(join(dir, 'node_modules', 'zod', 'package.json'), '{}');
-		expect(missingPackages(dir, importedPackages(dir))).toEqual(['@scope/pkg', 'side-effect']);
+		expect(missingPackages(join(dir, 'node_modules'), importedPackages(dir))).toEqual([
+			'@scope/pkg',
+			'side-effect'
+		]);
 	});
 
 	test('the Mock PLC in sap-tests imports zod, and the setup installed it', () => {
 		const packages = importedPackages(resolve(TESTS_ROOT, 'mfs'));
 		expect(packages).toEqual(['zod']);
-		expect(missingPackages(TESTS_ROOT, packages)).toEqual([]);
+		expect(missingPackages(PACKAGES_DIR, packages)).toEqual([]);
 	});
 });
 

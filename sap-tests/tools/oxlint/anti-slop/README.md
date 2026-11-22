@@ -2,7 +2,7 @@
 
 Five rules from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) (MIT, see `LICENSE`), copied
 unchanged from the selection the play-bun-ai project uses. oxlint loads them as a JS plugin in both
-`sap-tests/.oxlintrc.json` and `app/.oxlintrc.json`; they need `@oxlint/plugins` from `sap-tests`.
+`sap-tests/.oxlintrc.json` and the root `.oxlintrc.json`; they need `@oxlint/plugins`.
 
 | Rule | Flags |
 | --- | --- |

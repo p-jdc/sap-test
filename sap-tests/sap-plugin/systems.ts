@@ -9,7 +9,7 @@ import type { SignInSystem } from './systems-schema';
 
 export type { SignInMethod, SignInSystem } from './systems-schema';
 
-export const SYSTEMS_FILE = resolve(__dirname, '..', 'systems.json');
+export const SYSTEMS_FILE = resolve(import.meta.dirname, '..', 'systems.json');
 
 /** Reads and checks the text of systems.json (systems-schema.ts). Every problem names the file. */
 export const parseSystems = (text: string): SignInSystem[] => parse(text, SYSTEMS_FILE);

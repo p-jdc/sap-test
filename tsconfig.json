@@ -7,7 +7,7 @@
 	},
 	"include": [
 		"src",
-		"e2e",
+		"tests",
 		"reporter",
 		"scripts",
 		"vite.config.ts",

@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { playwrightNode, RECORDER_PACKAGE } from './node-cli.js';
+import { PLAYWRIGHT_PACKAGE, playwrightNode, RECORDER_PACKAGE } from './node-cli.js';
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
@@ -240,7 +240,7 @@ export async function envStatus(store: SecretStore = keychain()): Promise<EnvSta
 		store.available()
 	]);
 	// Not installed yet reads as undefined and is shown as missing in the UI.
-	const playwrightVersion = packageVersion(resolve(TESTS_ROOT, 'node_modules/@playwright/test'));
+	const playwrightVersion = packageVersion(PLAYWRIGHT_PACKAGE);
 	const recorderVersion = packageVersion(RECORDER_PACKAGE);
 	return {
 		testsDir: TESTS_ROOT,

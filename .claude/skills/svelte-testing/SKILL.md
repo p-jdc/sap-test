@@ -8,11 +8,11 @@ description: Fix and create Svelte 5 tests with vitest-browser-svelte and Playwr
 
 Vendored from spences10/sveltest (MIT). The examples are generic; what holds in this repo:
 
-- Tests live next to the code in `app/src`. `*.svelte.test.ts` runs in Chromium (Vitest project
+- Tests live next to the code in `src/`. `*.svelte.test.ts` runs in Chromium (Vitest project
   `client`); every other `*.test.ts` runs on Node (project `server`). There are no `.ssr.test.ts`
   files and no form actions: the app's server side is remote functions (`*.remote.ts`).
-- Run one file: `cd app && bunx vitest --run <path>`. All unit tests: `bun run test`.
-- The app's own browser tests are in `app/e2e` (`bun run test:e2e`: builds, previews on port 4180
+- Run one file: `bunx vitest --run <path>`. All unit tests: `bun run test`.
+- The app's own browser tests are in `tests/` (`bun run test:e2e`: builds, previews on port 4180
   and 4181). The SAP tests in `sap-tests/` are a different project with their own rules
   (`sap-tests/CLAUDE.md`).
 - The lint rule `no-conditional-in-test` is an error here: no `if` in a test body.

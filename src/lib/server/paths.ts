@@ -1,9 +1,9 @@
 import nodePath, { resolve } from 'node:path';
 
 /** The SAP test project (stock Playwright with sap-plugin) this app drives. Override with SAP_TESTS_DIR. */
-export const TESTS_ROOT = resolve(
-	process.env.SAP_TESTS_DIR || resolve(process.cwd(), '../sap-tests')
-);
+export const TESTS_ROOT = resolve(process.env.SAP_TESTS_DIR || resolve(process.cwd(), 'sap-tests'));
+/** The project's one install, which sap-tests shares with this app: next to the test project. */
+export const PACKAGES_DIR = resolve(TESTS_ROOT, '..', 'node_modules');
 export const TESTS_DIR = resolve(TESTS_ROOT, 'tests');
 export const HELPERS_DIR = resolve(TESTS_ROOT, 'helpers');
 /** The sign-in setup projects (sap-tests/setup/*.setup.ts), which run before the tests that need them. */

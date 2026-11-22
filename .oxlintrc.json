@@ -15,7 +15,7 @@
 		"@rsvelte/oxlint-plugin",
 		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
 		{ "name": "browser-security", "specifier": "eslint-plugin-browser-security" },
-		{ "name": "anti-slop", "specifier": "../sap-tests/tools/oxlint/anti-slop/index.ts" }
+		{ "name": "anti-slop", "specifier": "./sap-tests/tools/oxlint/anti-slop/index.ts" }
 	],
 	"categories": {
 		"correctness": "error",
@@ -36,7 +36,9 @@
 		"**/test-results",
 		"playwright-report",
 		".data",
-		".data-e2e"
+		".data-e2e",
+		// Claude Code's hooks run on Bun and are tested with bun test (scripts/pregate.ts).
+		".claude"
 	],
 	"rules": {
 		// Pedantic rules that do not fit this code base, each turned off for a stated reason:
