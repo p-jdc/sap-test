@@ -410,9 +410,11 @@ the AI sees is sent to Anthropic. Moving to the company platform changes only th
   a key would go to the direct API.
 - **Credentials** stay on the server, in its environment (a Kubernetes secret on the cluster).
   They never reach the browser. Test runs, recordings and the mock servers start without them,
-  and without the app's sign-in secrets, because a test can read anything in its environment.
-  This does not protect a key file of the same user on the same computer; on the cluster, runs
-  belong in pods of their own.
+  and without the app's sign-in secrets, so they are not handed to a test. That is no barrier: a
+  test runs as the same user in the same container, and can still read the app's environment
+  (`/proc/<pid>/environ` on Linux), a key file of that user, and on the cluster the pod's Google
+  identity. Before an AI key goes onto the cluster, test runs must move to pods of their own or
+  run as another user without the app's service account (decided in #15).
 - **Checking the connection:** Settings shows the platform, the model and any missing setting. An
   admin can send one short test message ("Check connection"); its answer, time and tokens show
   there, and the server log notes each check. Nothing from a test or a system goes into it.

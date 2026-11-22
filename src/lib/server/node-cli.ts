@@ -28,8 +28,9 @@ function realNode(): string {
 }
 
 /**
- * The app's own secrets. Tests, the recorders and the mock servers never need them, and a test
- * (one written by an AI agent, too) could read anything in its environment.
+ * The app's own secrets. Tests, the recorders and the mock servers never need them, so they are
+ * not handed on. This is not isolation: a child of the same user can still read the app's own
+ * environment (/proc/<pid>/environ on Linux). Only a separate pod or user keeps them from a test.
  */
 export const APP_SECRETS = [
 	'BETTER_AUTH_SECRET',
