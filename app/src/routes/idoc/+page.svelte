@@ -71,12 +71,17 @@
 		[control.CIMTYP || control.IDOCTYP, control.MESTYP].filter(Boolean).join(' · ') || '?';
 
 	/** What SAP made of the receiver's answer. */
-	const outcome = (idoc: ReceivedIdoc) =>
-		idoc.accepted
-			? { text: idoc.reply === 'slow' ? 'Accepted late' : 'Accepted', design: 'Positive' }
-			: idoc.reply === 'slow'
-				? { text: 'SAP gave up waiting', design: 'Critical' }
-				: { text: 'Rejected', design: 'Negative' };
+	const outcome = (idoc: ReceivedIdoc) => {
+		if (!idoc.answered) return { text: 'Answer pending', design: 'Information' } as const;
+		if (idoc.accepted)
+			return {
+				text: idoc.reply === 'slow' ? 'Accepted late' : 'Accepted',
+				design: 'Positive'
+			} as const;
+		return idoc.reply === 'slow'
+			? ({ text: 'SAP gave up waiting', design: 'Critical' } as const)
+			: ({ text: 'Rejected', design: 'Negative' } as const);
+	};
 
 	const describeReply = (reply: IdocReply) =>
 		reply.mode === 'reject'
@@ -347,13 +352,18 @@
 						<span class="name">{partner}</span>
 						<span class="muted">{describeReply(reply)}</span>
 						<span class="spacer"></span>
-						<ui5-button
-							design="Transparent"
-							disabled={busy || undefined}
-							onclick={() => run(() => setIdocReply({ partner, reply: null }))}
-						>
-							Back to accept
-						</ui5-button>
+						{#if reply.setBy === 'test'}
+							<!-- A running test's reply: the page can't take it back, the test does when it ends. -->
+							<ui5-tag design="Neutral">Set by a running test</ui5-tag>
+						{:else}
+							<ui5-button
+								design="Transparent"
+								disabled={busy || undefined}
+								onclick={() => run(() => setIdocReply({ partner, reply: null }))}
+							>
+								Back to accept
+							</ui5-button>
+						{/if}
 					</div>
 				{:else}
 					<p class="muted">Every partner's IDocs are accepted.</p>
@@ -467,7 +477,8 @@
 				subtitle-text="Requests that weren't IDocs, or came without the right login. Newest first."
 			></ui5-card-header>
 			<div class="card-body scroll">
-				{#each snap.failures.toReversed() as failure (failure.at + failure.partner + failure.error)}
+				<!-- Keyed by position: refused requests have no id, and two can be alike; the list is only shown. -->
+				{#each snap.failures.toReversed() as failure, i (i)}
 					<div class="line">
 						<span class="muted mono">{time(failure.at)}</span>
 						<span class="name">{failure.partner || '?'}</span>

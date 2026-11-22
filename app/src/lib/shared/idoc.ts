@@ -12,13 +12,13 @@ const SegmentSchema: z.ZodType<IdocSegment> = z.lazy(() =>
 	})
 );
 
-export const IdocReplySchema = z.discriminatedUnion('mode', [
+const IdocReplySchema = z.discriminatedUnion('mode', [
 	z.object({ mode: z.literal('accept') }),
 	z.object({ mode: z.literal('reject'), status: z.number().int(), message: z.string() }),
 	z.object({ mode: z.literal('slow'), delayMs: z.number().int() })
 ]);
 
-const ReceivedIdocSchema = z.object({
+export const ReceivedIdocSchema = z.object({
 	seq: z.number().int(),
 	receivedAt: z.string(),
 	partner: z.string(),
@@ -26,6 +26,8 @@ const ReceivedIdocSchema = z.object({
 	soap: z.boolean(),
 	root: z.string(),
 	accepted: z.boolean(),
+	/** False while a slow answer is still on its way. */
+	answered: z.boolean(),
 	reply: z.enum(['accept', 'reject', 'slow']),
 	idoc: z.object({
 		control: z.record(z.string(), z.string()),
@@ -47,9 +49,16 @@ export const IdocFailureSchema = z.object({
 	bytes: z.number().int()
 });
 
+/** A reply in effect, and whether a running test set it (it then holds until that test ends) or a person. */
+export const IdocReplyInEffectSchema = z.intersection(
+	IdocReplySchema,
+	z.object({ setBy: z.enum(['test', 'person']) })
+);
+
 export const IdocInfoSchema = z.object({ idocUrl: z.string(), instance: z.string() });
 
 export type IdocReply = z.infer<typeof IdocReplySchema>;
+type IdocReplyInEffect = z.infer<typeof IdocReplyInEffectSchema>;
 export type ReceivedIdoc = z.infer<typeof ReceivedIdocSchema>;
 type IdocFailure = z.infer<typeof IdocFailureSchema>;
 
@@ -76,7 +85,7 @@ export type IdocSnapshot = {
 	endpoint?: IdocEndpoint;
 	/** Newest last. */
 	idocs: ReceivedIdoc[];
-	replies: Record<string, IdocReply>;
+	replies: Record<string, IdocReplyInEffect>;
 	failures: IdocFailure[];
 	/** Whether the page may post a sample IDoc itself: only to a receiver it started, on this computer, without
 	 * TLS. */

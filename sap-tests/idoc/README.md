@@ -61,11 +61,11 @@ On this computer without a login, the receiver answers only requests addressed t
 
 Per partner, set through the control API or `idocInbox.reply`:
 
-| Mode     | SAP sees                                                                                                               |
-| -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `accept` | HTTP 200. The default.                                                                                                 |
-| `reject` | The given HTTP error (default 500) and message. A SOAP fault for SOAP.                                                 |
-| `slow`   | HTTP 200, after the given delay. For testing SAP's timeout. If SAP hangs up first, the IDoc is marked as not accepted. |
+| Mode     | SAP sees                                                                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `accept` | HTTP 200. The default.                                                                                                                                                          |
+| `reject` | The given HTTP error (default 500) and message. A SOAP fault for SOAP.                                                                                                          |
+| `slow`   | HTTP 200, after the given delay. For testing SAP's timeout. Until the answer has gone out, the IDoc has `answered: false`; if SAP hangs up first, it is marked as not accepted. |
 
 Requests that aren't IDoc-XML get 400 with the reason, and are listed under `GET /failures`.
 
@@ -79,7 +79,7 @@ All JSON. With `IDOC_CONTROL_TOKEN` set, every request needs `Authorization: Bea
 | `GET /idocs/<seq>`          | One IDoc.                                                                                                                                                               |
 | `GET /idocs/<seq>/raw`      | The request it came in: the bytes as SAP sent them, with their encoding.                                                                                                |
 | `DELETE /idocs`             | Clears the inbox. Numbering goes on, so a cursor stays valid.                                                                                                           |
-| `GET /replies`              | The partners whose reply isn't `accept`.                                                                                                                                |
+| `GET /replies`              | The partners whose reply isn't `accept`, each with `setBy`: `test` while a running test's reply is in effect, otherwise `person`.                                       |
 | `PUT /replies/<partner>`    | Sets a partner's reply, for example `{"mode":"reject","status":503,"message":"Partner down"}`. With `?owner=<id>`, the reply holds only until that owner takes it back. |
 | `DELETE /replies/<partner>` | Takes back the reply set without an owner; with `?owner=<id>`, only that owner's.                                                                                       |
 

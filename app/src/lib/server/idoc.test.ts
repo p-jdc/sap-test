@@ -33,6 +33,21 @@ async function waitFor(
 	throw new Error('timed out waiting for the IDoc receiver');
 }
 
+/** Reads one live view until a snapshot passes `check`, and leaves it open. */
+async function nextUntil(
+	live: AsyncGenerator<IdocSnapshot, void, void>,
+	check: (snapshot: IdocSnapshot) => boolean
+): Promise<IdocSnapshot> {
+	const deadline = Date.now() + 15_000;
+	while (Date.now() < deadline) {
+		// oxlint-disable-next-line no-await-in-loop
+		const step = await live.next();
+		if (step.done) break;
+		if (check(step.value)) return step.value;
+	}
+	throw new Error('timed out waiting for the live view');
+}
+
 const stopped = (s: IdocSnapshot) => !s.status.running;
 
 // A developer's own receiver settings must not reach these tests: they start a plain one on this computer.
@@ -147,6 +162,37 @@ describe('IDoc receiver', () => {
 		expect(end.status.error).toBeUndefined();
 		expect(idocTestEnv()).toEqual({});
 		await expect(sendSample('orders05.xml', 'PWMOCK')).rejects.toThrow(/only be sent/);
+	});
+
+	test('a slow answer shows as pending, then as given up when the sender hangs up first', async () => {
+		await startReceiver();
+		// One live view through the whole test, as the page keeps one open: a new one would fetch everything
+		// afresh and hide what this test is about.
+		const live = watchIdoc();
+		const until = (check: (snapshot: IdocSnapshot) => boolean) => nextUntil(live, check);
+		try {
+			const ready = await until((s) => s.endpoint !== undefined);
+			await setPartnerReply('PWMOCK', { mode: 'slow', delayMs: 3000 });
+			await until((s) => s.replies.PWMOCK?.mode === 'slow');
+
+			// SAP's timeout, shorter than the delay.
+			const sending = fetch(`${ready.endpoint?.url}/idoc/PWMOCK`, {
+				method: 'POST',
+				headers: { 'content-type': 'text/xml' },
+				body: '<ORDERS05><IDOC BEGIN="1"><EDI_DC40 SEGMENT="1"><IDOCTYP>ORDERS05</IDOCTYP></EDI_DC40></IDOC></ORDERS05>',
+				signal: AbortSignal.timeout(2500)
+			});
+			const pending = await until((s) => s.idocs.length === 1);
+			expect(pending.idocs[0]).toMatchObject({ answered: false, accepted: true });
+			await expect(sending).rejects.toThrow(/timed? ?out|abort/i);
+			// The same live view learns it, though the IDoc is older than its cursor by now.
+			const gaveUp = await until((s) => s.idocs[0]?.answered === true);
+			expect(gaveUp.idocs[0]).toMatchObject({ answered: true, accepted: false, reply: 'slow' });
+			// Set from here, so by a person.
+			expect(gaveUp.replies.PWMOCK).toMatchObject({ setBy: 'person' });
+		} finally {
+			await live.return();
+		}
 	});
 
 	test('a receiver that refuses its settings reports why', async () => {

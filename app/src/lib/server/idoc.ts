@@ -10,7 +10,8 @@ import {
 	IdocFailureSchema,
 	IdocInfoSchema,
 	IdocListSchema,
-	IdocReplySchema,
+	IdocReplyInEffectSchema,
+	ReceivedIdocSchema,
 	type IdocEndpoint,
 	type IdocReply,
 	type IdocSample,
@@ -307,7 +308,7 @@ const sleep = (ms: number) =>
  * Live view for the Mock IDoc page: receiver status, the address SAP posts to, the newest IDocs, the replies per
  * partner and the refused requests. Polls the receiver once a second and yields only when something changed.
  */
-export async function* watchIdoc(): AsyncGenerator<IdocSnapshot> {
+export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 	let instance: string | undefined;
 	let endpoint: IdocEndpoint | undefined;
 	let idocs: ReceivedIdoc[] = [];
@@ -337,10 +338,11 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot> {
 				// oxlint-disable-next-line no-await-in-loop
 				const [list, replies, failures] = await Promise.all([
 					call(`/idocs?after=${cursor}&limit=${KEEP}`, IdocListSchema),
-					call('/replies', z.record(z.string(), IdocReplySchema)),
+					call('/replies', z.record(z.string(), IdocReplyInEffectSchema)),
 					call('/failures', z.array(IdocFailureSchema))
 				]);
-				idocs = [...idocs, ...list.idocs].slice(-KEEP);
+				// oxlint-disable-next-line no-await-in-loop
+				idocs = [...(await refreshPending(idocs)), ...list.idocs].slice(-KEEP);
 				cursor = list.idocs.at(-1)?.seq ?? cursor;
 				// oxlint-disable-next-line no-await-in-loop
 				idocs = await keepPresent(idocs);
@@ -373,6 +375,26 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot> {
 		// oxlint-disable-next-line no-await-in-loop
 		await sleep(1000);
 	}
+}
+
+/**
+ * Fetches again the IDocs whose slow answer was still on its way: whether SAP waited for it (accepted) or hung up
+ * (not accepted) is only known once it has gone out. Later polls only ask for newer IDocs, so this is the only
+ * way the page learns it.
+ */
+function refreshPending(idocs: ReceivedIdoc[]): Promise<ReceivedIdoc[]> {
+	if (idocs.every((idoc) => idoc.answered)) return Promise.resolve(idocs);
+	return Promise.all(
+		idocs.map(async (idoc) => {
+			if (idoc.answered) return idoc;
+			try {
+				return await call(`/idocs/${idoc.seq}`, ReceivedIdocSchema);
+			} catch {
+				// Gone meanwhile (cleared); keepPresent drops it.
+				return idoc;
+			}
+		})
+	);
 }
 
 /**

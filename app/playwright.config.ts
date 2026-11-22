@@ -23,7 +23,14 @@ export default defineConfig({
 				DEV_HTTP: '1',
 				IDOC_PORT: '0',
 				IDOC_HOST: '',
-				IDOC_HUB_URL: ''
+				IDOC_HUB_URL: '',
+				IDOC_HUB_TOKEN: '',
+				IDOC_TLS_CERT: '',
+				IDOC_TLS_KEY: '',
+				IDOC_TLS_CA: '',
+				IDOC_TLS_CLIENT_FINGERPRINT: '',
+				IDOC_USER: '',
+				IDOC_PASSWORD: ''
 			}
 		},
 		{
