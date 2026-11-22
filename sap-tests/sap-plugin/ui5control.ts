@@ -88,19 +88,32 @@ export const ui5ChartPointSelector = (point: UI5ChartPoint) =>
  * slices as SVG shapes that are no UI5 controls and carry no text, so neither UI5 nor a standard
  * locator can name one. The chart library (D3) keeps the record each shape stands for on the
  * shape's element; this finds the shapes whose record has the given values.
+ *
+ * A chart with value labels draws each label over the middle of its bar, where a click would land.
+ * The label belongs to the data point (same record, a click on it selects the point), so while the
+ * label covers the middle of the shape the label is what this returns.
  */
 export function ui5ChartPointEngine() {
 	return {
 		queryAll(root: Element | Document, body: string): Element[] {
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the selector is written by ui5ChartPointSelector
 			const wanted = Object.entries(JSON.parse(body) as Record<string, string>);
-			return [...root.querySelectorAll('.v-datapoint')].filter((shape) => {
+			const shapes = [...root.querySelectorAll('.v-datapoint')].filter((shape) => {
 				// D3 keeps the record a shape stands for on a property of its own on the element.
 				// oxlint-disable-next-line no-underscore-dangle -- D3's name
 				const record: unknown = '__data__' in shape ? shape.__data__ : undefined;
 				if (typeof record !== 'object' || record === null) return false;
 				const values = new Map<string, unknown>(Object.entries(record));
 				return wanted.every(([name, value]) => String(values.get(name)) === value);
+			});
+			return shapes.map((shape) => {
+				const box = shape.getBoundingClientRect();
+				const label = document
+					.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+					?.closest('.v-datalabel');
+				const own =
+					label?.getAttribute('data-datapoint-id') === shape.getAttribute('data-datapoint-id');
+				return label && own ? label : shape;
 			});
 		}
 	};
