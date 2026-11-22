@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { HELPERS_DIR, TESTS_DIR, toPosix, within } from './paths.js';
 import { parseHelpers, parseSpec, type HelperMap } from './spec-parser.js';
+import { systemsOfFiles } from './systems.js';
 import type { SpecFile } from '#lib/shared/types.js';
 
 function walk(dir: string, match: (f: string) => boolean): string[] {
@@ -31,8 +32,23 @@ function loadHelpers(): { map: HelperMap; key: string } {
 	return helpers;
 }
 
-/** Parses every spec under sap-tests/tests, re-parsing only files whose mtime or helpers changed. */
+/**
+ * Parses every spec under sap-tests/tests, re-parsing only files whose mtime or helpers changed,
+ * and names the system each starts signed in to (systems.json).
+ */
 export function listSpecs(): SpecFile[] {
+	const specs = parsedSpecs();
+	const systems = systemsOfFiles(specs.map((s) => s.file));
+	// Set on every call, also on a cached spec: systems.json may have changed since it was parsed.
+	for (const spec of specs) {
+		const system = systems.get(spec.file);
+		if (system) spec.system = system;
+		else delete spec.system;
+	}
+	return specs;
+}
+
+function parsedSpecs(): SpecFile[] {
 	const current = loadHelpers();
 	return walk(TESTS_DIR, (f) => /\.(spec|test)\.[cm]?[jt]s$/.test(f)).map((full) => {
 		const file = toPosix(relative(TESTS_DIR, full));

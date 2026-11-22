@@ -2,9 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 // The test project's own rules for systems.json, so the app and a run cannot disagree on whether
 // the file is valid. The module has no imports and is bundled into the app's server.
-import { FIXED_SETTINGS, parseSystems } from '../../../../sap-tests/sap-plugin/systems-schema.js';
+import {
+	FIXED_SETTINGS,
+	parseSystems,
+	systemOfFile,
+	type SignInSystem
+} from '../../../../sap-tests/sap-plugin/systems-schema.js';
 import { TESTS_ROOT } from './paths.js';
-import type { SettingName, SignInSystemInfo } from '#lib/shared/types.js';
+import type { RecordTarget, SettingName, SignInSystemInfo } from '#lib/shared/types.js';
 
 /**
  * The systems the tests sign in to, from sap-tests/systems.json. The test project makes its
@@ -21,6 +26,38 @@ export const API_SYSTEM = {
 } as const;
 
 /**
+ * Where a recording for the system can be saved, and with which recorder: each of its folders
+ * except those starting with `_` (reference and agent tests). An SAP system records with the UI5
+ * recorder, in a folder named `webgui` with the Playwright-SAP recorder signed in to SAP; any other
+ * system with the Playwright-SAP recorder, where the person signs in. A UI5 recording without
+ * sign-in goes to a folder the system excludes inside the target (fiori/demokit).
+ */
+function recordTargets(system: SignInSystem): RecordTarget[] {
+	return system.tests
+		.filter((folder) => !hidden(folder))
+		.map((folder): RecordTarget => {
+			if (system.signIn.method !== 'sapLogin') return { folder, recorder: 'web' };
+			if (folder.split('/').at(-1) === 'webgui') return { folder, recorder: 'webgui' };
+			const target: RecordTarget = { folder, recorder: 'ui5' };
+			const noLoginFolder = system.exclude?.find((e) => e.startsWith(`${folder}/`));
+			if (noLoginFolder) target.noLoginFolder = noLoginFolder;
+			return target;
+		});
+}
+
+/** Reference and agent tests (`_reference`, `x/_agents`): nothing is recorded into them. */
+const hidden = (folder: string) => folder.split('/').some((part) => part.startsWith('_'));
+
+function parsed(file: string): { systems: SignInSystem[]; error?: string } {
+	if (!existsSync(file)) return { systems: [] };
+	try {
+		return { systems: parseSystems(readFileSync(file, 'utf8'), file) };
+	} catch (e) {
+		return { systems: [], error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
+/**
  * Reads systems.json. `error` says what is wrong with the file, in words that name it; the
  * systems are then none, so that the pages still open and can show the error. A missing file is
  * no error for the app: a test project without sign-ins.
@@ -29,20 +66,32 @@ export function readSystems(file: string = SYSTEMS_FILE): {
 	systems: SignInSystemInfo[];
 	error?: string;
 } {
-	if (!existsSync(file)) return { systems: [] };
-	try {
-		const systems = parseSystems(readFileSync(file, 'utf8'), file).map(
-			({ id, title, description, optional, signIn, env }) => {
-				const system: SignInSystemInfo = { id, title, method: signIn.method, env };
-				if (description) system.description = description;
-				if (optional) system.optional = true;
-				return system;
-			}
-		);
-		return { systems };
-	} catch (e) {
-		return { systems: [], error: e instanceof Error ? e.message : String(e) };
-	}
+	const { systems, error } = parsed(file);
+	const infos = systems.map((s) => {
+		const { id, title, description, optional, signIn, env } = s;
+		const system: SignInSystemInfo = {
+			id,
+			title,
+			method: signIn.method,
+			env,
+			record: recordTargets(s)
+		};
+		if (description) system.description = description;
+		if (optional) system.optional = true;
+		return system;
+	});
+	return error ? { systems: infos, error } : { systems: infos };
+}
+
+/**
+ * For each spec file (relative to tests/), the id of the system its tests start signed in to.
+ */
+export function systemsOfFiles(
+	files: string[],
+	file: string = SYSTEMS_FILE
+): Map<string, string | undefined> {
+	const { systems } = parsed(file);
+	return new Map(files.map((f) => [f, systemOfFile(f, systems)?.id]));
 }
 
 /** The systems of systems.json; none when the file is missing or broken (see systemsProblem). */

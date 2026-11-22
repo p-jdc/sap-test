@@ -74,6 +74,22 @@ function method(value: unknown, where: string, fail: Fail): SignInMethod {
 const inside = (folder: string, root: string) => folder === root || folder.startsWith(`${root}/`);
 
 /**
+ * The system whose sign-in a test file starts with, the same rule as sap-plugin/systems.ts
+ * (testFiles): inside one of its folders and not inside one it excludes. `file` is relative to
+ * tests/, with `/`.
+ */
+export function systemOfFile<T extends Pick<SignInSystem, 'tests' | 'exclude'>>(
+	file: string,
+	systems: readonly T[]
+): T | undefined {
+	return systems.find(
+		(s) =>
+			s.tests.some((t) => file.startsWith(`${t}/`)) &&
+			!(s.exclude ?? []).some((e) => file.startsWith(`${e}/`))
+	);
+}
+
+/**
  * The settings of the test project that belong to no system. A system must not use their names.
  */
 export const FIXED_SETTINGS = [

@@ -1,7 +1,7 @@
 # Regeln für SAP-Tests
 
 Dieses Projekt nutzt Standard-Playwright mit dem SAP-Plugin in sap-plugin/ (Locators aus Playwright-SAP). Tests importieren `test` und `expect` aus sap-plugin (z. B. '../../sap-plugin'), nicht aus '@playwright/test'.
-Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und Ariba.
+Fiori wird mit dem Recorder des Plugins aufgezeichnet (`bun run record <url>` oder „Record a test“ in der App). Playwright-SAP selbst liegt nur noch in recorder/ und dient ausschließlich dem Aufzeichnen von WebGUI und von Systemen, die sich nicht mit der SAP-Anmeldung anmelden (z. B. Ariba). Welche Ordner und welcher Recorder je System, ergibt sich aus systems.json (README, „Adding a system“).
 Neue Tests folgen dem Aufbau von tests/_reference/gold-standard.spec.ts.
 
 ## Locators in dieser Reihenfolge

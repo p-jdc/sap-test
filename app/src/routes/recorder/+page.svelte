@@ -2,13 +2,32 @@
 	import { settingsHref, testsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
+	import { RECORDER_LABEL } from '#lib/shared/format.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { getRecorder, startRecorder, stopRecorder } from '#lib/remote/recorder.remote.js';
 
 	const rec = getRecorder();
 	const env = getEnvStatus();
 
-	let surface = $state<'fiori' | 'webgui' | 'ariba'>('fiori');
+	// Every folder a system records into (sap-tests/systems.json), the systems needed to get started
+	// first.
+	const targets = $derived(
+		(env.current?.systems ?? [])
+			.toSorted((a, b) => Number(!!a.optional) - Number(!!b.optional))
+			.flatMap((system) =>
+				system.record.map((target) => ({
+					system,
+					target,
+					label:
+						target.recorder === 'web'
+							? system.title
+							: `${system.title} · ${RECORDER_LABEL[target.recorder]}`
+				}))
+			)
+	);
+	let chosen = $state<string | null>(null);
+	const current = $derived(targets.find((t) => t.target.folder === chosen) ?? targets[0]);
+
 	let name = $state('');
 	let url = $state('');
 	let noLogin = $state(false);
@@ -22,20 +41,30 @@
 	});
 
 	const has = (n: string) => env.current?.vars.find((v) => v.name === n)?.set ?? false;
-	// Only the Fiori recorder can skip the login; it then needs nothing but a page to open.
-	const withoutLogin = $derived(surface === 'fiori' && noLogin);
+	// Only the UI5 recorder can skip the login; it then needs nothing but a page to open.
+	const canSkipLogin = $derived(!!current?.target.noLoginFolder);
+	const withoutLogin = $derived(canSkipLogin && noLogin);
+	// The recorder signs in itself, with the system's stored credentials.
+	const signsIn = $derived(!!current && current.target.recorder !== 'web' && !withoutLogin);
 	const ready = $derived(
-		surface === 'ariba'
-			? has('ARIBA_URL') || !!url
-			: withoutLogin
-				? has('SAP_URL') || !!url.trim()
-				: has('SAP_URL') && has('SAP_USERNAME') && has('SAP_PASSWORD')
+		!!current &&
+			(signsIn
+				? has(current.system.env.url) &&
+					has(current.system.env.user) &&
+					has(current.system.env.password)
+				: has(current.system.env.url) || !!url.trim())
 	);
 
 	async function start() {
+		if (!current) return;
 		error = null;
 		try {
-			await startRecorder({ surface, name, url: url.trim(), noLogin: withoutLogin });
+			await startRecorder({
+				folder: current.target.folder,
+				name,
+				url: url.trim(),
+				noLogin: withoutLogin
+			});
 		} catch (e) {
 			error = errorMessage(e);
 		}
@@ -48,22 +77,24 @@
 
 <ui5-message-strip design="Information" hide-close-button>
 	{#if view.technical}
-		Fiori / UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
+		The systems and their folders come from <span class="mono">sap-tests/systems.json</span>. Fiori
+		/ UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
 		Playwright: UI5 itself describes each control, so the test names a row by its data and not by
-		its position. WebGUI and Ariba start
+		its position. WebGUI (a folder named <span class="mono">webgui</span>) and the systems that do
+		not sign in with SAP's login start
 		<span class="mono">npx playwright codegen</span> from the Playwright-SAP recorder (guide §4.4).
 		Either way the recorded test runs on stock Playwright. The browser opens on the machine that
 		runs this app, so record from a local install. Fiori and WebGUI log in automatically with the
-		credentials from
-		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; for Ariba you
-		log in by hand.
+		system's credentials from
+		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>; in other
+		systems you sign in by hand.
 	{:else}
 		Show the app once what to do, and it can repeat it as a test. How it works:
 		<ol class="how">
-			<li>Pick the SAP application and give the test a name.</li>
+			<li>Pick the system and give the test a name.</li>
 			<li>
 				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
-				(in Ariba you log in yourself).
+				(in other systems, such as Ariba, you sign in yourself).
 			</li>
 			<li>
 				Do the task as you normally would. Every click and entry is written down; for Fiori a red
@@ -76,24 +107,21 @@
 
 <ui5-card class="form-card">
 	<div class="form">
-		<ui5-label for="surface" show-colon>SAP application</ui5-label>
-		<ui5-segmented-button
-			id="surface"
-			onselection-change={(e: CustomEvent<{ selectedItems: HTMLElement[] }>) => {
-				const value = e.detail.selectedItems[0]?.dataset.value;
-				if (value === 'fiori' || value === 'webgui' || value === 'ariba') surface = value;
-			}}
+		<ui5-label for="target" show-colon>System</ui5-label>
+		<ui5-select
+			id="target"
+			onchange={(e: CustomEvent<{ selectedOption: HTMLElement }>) =>
+				(chosen = e.detail.selectedOption.dataset.value ?? null)}
 		>
-			<ui5-segmented-button-item data-value="fiori" selected={surface === 'fiori' || undefined}>
-				Fiori / UI5
-			</ui5-segmented-button-item>
-			<ui5-segmented-button-item data-value="webgui" selected={surface === 'webgui' || undefined}>
-				WebGUI
-			</ui5-segmented-button-item>
-			<ui5-segmented-button-item data-value="ariba" selected={surface === 'ariba' || undefined}>
-				Ariba
-			</ui5-segmented-button-item>
-		</ui5-segmented-button>
+			{#each targets as t (t.target.folder)}
+				<ui5-option
+					data-value={t.target.folder}
+					selected={t.target.folder === current?.target.folder || undefined}
+				>
+					{t.label}{view.technical ? ` (tests/${t.target.folder})` : ''}
+				</ui5-option>
+			{/each}
+		</ui5-select>
 
 		<ui5-label for="name" required show-colon>Name of the test</ui5-label>
 		<ui5-input
@@ -103,7 +131,7 @@
 			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
 		></ui5-input>
 
-		{#if surface === 'fiori'}
+		{#if canSkipLogin}
 			<ui5-label for="nologin" show-colon>Without login</ui5-label>
 			<div class="row">
 				<ui5-switch
@@ -122,9 +150,9 @@
 			placeholder={withoutLogin
 				? 'https://… the page to record'
 				: view.technical
-					? surface === 'ariba'
-						? 'defaults to ARIBA_URL'
-						: 'defaults to SAP_URL (same host only)'
+					? signsIn
+						? `defaults to ${current?.system.env.url} (same host only)`
+						: `defaults to ${current?.system.env.url}`
 					: 'Optional: leave empty to start on the usual start page'}
 			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
 		></ui5-input>
@@ -150,7 +178,7 @@
 					{#if withoutLogin}
 						Enter the start page to record.
 					{:else}
-						The connection to this SAP application is not set up yet.
+						The connection to this system is not set up yet.
 						<a href={settingsHref()}>Open Settings</a>
 					{/if}
 				</span>
@@ -215,8 +243,9 @@
 		margin: 0.25rem 0 0;
 		padding-left: 1.25rem;
 	}
-	.form ui5-segmented-button {
+	.form ui5-select {
 		justify-self: start;
+		min-width: 16rem;
 	}
 	@media (max-width: 600px) {
 		.form {

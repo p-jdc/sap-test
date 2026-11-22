@@ -584,13 +584,20 @@ function stepLines(step: RecordedStep): string[] {
 	return lines;
 }
 
+/** The environment variables of a system's address, user and password (systems.json). */
+export type SystemEnv = { url: string; user: string; password: string };
+
+const SAP_ENV: SystemEnv = { url: 'SAP_URL', user: 'SAP_USERNAME', password: 'SAP_PASSWORD' };
+
 export type SpecOptions = {
 	/** The test's title. */
 	name?: string;
 	/** Start with page.SAPLogin and the credentials from the environment instead of page.goto. */
 	login?: boolean;
-	/** The start page is the configured SAP_URL: read it from the environment as well. */
+	/** The start page is the system's configured address: read it from the environment as well. */
 	urlFromEnv?: boolean;
+	/** The variables the spec reads the address and the login from; SAP_URL, … by default. */
+	env?: SystemEnv;
 };
 
 /** The recorded steps as a spec. `pluginImport` is the path to sap-plugin from the spec's folder. */
@@ -600,9 +607,10 @@ export function renderSpec(
 	pluginImport: string,
 	options: SpecOptions = {}
 ): string {
-	const address = options.urlFromEnv ? 'process.env.SAP_URL' : quote(url);
+	const env = options.env ?? SAP_ENV;
+	const address = options.urlFromEnv ? `process.env.${env.url}` : quote(url);
 	const start = options.login
-		? `await page.SAPLogin(process.env.SAP_USERNAME!, process.env.SAP_PASSWORD!, ${address});`
+		? `await page.SAPLogin(process.env.${env.user}!, process.env.${env.password}!, ${address});`
 		: `await page.goto(${address}${options.urlFromEnv ? '!' : ''});`;
 	// fill() focuses the field itself: the click a person makes to get into it adds nothing.
 	const target = (step: RecordedStep) =>

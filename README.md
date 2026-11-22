@@ -98,14 +98,24 @@ leaves the system out of the Home page's getting started. A row's `exclude` list
 its `tests` folders that belong to no system (like `fiori/demokit`). The test project refuses a
 table with an unknown method, a variable used twice, or a folder claimed by two systems.
 
-The recorder and the grouping of tests by application on the Tests page still know only Fiori,
-WebGUI and Ariba; tests of another system show there as "other".
+The Tests page groups the tests by system, and "Record a test" offers each folder of each system
+(except folders starting with `_`). Which recorder records it follows from the row:
+
+| System signs in with | Folder | Recorder | Signed in by |
+| --- | --- | --- | --- |
+| `sapLogin` | named `webgui` (e.g. `webgui`, `ewm/webgui`) | Playwright-SAP (`codegen --sap-login`) | the recorder, with the system's user and password |
+| `sapLogin` | any other | the UI5 recorder of `sap-plugin` | the recorder; the spec reads the system's own variables (`process.env.EWM_URL`, …) |
+| `ias` or `form` | any | Playwright-SAP (`codegen`) | you, in the recorder's window |
+
+A UI5 recording "without login" goes to a folder the system excludes inside the chosen one (for
+SAP: `fiori/demokit`). A recorder gets only the chosen system's login; every other system's user
+and password are blanked in its environment.
 
 A trace still holds the session cookies, which are valid until the SAP session ends. Treat
 `app/.data/runs` and `sap-tests/.auth` as secret.
 
 The fork itself (Playwright 1.53) is installed in `sap-tests/recorder` and used for recording
-WebGUI and Ariba only, because its codegen is what writes SID locators and the plugin's recorder has
+WebGUI and the systems that do not sign in with SAP's login only, because its codegen is what writes SID locators and the plugin's recorder has
 not been tried on a real WebGUI system. The app starts the matching recorder for "Record a test";
 for the fork it then points the recorded spec's import at `sap-plugin`. The app never imports
 Playwright itself; it starts the CLIs with real Node.
@@ -121,10 +131,10 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Page | What it shows |
 | --- | --- |
 | Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per SAP application, latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values) |
-| Tests | Every spec under `sap-tests/tests`, grouped by SAP application (Fiori / WebGUI / Ariba / Demo), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
+| Tests | Every spec under `sap-tests/tests`, grouped by the system of `sap-tests/systems.json` it starts signed in to (other tests, such as API and demo tests, in a group of their own), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
 | Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Starts a recorder with the saved credentials and writes `tests/<surface>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and Ariba: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line |
+| Record a test | Pick a system and its folder (from `sap-tests/systems.json`, see "Adding a system"); starts a recorder with that system's saved credentials and writes `tests/<folder>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI and other systems: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line |
 | Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements |
 | Settings | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
 

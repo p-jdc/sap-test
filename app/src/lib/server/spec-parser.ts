@@ -65,7 +65,7 @@ const SAP_SURFACES = new Set<Surface>(['fiori', 'webgui']);
 
 function surfaceFromPath(file: string): Surface | undefined {
 	const top = file.split('/')[0];
-	if (top === 'fiori' || top === 'webgui' || top === 'ariba' || top === 'api') return top;
+	if (top === 'fiori' || top === 'webgui' || top === 'api') return top;
 	if (top === '_demo') return 'demo';
 	// The plugin's own tests mix UI5 and WebGUI stand-ins; they are no business flow of a surface.
 	if (top === '_plugin') return 'other';

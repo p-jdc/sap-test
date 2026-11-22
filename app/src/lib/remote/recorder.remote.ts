@@ -8,7 +8,7 @@ export const getRecorder = query(() => recorderState());
 
 export const startRecorder = command(
 	z.object({
-		surface: z.enum(['fiori', 'webgui', 'ariba']),
+		folder: z.string().min(1).max(200),
 		name: z.string().min(1).max(80),
 		url: z.url().optional().or(z.literal('')),
 		noLogin: z.boolean().optional()
