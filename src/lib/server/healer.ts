@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync
+} from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import {
 	query,
@@ -40,8 +48,11 @@ const CHANGING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
  * Why the healer cannot be started here, or undefined when it can. It sends the test, its error
  * and what the browser shows to the AI provider, so it is off until TEST_APP_HEALER is `on`.
  */
+/** Whether the healer is turned on (TEST_APP_HEALER=on); off, the run page does not show it. */
+export const healerOn = () => process.env.TEST_APP_HEALER === 'on';
+
 export function healerProblem(): string | undefined {
-	if (process.env.TEST_APP_HEALER !== 'on')
+	if (!healerOn())
 		return 'The healer is off. It sends the test, its error and what the SAP screens show to the AI provider (Anthropic), so it is turned on with TEST_APP_HEALER=on once that is approved. It also needs an API key (ANTHROPIC_API_KEY) or a Claude login on the computer running this app.';
 	// The agent file and its paths assume the test project of this repository.
 	if (resolve(TESTS_ROOT) !== resolve(APP_ROOT, 'sap-tests'))
@@ -80,15 +91,16 @@ function healerFiles(runId: string, testId: string) {
 		dir,
 		state: join(dir, `${testId}.json`),
 		originals: join(dir, `${testId}.originals.json`),
-		// Playwright empties the results folder before each run, so the server runs in another.
 		output: join(dir, `${testId}-results`),
-		server: join(dir, `${testId}-server`)
+		// What the browser tools wrote (console logs, snapshots), moved here when the session ends.
+		browser: join(dir, `${testId}-browser`)
 	};
 }
 
 function save(state: HealerState, originals?: Map<string, Original>) {
 	const files = healerFiles(state.runId, state.testId);
-	if (!files) return;
+	// The retention rules removed the run's log, and with it the healer's folder: keep nothing.
+	if (!files || !existsSync(join(files.dir, '..', 'output.log'))) return;
 	mkdirSync(files.dir, { recursive: true });
 	writeFileSync(files.state, JSON.stringify(state, null, '\t'));
 	if (originals) writeFileSync(files.originals, JSON.stringify(Object.fromEntries(originals)));
@@ -158,6 +170,8 @@ function failedTest(runId: string, testId: string): RunTest | string {
 	const run = getLiveState(runId) ?? readRunState(runId);
 	if (!run) return 'This run no longer exists.';
 	if (run.status === 'running') return 'The run is still going.';
+	// Its traces and screenshots would outlive the run's own, which the retention rules removed.
+	if (run.artifactsRemoved) return 'The files of this run are no longer kept.';
 	const test = run.tests.find((t) => t.testId === testId);
 	if (!test) return 'This test is not part of the run.';
 	if (test.setup) return 'The healer repairs tests, not the sign-in.';
@@ -182,34 +196,46 @@ function healerTask(test: RunTest, runId: string): string {
 	].join('\n\n');
 }
 
+/**
+ * The browser tools of the MCP server write their console logs and snapshots to .playwright-mcp
+ * in the folder Claude Code works in (the repository root), not to a folder of their own.
+ */
+const BROWSER_FILES = resolve(APP_ROOT, '.playwright-mcp');
+const browserFiles = () => new Set(existsSync(BROWSER_FILES) ? readdirSync(BROWSER_FILES) : []);
+
+/** Moves what the browser tools wrote during the session into the healer's folder of the run. */
+function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
+	const added = [...browserFiles()].filter((name) => !before.has(name));
+	if (added.length === 0 || !existsSync(dirname(to))) return;
+	mkdirSync(to, { recursive: true });
+	for (const name of added) {
+		try {
+			renameSync(join(BROWSER_FILES, name), join(to, name));
+		} catch {
+			rmSync(join(BROWSER_FILES, name), { recursive: true, force: true });
+		}
+	}
+}
+
 type SessionOptions = {
 	budget: number;
 	abort: AbortController;
 	hooks: NonNullable<Options['hooks']>;
 	serverEnv: Record<string, string>;
-	serverCwd: string;
 	secrets: readonly string[];
 };
 
-/** The Agent SDK session of the healer, with the playwright-test MCP server of this repository. */
-function healerSession(test: RunTest, runId: string, agent: AgentFile, o: SessionOptions) {
+/**
+ * The Agent SDK options of the healer's session, with the playwright-test MCP server of this
+ * repository behind the mask.
+ */
+export function healerOptions(agent: AgentFile, o: SessionOptions): Options {
 	const server = playwrightCommand([
 		'run-test-mcp-server',
 		'--headless',
 		'-c',
 		resolve(TESTS_ROOT, 'playwright.config.ts')
 	]);
-	// The browser tools write their logs into the folder the server runs in.
-	// In its own folder, behind the mask: every answer of the server passes healer-mask.ts.
-	const inFolder = [
-		'-c',
-		'cd "$0" && exec "$@"',
-		o.serverCwd,
-		process.execPath,
-		MASK_SCRIPT,
-		server.cmd,
-		...server.args
-	];
 	// The model process gets no password, neither in its environment nor on its command line.
 	const secretValues = new Set(o.secrets);
 	const modelEnv = Object.fromEntries(
@@ -217,40 +243,41 @@ function healerSession(test: RunTest, runId: string, agent: AgentFile, o: Sessio
 			([, value]) => value !== undefined && !secretValues.has(value)
 		)
 	);
-	return query({
-		prompt: healerTask(test, runId),
-		options: {
-			cwd: APP_ROOT,
-			systemPrompt: agent.prompt,
-			...(agent.model ? { model: agent.model } : {}),
-			// Only the agent file's built-in tools, every call through the hooks. No settings, hooks or
-			// MCP servers from the user's or the project's configuration.
-			tools: agent.tools.filter((t) => !t.startsWith('mcp__')),
-			allowedTools: agent.tools,
-			permissionMode: 'dontAsk',
-			settingSources: [],
-			hooks: o.hooks,
-			mcpServers: {
-				'playwright-test': {
-					type: 'stdio',
-					command: '/bin/sh',
-					args: inFolder,
-					env: { ...o.serverEnv, HEALER_MASK: JSON.stringify(o.secrets) },
-					alwaysLoad: true
-				}
-			},
-			// Over stdin, not on Claude Code's command line, where anyone on the machine could read
-			// the server's environment and with it the passwords.
-			mcpServersDelivery: 'initialize',
-			// Only this server: no claude.ai connectors of the Claude login, no .mcp.json, no plugins.
-			strictMcpConfig: true,
-			env: modelEnv,
-			maxTurns: MAX_TURNS,
-			maxBudgetUsd: o.budget,
-			abortController: o.abort,
-			persistSession: false
-		}
-	});
+	return {
+		cwd: APP_ROOT,
+		systemPrompt: agent.prompt,
+		...(agent.model ? { model: agent.model } : {}),
+		// The task holds the test's title and error, text from the SAP screens: Claude Code must not
+		// read an `@path` in it as a file to attach, which no hook would see.
+		verbatimPrompts: true,
+		// Only the agent file's built-in tools, every call through the hooks. No settings, hooks or
+		// MCP servers from the user's or the project's configuration.
+		tools: agent.tools.filter((t) => !t.startsWith('mcp__')),
+		allowedTools: agent.tools,
+		permissionMode: 'dontAsk',
+		settingSources: [],
+		hooks: o.hooks,
+		mcpServers: {
+			// Every answer of the server passes healer-mask.ts before the model sees it.
+			'playwright-test': {
+				type: 'stdio',
+				command: process.execPath,
+				args: [MASK_SCRIPT, server.cmd, ...server.args],
+				env: { ...o.serverEnv, HEALER_MASK: JSON.stringify(o.secrets) },
+				alwaysLoad: true
+			}
+		},
+		// Over stdin, not on Claude Code's command line, where anyone on the machine could read
+		// the server's environment and with it the passwords.
+		mcpServersDelivery: 'initialize',
+		// Only this server: no claude.ai connectors of the Claude login, no .mcp.json, no plugins.
+		strictMcpConfig: true,
+		env: modelEnv,
+		maxTurns: MAX_TURNS,
+		maxBudgetUsd: o.budget,
+		abortController: o.abort,
+		persistSession: false
+	};
 }
 
 /**
@@ -297,6 +324,7 @@ export async function startHealing(
 			if (within(TESTS_ROOT, relative(TESTS_ROOT, abs)))
 				originals.set(abs, { before: original.before });
 	const abort = new AbortController();
+	const browserFilesBefore = browserFiles();
 	const state: HealerState = {
 		runId,
 		testId,
@@ -307,7 +335,6 @@ export async function startHealing(
 		activity: [],
 		changes: redact(changesOf(originals))
 	};
-	mkdirSync(files.server, { recursive: true });
 	active = { state, abort };
 	save(state);
 
@@ -367,6 +394,7 @@ export async function startHealing(
 		state.finishedAt = new Date().toISOString();
 		state.changes = redact(changesOf(originals));
 		save(state, originals);
+		moveBrowserFiles(browserFilesBefore, files.browser);
 		if (active?.state === state) active = null;
 	};
 	const stopWithApp = () => {
@@ -377,23 +405,25 @@ export async function startHealing(
 	const budget = Number(process.env.TEST_APP_HEALER_BUDGET_USD) || DEFAULT_BUDGET_USD;
 	let messages: AsyncIterable<SDKMessage>;
 	try {
-		messages = healerSession(test, runId, agent, {
-			budget,
-			abort,
-			hooks: {
-				PreToolUse: [{ hooks: [gate], onFailure: 'block' }],
-				PostToolUse: [{ hooks: [afterTool] }]
-			},
-			// The test users' passwords go to the MCP server only, which runs the tests. Its results
-			// go to the healer's folder, which the retention rules remove with the run's log.
-			serverEnv: {
-				...settings.env,
-				...idocTestEnv(),
-				SAP_TESTS_OUTPUT_DIR: files.output,
-				FORCE_COLOR: '0'
-			},
-			serverCwd: files.server,
-			secrets: settings.secrets
+		messages = query({
+			prompt: healerTask(test, runId),
+			options: healerOptions(agent, {
+				budget,
+				abort,
+				hooks: {
+					PreToolUse: [{ hooks: [gate], onFailure: 'block' }],
+					PostToolUse: [{ hooks: [afterTool] }]
+				},
+				// The test users' passwords go to the MCP server only, which runs the tests. Its results
+				// go to the healer's folder, which the retention rules remove with the run's log.
+				serverEnv: {
+					...settings.env,
+					...idocTestEnv(),
+					SAP_TESTS_OUTPUT_DIR: files.output,
+					FORCE_COLOR: '0'
+				},
+				secrets: settings.secrets
+			})
 		});
 	} catch (e) {
 		finish('failed', errorText(e));

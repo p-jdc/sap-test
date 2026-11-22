@@ -68,117 +68,123 @@
 	);
 </script>
 
-<div class="healer">
-	{#if !heal}
-		<div class="row">
-			<ui5-button
-				design="Transparent"
-				icon="stethoscope"
-				onclick={start}
-				disabled={!!healer.current?.problem || busy || undefined}
-				title={healer.current?.problem ??
-					(busy
-						? 'Another test or a run is using the browser; wait until it has finished.'
-						: 'The AI healer runs this test, names the cause and repairs the test if the cause lies in it')}
-			>
-				Diagnose with healer
-			</ui5-button>
-			{#if healer.current?.problem}
-				<span class="muted">{healer.current.problem}</span>
-			{/if}
-		</div>
-	{/if}
-
-	{#if error}
-		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
-	{/if}
-
-	{#if heal}
-		<div class="head">
-			<ui5-title level="H6">Healer</ui5-title>
-			{#if working}
-				<ui5-busy-indicator active size="S"></ui5-busy-indicator>
-				<span class="muted">working · {duration(elapsed)}</span>
-				<span class="spacer"></span>
-				<ui5-button design="Transparent" icon="stop" onclick={stop}>Stop the healer</ui5-button>
-			{:else}
-				<span class="muted">
-					{heal.status === 'finished'
-						? 'finished'
-						: heal.status === 'stopped'
-							? 'stopped'
-							: 'did not finish'} after {duration(elapsed)}{heal.costUsd !== undefined
-						? ` · about $${heal.costUsd.toFixed(2)}`
-						: ''}
-				</span>
-			{/if}
-		</div>
-
-		{#if heal.error}
-			<ui5-message-strip design="Negative" hide-close-button>{heal.error}</ui5-message-strip>
-		{/if}
-
-		{#if heal.report}
-			<pre class="report">{heal.report}</pre>
-		{/if}
-
-		{#if heal.changes.length}
-			{#if heal.discarded}
-				<ui5-message-strip design="Information" hide-close-button>
-					{#if heal.discardKept?.length}
-						These changes were discarded, except in the files someone changed since, which are left
-						as they are: {heal.discardKept.join(', ')}.
-					{:else}
-						These changes were discarded: the files are as they were before the healer.
-					{/if}
-				</ui5-message-strip>
-			{:else if !working}
-				<ui5-message-strip design="Critical" hide-close-button>
-					The healer changed {heal.changes.length === 1 ? 'this file' : 'these files'} in the working
-					tree. Nothing is committed: check that no assertion was removed or loosened, put your name in
-					the line “KI-generiert, geprüft von:”, and commit it, or discard the repair.
-				</ui5-message-strip>
-			{/if}
-			{#each heal.changes as change (change.file)}
-				<details open={!heal.discarded || undefined}>
-					<summary class="mono">{change.file}</summary>
-					<pre class="diff">{#each change.diff.split('\n') as line, n (n)}<span
-								class={[line.startsWith('+') && 'add', line.startsWith('-') && 'del']}>{line}</span
-							>{/each}</pre>
-				</details>
-			{/each}
-			{#if !working && !heal.discarded}
-				<div class="row">
-					<ui5-button design="Transparent" icon="undo" onclick={discard}>
-						Discard the repair
-					</ui5-button>
-				</div>
-			{/if}
-		{/if}
-
-		{#if heal.activity.length}
-			<details open={working || undefined}>
-				<summary>What the healer did ({heal.activity.length} steps)</summary>
-				<ol class="activity">
-					{#each heal.activity as line, n (n)}<li>{line}</li>{/each}
-				</ol>
-			</details>
-		{/if}
-
-		{#if !working}
+<!-- Off, the healer shows only what it did before it was turned off. -->
+{#if healer.current?.on || heal}
+	<div class="healer">
+		{#if !heal}
 			<div class="row">
 				<ui5-button
 					design="Transparent"
 					icon="stethoscope"
 					onclick={start}
 					disabled={!!healer.current?.problem || busy || undefined}
+					title={healer.current?.problem ??
+						(busy
+							? 'Another test or a run is using the browser; wait until it has finished.'
+							: 'The AI healer runs this test, names the cause and repairs the test if the cause lies in it')}
 				>
-					Diagnose again
+					Diagnose with healer
 				</ui5-button>
+				{#if healer.current?.problem}
+					<span class="muted">{healer.current.problem}</span>
+				{/if}
 			</div>
 		{/if}
-	{/if}
-</div>
+
+		{#if error}
+			<ui5-message-strip design="Negative" onclose={() => (error = null)}>
+				{error}
+			</ui5-message-strip>
+		{/if}
+
+		{#if heal}
+			<div class="head">
+				<ui5-title level="H6">Healer</ui5-title>
+				{#if working}
+					<ui5-busy-indicator active size="S"></ui5-busy-indicator>
+					<span class="muted">working · {duration(elapsed)}</span>
+					<span class="spacer"></span>
+					<ui5-button design="Transparent" icon="stop" onclick={stop}>Stop the healer</ui5-button>
+				{:else}
+					<span class="muted">
+						{heal.status === 'finished'
+							? 'finished'
+							: heal.status === 'stopped'
+								? 'stopped'
+								: 'did not finish'} after {duration(elapsed)}{heal.costUsd !== undefined
+							? ` · about $${heal.costUsd.toFixed(2)}`
+							: ''}
+					</span>
+				{/if}
+			</div>
+
+			{#if heal.error}
+				<ui5-message-strip design="Negative" hide-close-button>{heal.error}</ui5-message-strip>
+			{/if}
+
+			{#if heal.report}
+				<pre class="report">{heal.report}</pre>
+			{/if}
+
+			{#if heal.changes.length}
+				{#if heal.discarded}
+					<ui5-message-strip design="Information" hide-close-button>
+						{#if heal.discardKept?.length}
+							These changes were discarded, except in the files someone changed since, which are
+							left as they are: {heal.discardKept.join(', ')}.
+						{:else}
+							These changes were discarded: the files are as they were before the healer.
+						{/if}
+					</ui5-message-strip>
+				{:else if !working}
+					<ui5-message-strip design="Critical" hide-close-button>
+						The healer changed {heal.changes.length === 1 ? 'this file' : 'these files'} in the working
+						tree. Nothing is committed: check that no assertion was removed or loosened, put your name
+						in the line “KI-generiert, geprüft von:”, and commit it, or discard the repair.
+					</ui5-message-strip>
+				{/if}
+				{#each heal.changes as change (change.file)}
+					<details open={!heal.discarded || undefined}>
+						<summary class="mono">{change.file}</summary>
+						<pre class="diff">{#each change.diff.split('\n') as line, n (n)}<span
+									class={[line.startsWith('+') && 'add', line.startsWith('-') && 'del']}
+									>{line}</span
+								>{/each}</pre>
+					</details>
+				{/each}
+				{#if !working && !heal.discarded}
+					<div class="row">
+						<ui5-button design="Transparent" icon="undo" onclick={discard}>
+							Discard the repair
+						</ui5-button>
+					</div>
+				{/if}
+			{/if}
+
+			{#if heal.activity.length}
+				<details open={working || undefined}>
+					<summary>What the healer did ({heal.activity.length} steps)</summary>
+					<ol class="activity">
+						{#each heal.activity as line, n (n)}<li>{line}</li>{/each}
+					</ol>
+				</details>
+			{/if}
+
+			{#if !working}
+				<div class="row">
+					<ui5-button
+						design="Transparent"
+						icon="stethoscope"
+						onclick={start}
+						disabled={!!healer.current?.problem || busy || undefined}
+					>
+						Diagnose again
+					</ui5-button>
+				</div>
+			{/if}
+		{/if}
+	</div>
+{/if}
 
 <style>
 	.healer {

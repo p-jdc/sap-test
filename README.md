@@ -463,15 +463,18 @@ report (the cause, test or application, what it changed) and a diff of every fil
   von:`, and commits, or presses "Discard the repair", which puts back the files as they were
   before (a file someone changed since is left alone). "Diagnose again" on a repair that was not
   discarded goes on from it: the diff and the discard still go back to before the first session.
-- With sign-in on, only an admin can start the healer or discard its repair.
+- With sign-in on, only an admin can start or stop the healer or discard its repair. Off (the
+  default), the run page shows no healer, only what it did before it was turned off.
 - The app, not only the instructions, limits the tools: it reads and searches only in
-  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, and in the
-  results of its own test runs (never a settings file or the saved sessions in `.auth`), and
+  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, in the results
+  of its own test runs and in `.playwright-mcp` (never a settings file or the saved sessions in
+  `.auth`), and
   changes only `.ts` files in `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`,
   `_reference` and `_agents`. It has no shell. `browser_run_code_unsafe` is refused (it runs code in
   the MCP server's process) and so is any browser tool given a file to save to or read. No settings,
   hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
-  Claude login.
+  Claude login. Its task, which quotes the test's title and error, is given to Claude Code as it is:
+  an `@path` in it does not attach a file.
 - The passwords go to the MCP server only, which signs in as a run does. They are not in the model
   process's environment or on its command line (the SDK hands the server's settings over stdin).
   Every answer of the server passes `src/lib/server/healer-mask.ts` before the model sees it, also
@@ -490,7 +493,10 @@ report (the cause, test or application, what it changed) and a diff of every fil
   its test runs (traces, screenshots and videos of the SAP screens) are kept with the run
   (`healer/` in the run's folder) and removed with the run's own files
   (`TEST_APP_KEEP_REPORT_DAYS`); its report and the record of the files before it are removed with
-  the run's log. Once a run's log is gone, the healer no longer starts on it.
+  the run's log. The console logs and snapshots of its browser tools, which Playwright writes to
+  `.playwright-mcp` at the repository root, are moved there when the session ends (if the app
+  stops during a session, they stay at the root). Once a run's files are gone, the healer no
+  longer starts on it.
 
 ## Development
 

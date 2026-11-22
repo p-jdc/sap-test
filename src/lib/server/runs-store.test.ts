@@ -299,7 +299,7 @@ describe('applyRetention', () => {
 		const dir = withArtifacts(old);
 		const healer = join(dir, 'healer');
 		mkdirSync(join(healer, 't1-results/a-chromium'), { recursive: true });
-		mkdirSync(join(healer, 't1-server/.playwright-mcp'), { recursive: true });
+		mkdirSync(join(healer, 't1-browser'), { recursive: true });
 		writeFileSync(join(healer, 't1-results/a-chromium/trace.zip'), 'zip');
 		writeFileSync(join(healer, 't1.json'), '{}');
 
@@ -307,9 +307,13 @@ describe('applyRetention', () => {
 		store.applyRetention(DAYS_LATER(20));
 		expect(existsSync(join(dir, 'results'))).toBe(false);
 		expect(existsSync(join(healer, 't1-results'))).toBe(false);
-		expect(existsSync(join(healer, 't1-server'))).toBe(false);
+		expect(existsSync(join(healer, 't1-browser'))).toBe(false);
 		expect(existsSync(join(dir, 'output.log'))).toBe(true);
 		expect(existsSync(join(healer, 't1.json'))).toBe(true);
+		// Results written after the run's own files went are removed on the next pass.
+		mkdirSync(join(healer, 't2-results'), { recursive: true });
+		store.applyRetention(DAYS_LATER(21));
+		expect(existsSync(join(healer, 't2-results'))).toBe(false);
 
 		store.applyRetention(DAYS_LATER(40));
 		expect(existsSync(join(dir, 'output.log'))).toBe(false);

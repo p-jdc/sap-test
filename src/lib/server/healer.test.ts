@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { z } from 'zod';
 import type { HealerState } from '#lib/shared/types.js';
 
 // paths.ts reads TEST_APP_DATA_DIR and SAP_TESTS_DIR when it is first imported, so each test gets
@@ -23,6 +24,7 @@ beforeEach(async () => {
 	healer = await import('./healer.js');
 	runDir = join(data, 'runs', RUN);
 	mkdirSync(join(runDir, 'healer'), { recursive: true });
+	writeFileSync(join(runDir, 'output.log'), '');
 });
 
 const file = (name: string) => join(tests, 'tests', name);
@@ -100,6 +102,40 @@ describe('healingState', () => {
 			error: 'The app stopped.',
 			changes: [{ file: 'x', diff: 'd' }]
 		});
+	});
+});
+
+describe('healerOptions', () => {
+	test('keeps the passwords from the model and from command lines, and the task as it is', () => {
+		const secret = 'Pw-of-the-test-user';
+		vi.stubEnv('SAP_PASSWORD', secret);
+		const options = healer.healerOptions(
+			{ tools: ['Read', 'mcp__playwright-test__test_run'], prompt: 'You are the healer.' },
+			{
+				budget: 1,
+				abort: new AbortController(),
+				hooks: {},
+				serverEnv: { SAP_PASSWORD: secret },
+				secrets: [secret]
+			}
+		);
+		expect(options).toMatchObject({
+			// An `@path` in a test's error is not a file to attach.
+			verbatimPrompts: true,
+			mcpServersDelivery: 'initialize',
+			strictMcpConfig: true,
+			settingSources: [],
+			tools: ['Read']
+		});
+		const server = options.mcpServers?.['playwright-test'];
+		// Every answer of the server passes the mask.
+		const { command, args } = z
+			.object({ command: z.string(), args: z.array(z.string()) })
+			.parse(server);
+		expect(command).toBe(process.execPath);
+		expect(args[0]).toMatch(/healer-mask\.ts$/);
+		expect(args.join(' ')).not.toContain(secret);
+		expect(JSON.stringify(options.env)).not.toContain(secret);
 	});
 });
 

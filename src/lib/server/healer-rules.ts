@@ -33,7 +33,9 @@ const READ_DIRS = [
 	'sap-tests/sap-plugin',
 	'sap-tests/specs',
 	'sap-tests/setup',
-	'sap-tests/test-results'
+	'sap-tests/test-results',
+	// The browser tools' console logs and snapshots, which their answers link to.
+	'.playwright-mcp'
 ];
 /** Single files it may read besides. */
 const READ_FILES = new Set([

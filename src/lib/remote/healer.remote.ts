@@ -5,6 +5,7 @@ import { recordActivity, requireAdmin } from '#lib/server/auth/access.js';
 import {
 	activeHealing,
 	discardRepair,
+	healerOn,
 	healerProblem,
 	healingState,
 	startHealing,
@@ -18,6 +19,7 @@ const target = z.object({
 
 /** Whether the healer can be started here, and the test it is working on. */
 export const getHealer = query(() => ({
+	on: healerOn(),
 	problem: healerProblem() ?? null,
 	active: activeHealing()
 }));
@@ -37,9 +39,12 @@ export const startHealer = command(target, async ({ id, testId }) => {
 	await Promise.all([getHealer().refresh(), getHealing({ id, testId }).refresh()]);
 });
 
-export const stopHealer = command(target, ({ id, testId }) => ({
-	stopped: stopHealing(id, testId)
-}));
+export const stopHealer = command(target, async ({ id, testId }) => {
+	requireAdmin();
+	const stopped = stopHealing(id, testId);
+	if (stopped) await recordActivity('Stopped the healer', `${id} ${testId}`);
+	return { stopped };
+});
 
 export const discardHealerRepair = command(target, async ({ id, testId }) => {
 	requireAdmin();

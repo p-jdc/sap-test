@@ -390,11 +390,11 @@ function removeDetails(id: string, keep: Set<string>): boolean {
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** The results folders of the healer's test runs (healer.ts: `<test>-results`, `<test>-server`). */
+/** The results folders of the healer's test runs (healer.ts: `<test>-results`, `<test>-browser`). */
 function removeHealerResults(dir: string) {
 	if (!existsSync(dir)) return;
 	for (const name of readdirSync(dir))
-		if (name.endsWith('-results') || name.endsWith('-server'))
+		if (name.endsWith('-results') || name.endsWith('-browser'))
 			rmSync(join(dir, name), { recursive: true, force: true });
 }
 
@@ -460,11 +460,12 @@ export function applyRetention(
 		if (!decision.artifacts && !r.artifactsRemovedAt) {
 			rmSync(join(dir, 'report'), { recursive: true, force: true });
 			rmSync(join(dir, 'results'), { recursive: true, force: true });
-			// The healer's test runs: traces, screenshots and videos like the run's own.
-			removeHealerResults(join(dir, 'healer'));
 			set.artifactsRemovedAt = new Date(now);
 			touched = true;
 		}
+		// The healer's test runs: traces, screenshots and videos like the run's own. On every pass:
+		// a healer may have been started after the run's own files went.
+		if (!decision.artifacts) removeHealerResults(join(dir, 'healer'));
 		if (decision.details !== 'all' && !r.detailsRemovedAt) {
 			if (removeDetails(r.id, decision.details)) touched = true;
 			if (!decision.log) {
