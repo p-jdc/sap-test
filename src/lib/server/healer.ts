@@ -25,6 +25,7 @@ import {
 	unifiedDiff
 } from './healer-rules.js';
 import { masker } from './healer-mask.js';
+import { settingNames } from './systems.js';
 import { idocTestEnv } from './idoc.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
 import { APP_ROOT, RUNS_DIR, TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
@@ -147,9 +148,20 @@ export function healingState(runId: string, testId: string): HealerState | null 
 	const files = healerFiles(runId, testId);
 	if (!files) return null;
 	const state = readJson(files.state, stateSchema);
-	// The app stopped while the healer worked: nothing will finish it now.
-	if (state?.status === 'running')
-		return { ...state, status: 'stopped', error: 'The app stopped.' };
+	// The app stopped while the healer worked: nothing will finish it now. The diff is worked out
+	// from the record of the files before it, which also holds the change in progress.
+	if (state?.status === 'running') {
+		const originals = readJson(files.originals, originalsSchema) ?? {};
+		const inTests = Object.entries(originals).filter(([abs]) =>
+			within(TESTS_ROOT, relative(TESTS_ROOT, abs))
+		);
+		return {
+			...state,
+			status: 'stopped',
+			error: 'The app stopped.',
+			changes: inTests.length > 0 ? changesOf(new Map(inTests)) : state.changes
+		};
+	}
 	return state;
 }
 
@@ -218,16 +230,48 @@ function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
 	}
 }
 
+/** What the system needs to run node and a browser. */
+const SYSTEM_ENV = new Set([
+	'PATH',
+	'HOME',
+	'USER',
+	'LOGNAME',
+	'SHELL',
+	'LANG',
+	'TZ',
+	'TMPDIR',
+	'TEMP',
+	'TMP',
+	'DISPLAY',
+	'XDG_RUNTIME_DIR',
+	'CI',
+	'CHROMIUM_PATH',
+	'SSL_CERT_FILE',
+	'SSL_CERT_DIR',
+	'HTTP_PROXY',
+	'HTTPS_PROXY',
+	'NO_PROXY',
+	'http_proxy',
+	'https_proxy',
+	'no_proxy'
+]);
+/** Settings of the test project and its tools by their prefix. */
+const TEST_ENV = /^(SAP_|ARIBA_|ODATA_|IDOC_|MFS_|PLAYWRIGHT_|PW_|NODE_|LC_)/;
+
 /**
- * The MCP server's environment: what a run gets (this app's environment and the saved
- * settings), with sap-tests as its folder, so that its config loads sap-tests/.env as a run's
- * does. Not the model's key or login: the tests have no use for them.
+ * The MCP server's environment: the tests' settings (those this app knows, the saved ones, the
+ * test project's prefixes) and what the system needs, not the rest of this app's environment
+ * (its sign-in secret, the AI provider's credentials, the model's key), which code the healer
+ * writes would run with. It runs in sap-tests, where its config loads sap-tests/.env as a run's
+ * does.
  */
 function serverEnv(extra: Record<string, string>, secrets: readonly string[]) {
+	const known = new Set<string>(settingNames());
 	const env: Record<string, string> = {};
 	for (const [key, value] of Object.entries(childEnv(extra)))
-		if (value !== undefined && !/^(ANTHROPIC|CLAUDE)_/.test(key)) env[key] = value;
-	return { ...env, HEALER_CWD: TESTS_ROOT, HEALER_MASK: JSON.stringify(secrets) };
+		if (value !== undefined && (SYSTEM_ENV.has(key) || known.has(key) || TEST_ENV.test(key)))
+			env[key] = value;
+	return { ...env, ...extra, HEALER_CWD: TESTS_ROOT, HEALER_MASK: JSON.stringify(secrets) };
 }
 
 type SessionOptions = {
@@ -306,7 +350,9 @@ export function continuedRepair(runId: string, testId: string): Map<string, Orig
 	for (const [abs, original] of Object.entries(readJson(files.originals, originalsSchema) ?? {})) {
 		if (!within(TESTS_ROOT, relative(TESTS_ROOT, abs))) continue;
 		const now = readText(abs);
-		originals.set(abs, { before: now === original.after ? original.before : now });
+		// No `after`: the healer was changing the file when its session ended.
+		const healers = original.after === undefined || now === original.after;
+		originals.set(abs, { before: healers ? original.before : now });
 	}
 	return originals;
 }
@@ -387,9 +433,13 @@ export async function startHealing(
 				}
 			});
 		}
-		if (decision.writes && !originals.has(decision.writes)) {
-			originals.set(decision.writes, { before: readText(decision.writes) });
-			// On disk before the change: if the app stops now, the change can still be undone.
+		if (decision.writes) {
+			// On disk before the change: if the app stops during it, the change can still be undone.
+			// `after` is unknown until the change is done (afterTool), so a stop in between does not
+			// make the healer's change look like a person's.
+			const known = originals.get(decision.writes);
+			if (known) delete known.after;
+			else originals.set(decision.writes, { before: readText(decision.writes) });
 			save(state, originals);
 		}
 		return Promise.resolve({
@@ -532,7 +582,8 @@ export function discardRepair(
 		if (!within(TESTS_ROOT, relative(TESTS_ROOT, abs))) continue;
 		const now = readText(abs);
 		if (now === original.before) continue;
-		if (now !== original.after) {
+		// No `after`: the session ended during the healer's change of this file.
+		if (original.after !== undefined && now !== original.after) {
 			kept.push(toPosix(relative(APP_ROOT, abs)));
 			continue;
 		}

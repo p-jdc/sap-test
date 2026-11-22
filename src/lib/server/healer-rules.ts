@@ -33,7 +33,6 @@ const READ_DIRS = [
 	'sap-tests/sap-plugin',
 	'sap-tests/specs',
 	'sap-tests/setup',
-	'sap-tests/test-results',
 	// The browser tools' console logs and snapshots, which their answers link to.
 	'.playwright-mcp'
 ];

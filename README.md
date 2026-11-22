@@ -466,8 +466,7 @@ report (the cause, test or application, what it changed) and a diff of every fil
 - With sign-in on, only an admin can start or stop the healer or discard its repair. Off (the
   default), the run page shows no healer, only what it did before it was turned off.
 - The app, not only the instructions, limits the tools: it reads and searches only in
-  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results` and in
-  `.playwright-mcp`, and it reads the files the tools name in the results of its own test runs,
+  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs` and `setup` and in `.playwright-mcp`, and it reads the files the tools name in the results of its own test runs,
   but not Playwright's raw network, trace or video files (never a settings file or the saved
   sessions in `.auth`), and
   changes only `.ts` files in `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`,
@@ -476,8 +475,12 @@ report (the cause, test or application, what it changed) and a diff of every fil
   hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
   Claude login. Its task, which quotes the test's title and error, is given to Claude Code as it is:
   an `@path` in it does not attach a file.
-- The MCP server runs the tests as a run does: in `sap-tests`, with the app's environment and the
-  saved settings, so its config reads `sap-tests/.env` too. The passwords go to it only. They are not in the model
+- The MCP server runs the tests in `sap-tests`, so its config reads `sap-tests/.env` as a run's
+  does, with the saved settings and only the part of the app's environment the tests use (the
+  settings the app knows, variables starting with `SAP_`, `ARIBA_`, `ODATA_`, `IDOC_`, `MFS_`,
+  `PLAYWRIGHT_`, `PW_` or `NODE_`, and what the system needs, such as `PATH`, `HOME` and the
+  proxy). Not the app's sign-in secret, the AI provider's credentials or the model's key. The
+  passwords go to it only. They are not in the model
   process's environment or on its command line (the SDK hands the server's settings over stdin).
   Every answer of the server passes `src/lib/server/healer-mask.ts` before the model sees it, also
   one that ends as an error: it masks the passwords as they are and URL- or form-encoded, login
@@ -487,9 +490,11 @@ report (the cause, test or application, what it changed) and a diff of every fil
   of the browser's network list can be read only for its response, not for the headers and body
   it sent. Other encodings of a password (Base64 in a hand-made header, for example) are not
   caught.
-- **What the app cannot prevent:** the healer changes test code and runs it, and test code runs with
-  the test users' passwords. A test the healer wrote can read them and send them anywhere, in a way
-  that no masking catches. A misled model (for example by text on an SAP screen or in an error
+- **What the app cannot prevent:** the healer changes test code and runs it. That code runs as the
+  app's user on the computer or pod of the app, with the test users' passwords: it can read them
+  and send them anywhere, in a way that no masking catches, and it can read or change any file that
+  user can (the app's database and code included). The limits above apply to the healer's tools,
+  not to the code it writes. A misled model (for example by text on an SAP screen or in an error
   message) could do that. So use the healer only with test users of test systems, and read every
   repair before it is committed or run again.
 - One healer at a time, and not during a run (a run waits for the healer as well). The results of

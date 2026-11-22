@@ -27,6 +27,17 @@
 				(healer.current.active.runId !== runId || healer.current.active.testId !== testId))
 	);
 	let error = $state<string | null>(null);
+	/** The healer works on another test: asked again until it is done, so the button frees up. */
+	const elsewhere = $derived(!!healer.current?.active && !working && busy && !runActive);
+	$effect(() => {
+		if (!elsewhere) return;
+		const t = setInterval(() => {
+			void healer.refresh();
+		}, 5000);
+		return () => {
+			clearInterval(t);
+		};
+	});
 
 	$effect(() => {
 		if (!working) return;

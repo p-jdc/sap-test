@@ -111,20 +111,27 @@ describe('continuedRepair', () => {
 		});
 	});
 
+	test("a file the healer was changing when the app stopped is still the healer's", () => {
+		writeFileSync(file('mid-change.ts'), 'H2');
+		saved({}, { [file('mid-change.ts')]: { before: 'B0' } });
+		expect(Object.fromEntries(healer.continuedRepair(RUN, TEST))).toEqual({
+			[file('mid-change.ts')]: { before: 'B0' }
+		});
+	});
+
 	test('starts afresh after a discard', () => {
 		saved({ discarded: true }, { [file('a.ts')]: { before: 'B0', after: 'H1' } });
 		expect(healer.continuedRepair(RUN, TEST).size).toBe(0);
 	});
 });
 
-describe('healingState', () => {
-	test('a healer the app stopped in the middle shows as stopped, with the changes saved so far', () => {
-		saved({ status: 'running' }, { [file('a.ts')]: { before: 'x' } });
-		expect(healer.healingState(RUN, TEST)).toMatchObject({
-			status: 'stopped',
-			error: 'The app stopped.',
-			changes: [{ file: 'x', diff: 'd' }]
-		});
+describe('a session the app stopped', () => {
+	test('shows the change in progress and can be discarded', () => {
+		writeFileSync(file('a.ts'), 'H2');
+		saved({ status: 'running', changes: [] }, { [file('a.ts')]: { before: 'B0' } });
+		expect(JSON.stringify(healer.healingState(RUN, TEST))).toContain('+H2');
+		expect(healer.discardRepair(RUN, TEST)).toEqual({ ok: true, kept: [] });
+		expect(readFileSync(file('a.ts'), 'utf8')).toBe('B0');
 	});
 });
 
@@ -164,6 +171,8 @@ describe('healerOptions', () => {
 	test('starts the server in the test project with what a run gets, without the model key', () => {
 		vi.stubEnv('SAP_URL', 'https://sap.example');
 		vi.stubEnv('ANTHROPIC_API_KEY', 'model-key');
+		vi.stubEnv('BETTER_AUTH_SECRET', 'the-apps-secret');
+		vi.stubEnv('GOOGLE_APPLICATION_CREDENTIALS', '/secrets/vertex.json');
 		const options = healer.healerOptions(
 			{ tools: ['mcp__playwright-test__test_run'], prompt: 'p' },
 			{
@@ -180,7 +189,11 @@ describe('healerOptions', () => {
 		// healer-mask.ts starts the server there, where the config loads sap-tests/.env.
 		expect(env.HEALER_CWD).toBe(tests);
 		expect(env).toMatchObject({ SAP_URL: 'https://sap.example', SAP_PASSWORD: 'from-the-store' });
+		// Not the rest of the app's environment, which code the healer writes would run with.
 		expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+		expect(env.BETTER_AUTH_SECRET).toBeUndefined();
+		expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+		expect(env.PATH).toBeDefined();
 	});
 });
 

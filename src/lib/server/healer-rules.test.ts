@@ -130,7 +130,12 @@ describe('toolDecision', () => {
 		['the saved session', 'Read', { file_path: 'sap-tests/.auth/sap-session.json' }],
 		['a link to the settings file', 'Read', { file_path: 'sap-tests/tests/fiori/link.ts' }],
 		['the app data', 'Read', { file_path: '.data/app.sqlite' }],
-		['the results of other runs', 'Read', { file_path: 'test-results/x/trace.zip' }],
+		['the results of other runs', 'Read', { file_path: 'sap-tests/test-results/x/trace.zip' }],
+		[
+			'the raw network of another run',
+			'Grep',
+			{ pattern: 'Authorization', path: 'sap-tests/test-results' }
+		],
 		['a saved session beside its results', 'Read', { file_path: 'OUT/.auth/sap.json' }],
 		['a search in what its test runs left', 'Grep', { pattern: 'Cookie', path: 'OUT' }],
 		[
