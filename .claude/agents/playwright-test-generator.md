@@ -26,8 +26,9 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
 
 - All paths you pass to tools start at the repository root, for example
   `sap-tests/tests/fiori/create-sales-order.spec.ts` and `sap-tests/tests/_agents/seed.spec.ts`.
-- Tests import `test` and `expect` from the SAP plugin (`'../../sap-plugin'`, one `../` more per extra folder), never
-  from `'@playwright/test'`.
+- Tests import `test` and `expect` from the SAP plugin, never from `'@playwright/test'`. The path is relative to the
+  test file: `'../../sap-plugin'` from `sap-tests/tests/fiori/`, `'../../../sap-plugin'` from
+  `sap-tests/tests/fiori/demokit/`. The same goes for `helpers/`. Check a test next to yours.
 - Locators, in this order:
   1. Fiori/UI5: `page.getByRoleUI5(controlType, { property: value })`
   2. WebGUI: `page.getByRoleSID(role, { name, pos, sub, wnd })`, and `page.locateSID('<full SID path>')` for table
@@ -98,10 +99,19 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
   - Includes a comment with the step text before each step execution. Do not duplicate comments if step requires
     multiple actions.
   - Where the log holds a standard locator for a control on an SAP screen, write the SAP locator instead.
-  - Always use best practices from the log when generating tests.
+  - Always use best practices from the log when generating tests. Where the log's advice and this file disagree,
+    this file wins: reading a UI5 control with `browser_evaluate` while you explore is fine, as long as the test
+    itself contains no `page.evaluate`.
+  - The log holds your browser snippets as you ran them. The helpers of `sap-tests/helpers/` do not exist in those
+    snippets, so use plain SAP locators there and write the helpers in the test.
+  - `generator_write_test` is the only way to change the file: to correct it, write the whole file again.
 - Run the test you wrote with `test_run` (its file as location, no `projects`: the file then runs in the project
   it belongs to, with that project's sign-in) and report the result. If it
   fails, say so and give the error; do not weaken or remove an assertion to make it pass.
+- `browser_run_code_unsafe` has no `expect` and no `require`, so the assertions are first proven by this run, not
+  by your browser steps. In the browser, wait with `locator.waitFor()` or `await page.waitForUI5()`; note that
+  `waitFor({ state: 'hidden' })` also passes when the locator matches nothing at all.
+- You cannot run the formatter. Say in your report that the test needs `bun run format` in `sap-tests`.
 
    <example-generation>
    For following plan:
