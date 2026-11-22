@@ -7,11 +7,13 @@ import type { IdocSnapshot } from '#lib/shared/idoc.js';
 import { must } from '../../test/must.js';
 import {
 	clearInbox,
+	clearSent,
 	idocStatus,
 	idocTestEnv,
 	listSamples,
 	rawRequest,
 	sendSample,
+	sendSampleToSap,
 	setPartnerReply,
 	startReceiver,
 	stopReceiver,
@@ -60,7 +62,17 @@ const SETTINGS = [
 	'IDOC_TLS_CA',
 	'IDOC_TLS_CLIENT_FINGERPRINT',
 	'IDOC_USER',
-	'IDOC_PASSWORD'
+	'IDOC_PASSWORD',
+	'IDOC_FAKE_SAP',
+	'IDOC_SAP_URL',
+	'IDOC_SAP_CLIENT',
+	'IDOC_SAP_SERVICE',
+	'IDOC_SAP_USER',
+	'IDOC_SAP_PASSWORD',
+	'IDOC_SAP_TLS_CERT',
+	'IDOC_SAP_TLS_KEY',
+	'IDOC_SAP_TLS_CA',
+	'IDOC_SAP_TIMEOUT_MS'
 ];
 const saved = new Map<string, string | undefined>();
 beforeAll(() => {
@@ -91,6 +103,7 @@ describe('IDoc receiver', () => {
 	test('lists the samples of sap-tests/idoc, described by their comment', () => {
 		const samples = listSamples();
 		expect(samples.map((s) => s.name)).toEqual([
+			'orders05-inbound.xml',
 			'orders05-soap.xml',
 			'orders05.xml',
 			'zpwmock01.xml'
@@ -193,6 +206,37 @@ describe('IDoc receiver', () => {
 		} finally {
 			await live.return();
 		}
+	});
+
+	test('sends a sample into SAP (here the stand-in) and lists the sends with SAP’s answer', async () => {
+		process.env.IDOC_FAKE_SAP = '1';
+		try {
+			await startReceiver();
+			const ready = await waitFor((s) => s.sap !== null);
+			expect(ready.sap).toMatchObject({ service: 'soap', login: 'none', standIn: true });
+			expect(ready.sent).toEqual([]);
+
+			const { result } = await sendSampleToSap('orders05-inbound.xml');
+			expect(result).toMatchObject({ ok: true, idocNumbers: ['0000000000000001'] });
+			const listed = await waitFor((s) => s.sent.length === 1);
+			expect(listed.sent[0]).toMatchObject({ seq: 1, by: 'person', result: { ok: true } });
+
+			// An outbound sample is refused before it goes out, and not listed.
+			await expect(sendSampleToSap('orders05.xml')).rejects.toThrow(/DIRECT 1/);
+			await expect(sendSampleToSap('../secret.xml')).rejects.toThrow(/no sample/);
+
+			await clearSent();
+			await waitFor((s) => s.sent.length === 0);
+		} finally {
+			delete process.env.IDOC_FAKE_SAP;
+		}
+	});
+
+	test('without an SAP system set, the page shows none and sending is refused', async () => {
+		await startReceiver();
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.sap).toBeNull();
+		await expect(sendSampleToSap('orders05-inbound.xml')).rejects.toThrow(/no SAP system/);
 	});
 
 	test('a receiver that refuses its settings reports why', async () => {

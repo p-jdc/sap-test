@@ -3,11 +3,13 @@ import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import {
 	clearInbox,
+	clearSent,
 	listSamples,
 	PARTNER,
 	rawRequest,
 	SAMPLE_NAME,
 	sendSample,
+	sendSampleToSap,
 	setPartnerReply,
 	startReceiver,
 	stopReceiver,
@@ -66,3 +68,11 @@ export const sendIdocSample = command(
 	z.object({ name: z.string().regex(SAMPLE_NAME), partner: partnerName }),
 	({ name, partner }) => act(() => sendSample(name, partner))
 );
+
+/** Sends a sample IDoc into SAP through the receiver, in CPI's place. */
+export const sendIdocSampleToSap = command(
+	z.object({ name: z.string().regex(SAMPLE_NAME) }),
+	({ name }) => act(() => sendSampleToSap(name))
+);
+
+export const clearSentIdocs = command(() => act(() => clearSent()));

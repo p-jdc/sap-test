@@ -56,12 +56,16 @@ export function isLoopback(host: string): boolean {
 	return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
 }
 
-/** Reads a JSON body and checks it against a schema. */
-export async function readBody<T>(request: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
+/** Reads a JSON body and checks it against a schema. `maxBody` in characters (default 64 KiB). */
+export async function readBody<T>(
+	request: IncomingMessage,
+	schema: z.ZodType<T>,
+	maxBody = MAX_BODY
+): Promise<T> {
 	let text = '';
 	for await (const chunk of request) {
 		text += String(chunk);
-		if (text.length > MAX_BODY) throw new UserError('the request body is too large', 413);
+		if (text.length > maxBody) throw new UserError('the request body is too large', 413);
 	}
 	let value: unknown;
 	try {

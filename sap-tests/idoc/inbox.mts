@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Idoc, Segment } from './idoc.mts';
+import type { SendResult } from './sender.mts';
 import type { ParsedIdocXml } from './xml.mts';
 
 /** How the receiver answers a partner's IDocs. SAP sets status 03 on an accepted IDoc and an error status
@@ -48,10 +49,7 @@ export const ReceivedIdocSchema = z.object({
 	/** False while a slow answer is still on its way: whether SAP waits for it is not known yet. */
 	answered: z.boolean(),
 	reply: z.enum(['accept', 'reject', 'slow']),
-	idoc: z.object({
-		control: z.record(z.string(), z.string()),
-		segments: z.array(SegmentSchema)
-	})
+	idoc: z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
 });
 
 export type ReceivedIdoc = z.infer<typeof ReceivedIdocSchema>;
@@ -80,6 +78,37 @@ export const IdocFilterSchema = z.object({
 
 export type IdocFilter = z.infer<typeof IdocFilterSchema>;
 
+const ControlSchema = z.record(z.string(), z.string());
+
+export const IdocBodySchema = z.object({
+	control: ControlSchema,
+	segments: z.array(SegmentSchema)
+});
+
+export const SendResultSchema: z.ZodType<SendResult> = z.object({
+	ok: z.boolean(),
+	status: z.number().int(),
+	service: z.enum(['soap', 'xml']),
+	idocNumbers: z.array(z.string()),
+	reason: z.string().optional(),
+	body: z.string(),
+	durationMs: z.number()
+});
+
+export const SentIdocsSchema = z.object({
+	/** Increases with every send; a cursor like the inbox's. */
+	seq: z.number().int(),
+	sentAt: z.string(),
+	/** `test` when a running test sent them (the idocSender fixture), otherwise `person`. */
+	by: z.enum(['test', 'person']),
+	/** The IDocs as they went to SAP, with TABNAM and DIRECT filled in. */
+	idocs: z.array(IdocBodySchema),
+	result: SendResultSchema
+});
+
+/** One send into SAP: the IDocs of one request and SAP's answer. */
+export type SentIdocs = z.infer<typeof SentIdocsSchema>;
+
 /** A request body as SAP sent it, with the encoding its XML declaration named. */
 export interface RawRequest {
 	body: Buffer;
@@ -95,6 +124,8 @@ export interface InboxLimits {
 }
 
 const DEFAULT_LIMITS: InboxLimits = { keep: 1000, rawBudget: 50_000_000, failures: 100 };
+/** Sends kept. */
+const KEEP_SENT = 200;
 
 export class IdocInbox {
 	readonly limits: InboxLimits;
@@ -104,6 +135,8 @@ export class IdocInbox {
 	/** Per partner: the reply set without an owner, and the ones tests set for as long as they run. */
 	private replies = new Map<string, { base?: Reply; leases: Map<string, Reply> }>();
 	private failureLog: Failure[] = [];
+	private sentLog: SentIdocs[] = [];
+	private nextSent = 1;
 	private nextSeq = 1;
 	private nextRequest = 1;
 	private listeners = new Set<(idoc: ReceivedIdoc) => void>();
@@ -216,6 +249,23 @@ export class IdocInbox {
 
 	failures(): Failure[] {
 		return [...this.failureLog];
+	}
+
+	/** Records a send into SAP, whatever SAP answered. */
+	recordSent(entry: Omit<SentIdocs, 'seq' | 'sentAt'>): SentIdocs {
+		const sent = { seq: this.nextSent++, sentAt: new Date().toISOString(), ...entry };
+		this.sentLog.push(sent);
+		if (this.sentLog.length > KEEP_SENT) this.sentLog.shift();
+		return sent;
+	}
+
+	clearSent(): void {
+		this.sentLog = [];
+	}
+
+	/** The sends after the given seq, oldest first. */
+	sent(after = 0): SentIdocs[] {
+		return this.sentLog.filter((entry) => entry.seq > after);
 	}
 
 	list(filter: IdocFilter = {}): ReceivedIdoc[] {

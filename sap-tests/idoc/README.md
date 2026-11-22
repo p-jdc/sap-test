@@ -1,14 +1,16 @@
-# IDocs: model and mock receiver
+# IDocs: model, mock receiver and sender
 
 Everything for testing IDocs without a partner system:
 
 - **The IDoc model:** one model for IDocs, used by the tests, the sample data, the receiver and later the app. It doesn't depend on how an IDoc travels.
 - **The IDoc receiver:** plays the partner system SAP sends IDocs to, and keeps what it got.
 - **The `idocInbox` fixture:** lets a test wait for the IDoc a business step produced.
+- **The IDoc sender:** sends IDocs into SAP over HTTPS the way SAP Cloud Integration (CPI) does. It runs in the receiver, which holds the SAP system and its login, like CPI.
+- **The `idocSender` fixture:** lets a test send an IDoc into SAP and get the IDoc number SAP gave it.
 
-In the test app, the **Mock IDoc** page starts the receiver, shows what it got and sets its answers. Tests started from the app reach that receiver through `idocInbox`.
+In the test app, the **Mock IDoc** page starts the receiver, shows what it got and sets its answers. It also sends sample IDocs into SAP and lists what was sent. Tests started from the app reach that receiver through `idocInbox` and `idocSender`.
 
-Still to come: a sender for IDocs into SAP, and tRFC with SNC.
+Still to come: tRFC with SNC, for the connections that don't go through CPI.
 
 ## Try it
 
@@ -38,6 +40,8 @@ bun run idoc:certs    # test certificates for HTTPS and mutual TLS, in idoc/cert
 - **`receiver.mts`**: the receiver, with two listeners like the Mock PLC (it reuses `mfs/http.mts`).
   - **The IDoc endpoint**, which SAP posts to: `POST /idoc/<partner>`. It accepts IDoc-XML plain or in SOAP, in the encoding its XML declaration names. It answers 200, or a SOAP envelope for SOAP.
   - **The control API**, for tests and the app: see below.
+- **`sender.mts`**: posts IDocs into SAP. `sendToSap(target, idocs)` writes them as IDoc-XML, fills in `TABNAM` and `DIRECT 2`, and reads SAP's answer: whether SAP took them, the IDoc numbers it gave them, or why it refused. See [Sending into SAP](#sending-into-sap).
+- **`fake-sap.mts`**: a stand-in for SAP's two inbound services, for testing the sender without SAP. It numbers the IDocs it takes and can refuse them. It knows nothing of what SAP does with an IDoc after that.
 - **`server.mts`**: runs the receiver as a service, set up by environment (the list is at the top of the file). Once ready it prints `IDOC_READY {"idocUrl":…,"controlUrl":…}`, so the app can start it the way it starts the Mock PLC.
 - **`certs.mts`**: makes a test CA, a server certificate and a client certificate standing in for SAP's, with openssl. For local use and the tests only.
   - The CA may only vouch for the hosts it was made for (name constraints), and its private key is deleted once both certificates are signed. Trusting it in STRUST therefore can't let it stand in for another server SAP talks to.
@@ -106,6 +110,49 @@ expect(findSegments(idoc, 'E1EDK01')[0].fields.BELNR).toBe(orderNumber);
 
 The inbox is shared by everyone using the receiver. Tests that run in parallel against one receiver should match on something unique to them, such as the document number.
 
+## Sending into SAP
+
+The receiver sends IDocs into one SAP system, set when it starts (`server.mts` lists the settings):
+
+| Setting                                 | Means                                                                                  |
+| --------------------------------------- | -------------------------------------------------------------------------------------- |
+| `IDOC_SAP_URL`                          | The SAP system, `https://host:port`. Without it, the receiver only receives.           |
+| `IDOC_SAP_CLIENT`                       | The client (`sap-client`).                                                             |
+| `IDOC_SAP_SERVICE`                      | `soap` (default) or `xml`, see below.                                                  |
+| `IDOC_SAP_USER`, `IDOC_SAP_PASSWORD`    | A user in SAP, for basic authentication.                                               |
+| `IDOC_SAP_TLS_CERT`, `IDOC_SAP_TLS_KEY` | A client certificate SAP maps to a user (mutual TLS), instead of or besides the user.  |
+| `IDOC_SAP_TLS_CA`                       | A CA to trust for SAP's server certificate, besides the usual ones.                    |
+| `IDOC_SAP_TIMEOUT_MS`                   | How long to wait for SAP's answer (default 60 s).                                      |
+| `IDOC_FAKE_SAP=1`                       | Send to the stand-in in the receiver's process instead. `bun run test:idoc` does this. |
+
+The two services on the SAP side:
+
+- **`soap`: `/sap/bc/srt/idoc`**, IDoc-XML in a SOAP envelope. This is what CPI's IDoc receiver adapter calls. Register the service with SRTIDOC (or the report `SRT_REGISTER_SERVICE`) and make sure it is active in SICF. SAP answers with the IDoc numbers.
+- **`xml`: `/sap/bc/idoc_xml`**, plain IDoc-XML. Active in SICF. Its answer doesn't name the IDoc numbers.
+
+In SAP, the IDocs also need a partner profile (WE20) with inbound parameters for the sender in `SNDPRT`/`SNDPRN` and the message type, and a port matching `SNDPOR` (WE21).
+
+Over `http://` the sender only goes to this computer. A login for SAP needs `IDOC_CONTROL_TOKEN`: otherwise anything on this computer could send IDocs in that user's name. The control API says which kind of login is used, never the login itself.
+
+Control API:
+
+| Request        | Does                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /send`   | Sends `{"xml": "<IDoc-XML>"}` or `{"idocs": [...]}` (all of one type) into SAP. Answers with the send: the IDocs as sent and `result` (`ok`, `status`, `idocNumbers`, `reason`, SAP's `body`). An IDoc marked outbound (`DIRECT 1`) or anything that isn't IDoc-XML gets 400 and isn't sent. If SAP can't be reached or doesn't answer in time, the send is recorded with status 0. |
+| `GET /sent`    | The newest 200 sends, oldest first; `?after=<seq>` for the newer ones.                                                                                                                                                                                                                                                                                                              |
+| `DELETE /sent` | Clears the list of sends. Clearing the inbox leaves it.                                                                                                                                                                                                                                                                                                                             |
+| `GET /info` | Also gives `sap`: the address, client, service, kind of login and whether it is the stand-in (`standIn`), or `null`. |
+
+In tests:
+
+```ts
+const { result } = await idocSender.send(readFileSync('…/orders05-inbound.xml', 'utf8'));
+const [idocNumber] = result.idocNumbers;
+// then check the IDoc in SAP (WE02 or BD87: status 53) and the document made from it
+```
+
+`send` takes IDoc-XML, one IDoc or several of one type. It fails unless SAP took the IDocs. With `{ expectOk: false }` it returns SAP's refusal instead, for negative tests. The sends are marked as made by a test on the Mock IDoc page.
+
 ## Samples
 
 Everything in `samples/` is made up.
@@ -113,6 +160,7 @@ Everything in `samples/` is made up.
 | File                    | What it is                                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `orders05.xml`          | An order confirmation (`ORDRSP`) of the standard type `ORDERS05`, from SAP to the partner `PWMOCK`. Indented.             |
+| `orders05-inbound.xml`  | A purchase order (`ORDERS`) of type `ORDERS05` from the partner `PWMOCK` into SAP, as CPI would send it. `DIRECT 2`.      |
 | `orders05-soap.xml`     | The same IDoc in a SOAP envelope, compact, with `ü` and `ö` written as character references.                              |
 | `zpwmock01.xml`         | A custom type: two IDocs in one document, three segment levels, a namespaced segment, CDATA, a value with leading spaces. |
 | `zpwmock01.layout.json` | The field lengths of `ZPWMOCK01`, needed for the RFC form.                                                                |
@@ -125,9 +173,10 @@ These follow SAP's conventions as far as they are documented, but haven't been c
 - **Namespaced names:** `/PWM/Z1NOTE` is written `_-PWM_-Z1NOTE` in XML.
 - **SOAP envelope:** the exact form an XML HTTP port sends with "SOAP Protocol" ticked. Reading accepts any prefix and an optional header. Writing uses SOAP 1.1 with an empty header.
 - **`HLEVEL`:** top-level segments have level `02` in the RFC form.
+- **SAP's answer from `/sap/bc/srt/idoc`:** that it names each IDoc's number in a `DbId` element (CPI passes it on as the header `SapIDocDbId`), and that a refusal is a SOAP fault. The stand-in answers that way. What `/sap/bc/idoc_xml` answers is not known either.
 - **The receiver's answers:** that SAP sets status 03 on HTTP 200 whatever the body says, accepts an empty SOAP envelope as the answer to SOAP, and sets an error status on any HTTP error.
 
-A captured IDoc from the RISE dev system settles the first four. Add it to `samples/` once its data is anonymised. The last one needs a test send from SAP to the receiver (WE19, or a business step), with the IDoc statuses checked in WE02.
+A captured IDoc from the RISE dev system settles the first four. Add it to `samples/` once its data is anonymised. The receiver's answers need a test send from SAP to the receiver (WE19, or a business step), with the IDoc statuses checked in WE02. SAP's answer needs one send into the RISE dev system with `IDOC_SAP_URL` set; keep the answer from the Mock IDoc page (technical view) or `GET /sent`.
 
 ## Not built yet
 
