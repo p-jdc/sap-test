@@ -190,10 +190,14 @@ export function recorderInvocation(
 }
 
 /** What the log tells the person about signing in to a `web` recording. */
-function webSessionNote(title: string, invocation: Invocation): string {
+function webSessionNote(system: SignInSystemInfo, invocation: Invocation): string {
+	const { title } = system;
 	if (invocation.session)
 		return `Starting with the session the last test run saved for ${title}. If it has expired, the page asks you to sign in: delete those steps from the test afterwards.`;
-	return `Starting signed out (no saved session for ${title}, or a start page on another host): sign in in the browser window, then delete the sign-in steps from the test. A test run of ${title} saves a session for the next recording.`;
+	const reason = savedSession(system.id)
+		? `the saved session of ${title} is used only when the start page is on ${system.env.url} and that address starts with https://`
+		: `no saved session for ${title}; a test run of ${title} saves one for the next recording`;
+	return `Starting signed out (${reason}). Sign in in the browser window, then delete the sign-in steps from the test.`;
 }
 
 /**
@@ -278,7 +282,7 @@ export async function startRecording(
 	// would show.
 	// The Node warning is about the fork, which only records WebGUI.
 	const nodeWarning = target.recorder === 'webgui' ? playwrightNode().warning : null;
-	const sessionNote = target.recorder === 'web' ? [webSessionNote(system.title, invocation)] : [];
+	const sessionNote = target.recorder === 'web' ? [webSessionNote(system, invocation)] : [];
 	state = {
 		status: 'recording',
 		file,
