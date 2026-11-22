@@ -56,15 +56,15 @@ Your workflow:
 
      ```js
      (element) => {
-     	const c = sap.ui.core.Element.closestTo
-     		? sap.ui.core.Element.closestTo(element)
-     		: jQuery(element).control(0);
-     	const properties = {};
-     	for (const name of Object.keys(c.getMetadata().getAllProperties())) {
-     		const v = c.getProperty(name);
-     		if (typeof v === 'string' && v) properties[name] = v;
-     	}
-     	return { type: c.getMetadata().getName(), properties };
+       const c = sap.ui.core.Element.closestTo
+         ? sap.ui.core.Element.closestTo(element)
+         : jQuery(element).control(0);
+       const properties = {};
+       for (const name of Object.keys(c.getMetadata().getAllProperties())) {
+         const v = c.getProperty(name);
+         if (typeof v === 'string' && v) properties[name] = v;
+       }
+       return { type: c.getMetadata().getName(), properties };
      };
      ```
 
