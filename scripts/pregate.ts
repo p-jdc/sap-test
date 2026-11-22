@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 interface Step {
 	name: string;
-	dir: 'app' | 'sap-tests';
+	dir: 'app' | 'sap-tests' | '.';
 	command: string[];
 	/** Environment variable that tells the step which port its local server takes. */
 	portVariable?: string;
@@ -38,6 +38,11 @@ const STATIC: Step[] = [
 	{ name: 'sap-tests: types', dir: 'sap-tests', command: ['bun', 'run', 'typecheck'] },
 	{ name: 'sap-tests: lint', dir: 'sap-tests', command: ['bun', 'run', 'lint'] },
 	{ name: 'sap-tests: format', dir: 'sap-tests', command: ['bun', 'run', 'format:check'] },
+	{
+		name: 'Claude Code hooks: tests',
+		dir: '.',
+		command: ['bun', 'test', './.claude/hooks/guard-dotenv.test.ts']
+	},
 	{
 		name: 'sap-tests: specs load',
 		dir: 'sap-tests',
