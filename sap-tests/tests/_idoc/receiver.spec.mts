@@ -270,15 +270,39 @@ test('with a control token set, the control API needs it; changes need JSON', as
 
 /** A control API request with a Host header of our choosing, as a page using DNS rebinding sends it. */
 function getWithHost(r: RunningReceiver, host: string) {
+	return requestWithHost(`${r.controlUrl}/idocs`, 'GET', host);
+}
+
+function requestWithHost(url: string, method: string, host: string, body?: string) {
 	return new Promise<number>((resolve, reject) => {
-		const req = httpRequest(`${r.controlUrl}/idocs`, { headers: { host } }, (response) => {
-			response.resume();
-			resolve(response.statusCode ?? 0);
-		});
+		const req = httpRequest(
+			url,
+			{ method, headers: { host, 'content-type': 'text/xml' } },
+			(response) => {
+				response.resume();
+				resolve(response.statusCode ?? 0);
+			}
+		);
 		req.on('error', reject);
-		req.end();
+		req.end(body);
 	});
 }
+
+test('without a login, the IDoc endpoint turns away what a web page could send', async () => {
+	const r = await receiver();
+	const port = new URL(r.idocUrl).port;
+	const url = `${r.idocUrl}/idoc/PWMOCK`;
+	expect(await requestWithHost(url, 'POST', `127.0.0.1:${port}`, orders)).toBe(200);
+	// DNS rebinding: the page's own name in the Host header.
+	expect(await requestWithHost(url, 'POST', `evil.example:${port}`, orders)).toBe(403);
+	// A page may post text/plain anywhere without asking; SAP sends XML.
+	const plain = await send(r, 'PWMOCK', orders, { 'content-type': 'text/plain' });
+	expect(plain.status).toBe(415);
+	expect(
+		(await send(r, 'PWMOCK', orders, { 'content-type': 'application/xml; charset=utf-8' })).status
+	).toBe(200);
+	expect(await listed(r)).toHaveLength(2);
+});
 
 test('without a token, the control API answers only requests addressed to this computer', async () => {
 	const r = await receiver();
@@ -306,9 +330,51 @@ test('settings that would open the receiver to the network unprotected are refus
 		/fingerprint of SAP's certificate/
 	);
 	await expect(startReceiver({ controlHost: '0.0.0.0' })).rejects.toThrow(/control token/);
+	// The token and the IDocs would travel unencrypted.
+	await expect(startReceiver({ controlHost: '0.0.0.0', controlToken: 't' })).rejects.toThrow(
+		/TLS certificate/
+	);
 });
 
 const raw = (text: string) => ({ body: Buffer.from(text), encoding: 'utf-8' });
+
+test('a reply set by a test holds while it runs; then whatever applies without it is back', () => {
+	const inbox = new IdocInbox();
+	const reject = { mode: 'reject', status: 502, message: 'Set by a person' } as const;
+	inbox.setReply('P', reject);
+	// Two runs overlap on a shared receiver: the newest test's reply applies.
+	inbox.setReply('P', { mode: 'slow', delayMs: 10 }, 'test-a');
+	inbox.setReply('P', { mode: 'accept' }, 'test-b');
+	expect(inbox.replyFor('P').mode).toBe('accept');
+	// Test A ends first: B's reply still holds.
+	inbox.resetReply('P', 'test-a');
+	expect(inbox.replyFor('P').mode).toBe('accept');
+	// Test B ends: the reply set without an owner is back, not accept.
+	inbox.resetReply('P', 'test-b');
+	expect(inbox.replyFor('P')).toEqual(reject);
+	expect(inbox.allReplies()).toEqual({ P: reject });
+	inbox.resetReply('P');
+	expect(inbox.allReplies()).toEqual({});
+});
+
+test('replies take an owner over HTTP, and each receiver start has its own instance id', async () => {
+	const r = await receiver();
+	expect(
+		(await control(r, 'PUT', '/replies/P?owner=t1', { mode: 'slow', delayMs: 5 })).status
+	).toBe(200);
+	expect((await control(r, 'GET', '/replies/P')).body).toEqual({ mode: 'slow', delayMs: 5 });
+	expect((await control(r, 'DELETE', '/replies/P?owner=t1')).status).toBe(200);
+	expect((await control(r, 'GET', '/replies/P')).body).toEqual({ mode: 'accept' });
+	expect((await control(r, 'PUT', '/replies/P?owner=no%20spaces', { mode: 'accept' })).status).toBe(
+		400
+	);
+
+	const instanceOf = async (started: RunningReceiver) =>
+		z.object({ instance: z.string() }).parse((await control(started, 'GET', '/idocs')).body)
+			.instance;
+	const again = await receiver();
+	expect(await instanceOf(r)).not.toBe(await instanceOf(again));
+});
 
 test('the inbox keeps the newest IDocs and drops the raw body with the last IDoc of its request', () => {
 	const inbox = new IdocInbox({ keep: 2 });

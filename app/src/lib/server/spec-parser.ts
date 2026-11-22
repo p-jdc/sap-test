@@ -197,7 +197,7 @@ const SELECTOR_BUILDERS: Record<string, LocatorKind> = {
 
 function classifyCss(ctx: Ctx, arg: ts.Expression | undefined): LocatorKind {
 	if (arg && ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) {
-		const built = SELECTOR_BUILDERS[arg.expression.text];
+		const built = own(SELECTOR_BUILDERS, arg.expression.text);
 		if (built) return built;
 	}
 	const text = arg ? argText(ctx, arg) : '';

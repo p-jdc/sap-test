@@ -51,7 +51,9 @@ Reading refuses anything that isn't IDoc-XML and says why. It refuses a `DOCTYPE
 2. **WE21:** an XML HTTP port using that destination, with or without "SOAP Protocol".
 3. **WE20:** the partner profile with outbound parameters for the message types, using that port.
 
-The receiver refuses to start in a way that would open it to the network unprotected. Beyond this computer, the IDoc endpoint needs a TLS certificate and a login: a user and password, or SAP's pinned client certificate. The control API needs a token. Without a token, it answers only requests addressed to this computer by name (`localhost`, `127.0.0.1`, `::1`), so a web page that points its own domain at this computer can't read the IDocs.
+The receiver refuses to start in a way that would open it to the network unprotected. Beyond this computer, the IDoc endpoint needs a TLS certificate and a login: a user and password, or SAP's pinned client certificate. The control API needs a token, and runs over HTTPS with the receiver's certificate.
+
+On this computer without a login, the receiver answers only requests addressed to this computer by name (`localhost`, `127.0.0.1`, `::1`). The IDoc endpoint then also takes only XML (`text/xml`, `application/xml` or `application/soap+xml`). So a web page open in a browser can neither read the IDocs nor send a fake one.
 
 ### How it answers
 
@@ -69,17 +71,19 @@ Requests that aren't IDoc-XML get 400 with the reason, and are listed under `GET
 
 All JSON. With `IDOC_CONTROL_TOKEN` set, every request needs `Authorization: Bearer <token>`, except `GET /health`.
 
-| Request                     | Does                                                                                           |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `GET /idocs`                | The IDocs received, oldest first, and the `cursor` (the newest `seq`). Filters below.          |
-| `GET /idocs/<seq>`          | One IDoc.                                                                                      |
-| `GET /idocs/<seq>/raw`      | The request it came in: the bytes as SAP sent them, with their encoding.                       |
-| `DELETE /idocs`             | Clears the inbox. Numbering goes on, so a cursor stays valid.                                  |
-| `GET /replies`              | The partners whose reply isn't `accept`.                                                       |
-| `PUT /replies/<partner>`    | Sets a partner's reply, for example `{"mode":"reject","status":503,"message":"Partner down"}`. |
-| `DELETE /replies/<partner>` | Back to `accept`.                                                                              |
-| `GET /failures`             | The newest 100 requests the receiver refused.                                                  |
-| `GET /info`, `GET /health`  | The IDoc endpoint's address; whether the receiver is up.                                       |
+| Request                     | Does                                                                                                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /idocs`                | The IDocs received, oldest first, the `cursor` (the newest `seq`) and the `instance` (new at every start). Filters below.                                               |
+| `GET /idocs/<seq>`          | One IDoc.                                                                                                                                                               |
+| `GET /idocs/<seq>/raw`      | The request it came in: the bytes as SAP sent them, with their encoding.                                                                                                |
+| `DELETE /idocs`             | Clears the inbox. Numbering goes on, so a cursor stays valid.                                                                                                           |
+| `GET /replies`              | The partners whose reply isn't `accept`.                                                                                                                                |
+| `PUT /replies/<partner>`    | Sets a partner's reply, for example `{"mode":"reject","status":503,"message":"Partner down"}`. With `?owner=<id>`, the reply holds only until that owner takes it back. |
+| `DELETE /replies/<partner>` | Takes back the reply set without an owner; with `?owner=<id>`, only that owner's.                                                                                       |
+
+A partner gets the newest reply an owner set, otherwise the one set without an owner, otherwise `accept`. Tests use owners, so runs that overlap on a shared receiver don't overwrite each other's replies, or a reply a person set.
+| `GET /failures` | The newest 100 requests the receiver refused. |
+| `GET /info`, `GET /health` | The IDoc endpoint's address; whether the receiver is up. |
 
 Filters for `GET /idocs`: `partner`, `messageType` (MESTYP), `idocType` (IDOCTYP or CIMTYP), `after` (a `seq`), `limit`.
 
@@ -93,10 +97,10 @@ expect(findSegments(idoc, 'E1EDK01')[0].fields.BELNR).toBe(orderNumber);
 ```
 
 - `waitFor` only sees IDocs received since the test started, so IDocs from earlier tests never match. It waits up to 60 s by default, because SAP may send IDocs from a scheduled job. On timeout it lists what did arrive.
-  - If the receiver restarts during the test, it numbers from 1 again. The fixture notices, and then counts everything the restarted receiver holds.
+  - If the receiver restarts during the test, it numbers from 1 again. The fixture notices by the new `instance`, and then counts everything the restarted receiver holds.
 - `where` narrows by anything in the IDoc, for example a document number in a segment.
 - `received(match)` returns what has arrived so far.
-- `reply(partner, mode)` sets how the receiver answers, until the test ends. Then the partner's reply from before the test is back, so a setting made by another run or a person survives.
+- `reply(partner, mode)` sets how the receiver answers, until the test ends. The reply belongs to the test: afterwards, whatever applies without it is back, even if other tests set replies meanwhile.
 
 The inbox is shared by everyone using the receiver. Tests that run in parallel against one receiver should match on something unique to them, such as the document number.
 

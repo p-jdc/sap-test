@@ -92,6 +92,7 @@ const webServers: WebServer[] = [
 						IDOC_TLS_CERT: '',
 						IDOC_TLS_KEY: '',
 						IDOC_TLS_CA: '',
+						IDOC_TLS_CLIENT_FINGERPRINT: '',
 						IDOC_CONTROL_TOKEN: ''
 					},
 					reuseExistingServer: false

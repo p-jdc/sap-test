@@ -12,7 +12,8 @@
 //   IDOC_USER           user of the type G destination (basic authentication) ...
 //   IDOC_PASSWORD       ... and its password. Beyond this computer, set these, or IDOC_TLS_CA with
 //                       IDOC_TLS_CLIENT_FINGERPRINT. Set both, and SAP needs both.
-//   IDOC_CONTROL_HOST   address of the control API (default 127.0.0.1)
+//   IDOC_CONTROL_HOST   address of the control API (default 127.0.0.1). Beyond this computer it uses HTTPS with
+//                       IDOC_TLS_CERT and IDOC_TLS_KEY, and needs IDOC_CONTROL_TOKEN.
 //   IDOC_CONTROL_PORT   its port (default 47201; 0 = a free port)
 //   IDOC_CONTROL_TOKEN  token every control API request must carry; required when IDOC_CONTROL_HOST is not
 //                       this computer

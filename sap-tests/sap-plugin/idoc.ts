@@ -1,6 +1,7 @@
 // IDocs for tests: what SAP sent to the IDoc receiver (idoc/receiver.mts). Specs that check IDocs import `test` and
 // `expect` from here; the OData fixtures and the SAP locators stay available, so one test can run a business step
 // in the UI or over the API and then wait for the IDoc it produced.
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { test as base, expect } from './odata';
 import { isInsecureHttp } from './secure-url';
@@ -30,8 +31,8 @@ export interface IdocInbox {
 	waitFor(match: IdocMatch, options?: { timeout?: number }): Promise<ReceivedIdoc>;
 	/** The IDocs received since the test started that match, oldest first. */
 	received(match?: IdocMatch): Promise<ReceivedIdoc[]>;
-	/** How the receiver answers this partner's IDocs, until the end of the test; then the partner's reply from
-	 * before the test is back. */
+	/** How the receiver answers this partner's IDocs, until the end of the test. Then the reply that applied
+	 * without this test is back, also when other tests set replies meanwhile. */
 	reply(partner: string, reply: ReplyInput): Promise<void>;
 }
 
@@ -60,7 +61,12 @@ const ReceivedSchema: z.ZodType<ReceivedIdoc> = z.object({
 	reply: z.enum(['accept', 'reject', 'slow']),
 	idoc: z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
 });
-const ListSchema = z.object({ cursor: z.number().int(), idocs: z.array(ReceivedSchema) });
+const ListSchema = z.object({
+	/** Changes when the receiver restarts. */
+	instance: z.string(),
+	cursor: z.number().int(),
+	idocs: z.array(ReceivedSchema)
+});
 const POLL_MS = 1000;
 
 class InboxClient {
@@ -91,8 +97,8 @@ class InboxClient {
 		if (match.partner) query.set('partner', match.partner);
 		if (match.messageType) query.set('messageType', match.messageType);
 		if (match.idocType) query.set('idocType', match.idocType);
-		const { cursor, idocs } = ListSchema.parse(await this.call('GET', `/idocs?${query}`));
-		return { cursor, idocs: match.where ? idocs.filter(match.where) : idocs };
+		const { instance, cursor, idocs } = ListSchema.parse(await this.call('GET', `/idocs?${query}`));
+		return { instance, cursor, idocs: match.where ? idocs.filter(match.where) : idocs };
 	}
 }
 
@@ -121,18 +127,21 @@ export const test = base.extend<IdocFixtures>({
 			);
 		const client = new InboxClient(url!, token);
 		// Everything before this point belongs to earlier tests.
-		let { cursor: start } = await client.list({}, Number.MAX_SAFE_INTEGER);
-		/** The IDocs since the test started. A receiver that restarted meanwhile numbers from 1 again: then
-		 * everything it holds arrived during the test. */
+		let { instance, cursor: start } = await client.list({}, Number.MAX_SAFE_INTEGER);
+		/** The IDocs since the test started. A receiver that restarted meanwhile (a new instance) numbers from 1
+		 * again: then everything it holds arrived during the test. */
 		const sinceStart = async (match: IdocMatch) => {
 			const found = await client.list(match, start);
-			if (found.cursor >= start) return found.idocs;
+			if (found.instance === instance) return found.idocs;
+			instance = found.instance;
 			start = 0;
 			return (await client.list(match, start)).idocs;
 		};
-		/** The reply each changed partner had before, restored after the test, so another run's or a person's
-		 * setting on a shared receiver survives. */
-		const previousReplies = new Map<string, unknown>();
+		// The replies this test sets are its own: the receiver drops them when the test hands them back, and
+		// whatever another run or a person set for the partner applies again.
+		const owner = randomUUID();
+		const repliedTo = new Set<string>();
+		const replyPath = (partner: string) => `/replies/${encodeURIComponent(partner)}?owner=${owner}`;
 
 		await use({
 			waitFor: (match, options = {}) =>
@@ -154,15 +163,12 @@ export const test = base.extend<IdocFixtures>({
 			received: (match = {}) => sinceStart(match),
 			reply: (partner, reply) =>
 				base.step(`idocInbox.reply ${partner}: ${reply.mode}`, async () => {
-					const path = `/replies/${encodeURIComponent(partner)}`;
-					if (!previousReplies.has(partner))
-						previousReplies.set(partner, await client.call('GET', path));
-					await client.call('PUT', path, reply);
+					await client.call('PUT', replyPath(partner), reply);
+					repliedTo.add(partner);
 				})
 		});
 
-		for (const [partner, previous] of previousReplies)
-			await client.call('PUT', `/replies/${encodeURIComponent(partner)}`, previous);
+		for (const partner of repliedTo) await client.call('DELETE', replyPath(partner));
 	}
 });
 

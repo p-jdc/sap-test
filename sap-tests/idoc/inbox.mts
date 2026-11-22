@@ -1,6 +1,7 @@
 // The receiver's memory: every IDoc it was sent, the reply it gave per partner and the requests it refused.
 // In memory only, so a run of tests and the receiver must share one process or one running receiver. Shared
 // storage follows with the app's database.
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Idoc, Segment } from './idoc.mts';
 import type { ParsedIdocXml } from './xml.mts';
@@ -97,11 +98,15 @@ export class IdocInbox {
 	private idocs: ReceivedIdoc[] = [];
 	private raw = new Map<number, RawRequest>();
 	private rawSize = 0;
-	private replies = new Map<string, Reply>();
+	/** Per partner: the reply set without an owner, and the ones tests set for as long as they run. */
+	private replies = new Map<string, { base?: Reply; leases: Map<string, Reply> }>();
 	private failureLog: Failure[] = [];
 	private nextSeq = 1;
 	private nextRequest = 1;
 	private listeners = new Set<(idoc: ReceivedIdoc) => void>();
+
+	/** New for every receiver start: a client that sees it change knows the numbering began again. */
+	readonly instance = randomUUID();
 
 	constructor(limits: Partial<InboxLimits> = {}) {
 		this.limits = { ...DEFAULT_LIMITS, ...limits };
@@ -112,23 +117,53 @@ export class IdocInbox {
 		return this.nextSeq - 1;
 	}
 
+	/** The newest reply a running test set for the partner, otherwise the one set without an owner, otherwise
+	 * accept. */
 	replyFor(partner: string): Reply {
-		return this.replies.get(partner) ?? ACCEPT;
+		const entry = this.replies.get(partner);
+		return (entry && [...entry.leases.values()].at(-1)) ?? entry?.base ?? ACCEPT;
 	}
 
-	setReply(partner: string, reply: ReplyInput): Reply {
+	/**
+	 * Sets a partner's reply. With an owner (a test), it holds until that owner resets it, and other owners'
+	 * replies and the one set without an owner come back then. Without an owner, it is the partner's reply for
+	 * good.
+	 */
+	setReply(partner: string, reply: ReplyInput, owner?: string): Reply {
 		const parsed = ReplySchema.parse(reply);
-		if (parsed.mode === 'accept') this.replies.delete(partner);
-		else this.replies.set(partner, parsed);
+		const entry = this.replies.get(partner) ?? { leases: new Map<string, Reply>() };
+		if (owner) {
+			// Set again, it becomes the newest.
+			entry.leases.delete(owner);
+			entry.leases.set(owner, parsed);
+		} else entry.base = parsed.mode === 'accept' ? undefined : parsed;
+		this.replies.set(partner, entry);
+		this.prune(partner);
 		return parsed;
 	}
 
-	resetReply(partner: string): void {
-		this.replies.delete(partner);
+	/** Takes back the owner's reply, or without an owner the partner's own one. */
+	resetReply(partner: string, owner?: string): void {
+		const entry = this.replies.get(partner);
+		if (!entry) return;
+		if (owner) entry.leases.delete(owner);
+		else entry.base = undefined;
+		this.prune(partner);
 	}
 
+	/** The partners whose reply isn't accept, with the reply they get now. */
 	allReplies(): Record<string, Reply> {
-		return Object.fromEntries(this.replies);
+		const result: Record<string, Reply> = {};
+		for (const partner of this.replies.keys()) {
+			const reply = this.replyFor(partner);
+			if (reply.mode !== 'accept') result[partner] = reply;
+		}
+		return result;
+	}
+
+	private prune(partner: string): void {
+		const entry = this.replies.get(partner);
+		if (entry && !entry.base && entry.leases.size === 0) this.replies.delete(partner);
 	}
 
 	/** Records one request's IDocs with the reply they get. */

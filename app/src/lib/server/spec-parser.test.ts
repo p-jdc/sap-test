@@ -54,11 +54,12 @@ test('raw', async () => {
 	expect(body.toString()).toBe('two');
 	await constructor(page).click();
 	await expect(value.valueOf()).toBe(1);
+	await page.locator(toString()).click();
 });`,
 			helpers
 		);
 		const steps = must(spec.tests[0]).steps;
-		expect(steps.map((s) => s.locator?.kind)).toEqual(['other', 'other', 'other']);
+		expect(steps.map((s) => s.locator?.kind)).toEqual(['other', 'other', 'other', 'css']);
 		// The Tests page sends the parsed specs to the browser, which cannot carry a function; neither can
 		// structuredClone.
 		expect(() => structuredClone(spec)).not.toThrow();
