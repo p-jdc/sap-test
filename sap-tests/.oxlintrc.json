@@ -10,7 +10,8 @@
 	"jsPlugins": [
 		{ "name": "secure-coding", "specifier": "eslint-plugin-secure-coding" },
 		{ "name": "browser-security", "specifier": "eslint-plugin-browser-security" },
-		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }
+		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
+		{ "name": "sap", "specifier": "./tools/oxlint/sap-rules/index.ts" }
 	],
 	"categories": {
 		"correctness": "error",
@@ -28,7 +29,9 @@
 		"playwright-report",
 		"blob-report",
 		"sap-plugin/vendor",
-		"tools/oxlint",
+		"tools/oxlint/anti-slop",
+		// Deliberate findings, linted by tests/_plugin/lint-rules.spec.ts with their own configuration.
+		"tools/oxlint/sap-rules/fixtures",
 		"odata/clients"
 	],
 	"rules": {
@@ -45,6 +48,10 @@
 				"message": "Wait for a control or status message instead (guide §5.2)."
 			}
 		],
+		// Rules from CLAUDE.md that a machine can decide (tools/oxlint/sap-rules). The Test-App shows
+		// the same findings per test; here they fail the lint run.
+		"sap/no-secret-fill": "error",
+		"sap/no-literal-secret": "error",
 		// dotenv/config is loaded for its side effect by design.
 		"import/no-unassigned-import": ["error", { "allow": ["dotenv/config"] }],
 
@@ -132,7 +139,32 @@
 		{
 			// Shows what the Test-App's rule check flags; it uses a fixed wait on purpose (test.fixme).
 			"files": ["tests/fiori/rule-findings.example.spec.ts"],
-			"rules": { "no-restricted-properties": "off" }
+			"rules": { "no-restricted-properties": "off", "sap/no-secret-fill": "off" }
+		},
+		{
+			// The plugin's own tests type made-up passwords into local pages, also with `fill`, to show
+			// what fillSecret prevents.
+			"files": ["tests/_plugin/**"],
+			"rules": { "sap/no-secret-fill": "off", "sap/no-literal-secret": "off" }
+		},
+		{
+			// CLAUDE.md: tests take `test` and `expect` from sap-plugin, which adds the SAP locators
+			// and fixtures. Types and other exports of @playwright/test stay available.
+			"files": ["tests/**"],
+			"rules": {
+				"no-restricted-imports": [
+					"error",
+					{
+						"paths": [
+							{
+								"name": "@playwright/test",
+								"importNames": ["test", "expect"],
+								"message": "Import `test` and `expect` from sap-plugin (or sap-plugin/odata, sap-plugin/mfs)."
+							}
+						]
+					}
+				]
+			}
 		}
 	]
 }

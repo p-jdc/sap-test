@@ -413,7 +413,11 @@ Same layout as the reference app, but stricter:
   `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
 - **sap-tests** has its own `bun run lint` (oxlint, type-aware). Its main job is
   `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
-  It also bans `waitForTimeout` (guide §5.2). `bun run format` uses oxfmt with the same style.
+  It also enforces the rules of `sap-tests/CLAUDE.md` that a machine can decide: no `waitForTimeout`
+  (guide §5.2), `test` and `expect` from sap-plugin in files under `tests/`, and passwords typed
+  with `fillSecret` and never written into the code (two rules of our own in
+  `sap-tests/tools/oxlint/sap-rules`, which go by field and variable names). `bun run format` uses
+  oxfmt with the same style.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`: type check, each
 lint/format tool as its own log group, unit/component and e2e tests for the app, plus type check,
@@ -441,6 +445,16 @@ bun install --cwd .claude/mcp
 
 `.mcp.json` points at `.claude/mcp/node_modules/@sveltejs/mcp`; use the `svelte-docs` subagent for
 lookups.
+
+`.claude/settings.json` keeps Claude Code away from `sap-tests/.env`: the file tools are denied
+there, and a hook (`.claude/hooks/guard-dotenv.ts`) refuses shell commands (the Bash and Monitor
+tools) that name a `.env` file
+(also `.env.local` and the like; not `.env.example` or `.env.test`), except to ask whether it
+exists. The hook reads the command text, so it stops `cat sap-tests/.env` but not a path built from
+a glob or a search of the whole folder; it is a tripwire, not a wall. It also refuses a command
+whose text merely mentions the name, such as a commit message or a search for `'\.env'`; that text
+goes into a file (`git commit -F`, `grep -f`). If the hook cannot run, for example without `bun`, every shell command is
+refused until it can.
 
 Skills for Claude Code are in `.claude/skills/` (Svelte 5 practice and testing, checking before
 claiming something works, and how to start and drive this app for a look in the browser); the

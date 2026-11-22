@@ -81,7 +81,9 @@ export const MfsTelegramSchema = z.object({
 	type: z.string(),
 	seq: z.string(),
 	fields: z.record(z.string(), z.string()),
-	note: z.string().optional()
+	note: z.string().optional(),
+	/** Acknowledgements and life telegrams. */
+	technical: z.boolean().optional()
 });
 
 export const MfsEventSchema = z.object({

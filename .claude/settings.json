@@ -7,5 +7,19 @@
 			"mcp__svelte__svelte-autofixer"
 		],
 		"deny": ["Edit(./sap-tests/.env)", "Write(./sap-tests/.env)", "Read(./sap-tests/.env)"]
+	},
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Bash|Monitor",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "bun \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/guard-dotenv.ts\" || { echo 'The .env guard did not run (is bun installed?). Shell commands are refused until it does.' >&2; exit 2; }",
+						"statusMessage": "Checking the .env guard"
+					}
+				]
+			}
+		]
 	}
 }

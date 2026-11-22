@@ -1,0 +1,20 @@
+{
+	"jsPlugins": [{ "name": "sap", "specifier": "../index.ts" }],
+	"categories": { "correctness": "off" },
+	"rules": {
+		"sap/no-secret-fill": "error",
+		"sap/no-literal-secret": "error",
+		"no-restricted-imports": [
+			"error",
+			{
+				"paths": [
+					{
+						"name": "@playwright/test",
+						"importNames": ["test", "expect"],
+						"message": "Import `test` and `expect` from sap-plugin (or sap-plugin/odata, sap-plugin/mfs)."
+					}
+				]
+			}
+		]
+	}
+}

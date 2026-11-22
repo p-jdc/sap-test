@@ -133,6 +133,10 @@ export function loadSetup(name: string): LoadedSetup {
 	for (const id of [setup.ewm, ...setup.plcs.map((plc) => plc.id)])
 		if (id.length > idLength)
 			errors.push(`"${id}" is longer than the sender field (${idLength} characters)`);
+	if (!layout.messages.scan && setup.devices.some((device) => device.type === 'id-point'))
+		errors.push(
+			`telegram layout ${setup.telegramLayout} has no scan telegram, but the setup has an identification point`
+		);
 	if (errors.length > 0) throw new Error(`setup ${name} is invalid:\n- ${errors.join('\n- ')}`);
 	return { ...setup, layout };
 }
