@@ -153,13 +153,37 @@ test.describe('a layout that acknowledges by sending the telegram back', () => {
 	});
 });
 
-test('acknowledgements match whatever length the sequence number has', async ({ pair }) => {
-	// The DEMO layout has four digits; the ninth telegram of a one-digit layout would be number 9, the tenth 1.
-	const { ewm, plc } = pair;
-	for (let n = 1; n <= 3; n++) ewm.channel.send('WT', task(String(n)));
-	await expect.poll(() => plc.received.length).toBe(3);
-	await expect
-		.poll(() => plc.log.filter((entry) => entry.type === 'LIFE').length, { timeout: 5000 })
-		.toBeGreaterThan(2);
-	expect(ewm.log.filter((entry) => entry.note?.startsWith('resent'))).toEqual([]);
+/** The DEMO layout with a sequence number of one digit: after telegram 9 the numbers start again at 1. */
+const oneDigit = TelegramLayoutSchema.parse({
+	...demoLayout,
+	header: demoLayout.header.map((def) => (def.name === 'seq' ? { ...def, length: 1 } : def)),
+	telegrams: { ...demoLayout.telegrams, ACK: [{ name: 'ackseq', length: 1, type: 'numc' }] }
+});
+
+test.describe('a layout with a one-digit sequence number', () => {
+	test.use({ layout: oneDigit });
+
+	test('numbers that come round again are acknowledged and processed, not taken for repeats', async ({
+		pair
+	}) => {
+		const { ewm, plc } = pair;
+		for (let n = 1; n <= 25; n++) {
+			ewm.channel.send('WT', task(String(n)));
+			// One at a time: nine numbers cannot tell more telegrams apart that are on their way together.
+			await expect.poll(() => plc.received.length).toBe(n);
+		}
+		expect(plc.received.map((telegram) => Number(telegram.fields.tanum))).toEqual(
+			Array.from({ length: 25 }, (_, index) => index + 1)
+		);
+		// 25 telegrams shared the nine numbers there are.
+		expect(new Set(plc.received.map((telegram) => telegram.header.seq)).size).toBeLessThanOrEqual(
+			9
+		);
+		// Longer than the acknowledgement timeout: every acknowledgement found its telegram.
+		await expect
+			.poll(() => plc.log.filter((entry) => entry.type === 'LIFE').length, { timeout: 5000 })
+			.toBeGreaterThan(2);
+		expect(ewm.log.filter((entry) => entry.note?.startsWith('resent'))).toEqual([]);
+		expect(plc.log.filter((entry) => entry.note?.startsWith('repeated'))).toEqual([]);
+	});
 });

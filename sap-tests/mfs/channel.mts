@@ -75,6 +75,8 @@ export class Channel {
 	#framer: Framer;
 	#seq = 0;
 	#seqLength: number;
+	/** The largest number the sequence field holds. */
+	#seqMax: number;
 	#pending = new Map<string, { timer: NodeJS.Timeout } & Unacknowledged>();
 	#unacknowledged: Unacknowledged[] = [];
 	#seenIn = new Set<string>();
@@ -104,6 +106,7 @@ export class Channel {
 		this.#framer = new Framer(options.layout);
 		const { seqField } = options.layout.roles;
 		this.#seqLength = options.layout.header.find((def) => def.name === seqField)?.length ?? 4;
+		this.#seqMax = 10 ** Math.min(this.#seqLength, 15) - 1;
 		this.#log = options.log;
 		this.#onTelegram = options.onTelegram;
 		this.#socket.setEncoding('latin1');
@@ -116,7 +119,13 @@ export class Channel {
 		// Lets the operating system notice a peer that vanished without closing the connection.
 		this.#socket.setKeepAlive(true, this.#timing.lifeIntervalMs);
 		this.#lifeTimer = setInterval(() => {
-			if (!this.faults.stopLife) this.#write(this.#layout.roles.life, {}, { technical: true });
+			if (this.faults.stopLife) return;
+			// Runs from a timer: a telegram that cannot be built must not end the program.
+			try {
+				this.#write(this.#layout.roles.life, {}, { technical: true });
+			} catch {
+				// Nothing to tell: without life telegrams the other side notices by itself.
+			}
 		}, this.#timing.lifeIntervalMs);
 	}
 
@@ -149,8 +158,7 @@ export class Channel {
 
 	/** Counts up to the largest number the sequence field holds, then starts again at 1. */
 	#nextSeq(): string {
-		const max = 10 ** Math.min(this.#seqLength, 15) - 1;
-		this.#seq = (this.#seq % max) + 1;
+		this.#seq = (this.#seq % this.#seqMax) + 1;
 		return String(this.#seq);
 	}
 
@@ -299,7 +307,10 @@ export class Channel {
 		this.#seenIn.add(seq);
 		// A Set keeps insertion order: its first entry is the oldest number.
 		const [oldest] = this.#seenIn;
-		if (this.#seenIn.size > SEEN && oldest !== undefined) this.#seenIn.delete(oldest);
+		// Never more than half the numbers there are: a short sequence field comes round again soon, and a number
+		// still remembered then would be taken for a repeat.
+		const remembered = Math.min(SEEN, Math.floor(this.#seqMax / 2));
+		if (this.#seenIn.size > remembered && oldest !== undefined) this.#seenIn.delete(oldest);
 		this.#onTelegram(telegram);
 	}
 

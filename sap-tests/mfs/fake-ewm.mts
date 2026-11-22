@@ -271,14 +271,17 @@ export class FakeEwm {
 
 	/**
 	 * The task a confirmation belongs to: by its number, or, in a layout whose telegrams carry none, the oldest
-	 * open task for the same move.
+	 * open task for the same move (and the same HU, when the confirmation names one).
 	 */
 	#taskOf(values: Record<string, string | undefined>): EwmTask | undefined {
 		// Numeric telegram fields arrive with leading zeros.
 		if (values.task !== undefined) return this.tasks.get(values.task.replace(/^0+(?=\d)/, ''));
 		return [...this.tasks.values()].find(
 			(task) =>
-				task.status === 'open' && task.src === values.source && task.dst === values.destination
+				task.status === 'open' &&
+				task.src === values.source &&
+				task.dst === values.destination &&
+				(!values.hu || task.hu === values.hu)
 		);
 	}
 

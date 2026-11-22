@@ -63,8 +63,9 @@ In `messages`, a field that is left out is neither sent nor read (a task without
 result without a code of its own is sent as `codes.error`. Without `status`, device failures are not reported;
 a setup with an identification point needs `scan`. The emulator's results are `ok`, `noRoute`, `wrongPlc`, `noHu`
 and `occupied` for a confirmation, `ok`, `noRead`, `contour` and `overweight` for a scan, `up` and `down` for a
-status. A layout file with a wrong reference (a field or type that does not exist) is refused when it is read,
-with every problem listed.
+status. A layout file with a wrong reference (a field or type that does not exist), a code or handshake value that
+does not fit its field, or a confirmation that names neither its task number nor its move is refused when it is
+read, with every problem listed.
 
 Not covered yet: acknowledgements that send back only the header, telegrams in both directions of one type with
 different fields, and binary fields.

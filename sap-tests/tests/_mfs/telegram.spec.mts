@@ -107,3 +107,25 @@ test('a layout that names a telegram or field it does not have is refused when r
 		'messages.task.fields.source: telegram TORDER has no field "FROM"'
 	]);
 });
+
+test('a layout whose values cannot travel in their fields is refused when read', () => {
+	const broken = TelegramLayoutSchema.safeParse({
+		...foreign,
+		handshake: { ...foreign.handshake, request: 'REQ', confirm: 'REQ' },
+		messages: {
+			...foreign.messages,
+			confirmation: {
+				type: 'TCONF',
+				fields: { hu: 'HUIDENT', result: 'ERROR' },
+				codes: { ok: '00', error: 'FAILED' }
+			}
+		}
+	});
+	expect(broken.error?.issues.map((issue) => issue.message)).toEqual([
+		'handshake.request: "REQ" is longer than field "HANDSHAKE" (1)',
+		'handshake.confirm: "REQ" is longer than field "HANDSHAKE" (1)',
+		'handshake: request and confirm must differ',
+		'messages.confirmation.codes.error: "FAILED" is longer than its field (2)',
+		'messages.confirmation.fields: needs task, or both source and destination'
+	]);
+});

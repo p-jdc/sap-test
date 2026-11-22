@@ -13,6 +13,11 @@ const FieldSchema = z.object({
 
 const totalLength = (defs: { length: number }[]) => defs.reduce((sum, def) => sum + def.length, 0);
 
+const lengthOf = (
+	defs: { name: string; length: number }[] | undefined,
+	field: string | undefined
+) => defs?.find((def) => def.name === field)?.length;
+
 /** A telegram type and where its values sit: what the emulator calls a value → the layout's field name. */
 const messageOf = <F extends z.ZodRawShape, C extends z.ZodRawShape>(fields: F, codes: C) =>
 	z.strictObject({
@@ -147,6 +152,56 @@ export const TelegramLayoutSchema = z
 						`messages.${kind}.fields.${value}: telegram ${mapped.type} has no field "${field}"`
 					);
 		}
+		const seqLength = lengthOf(layout.header, roles.seqField);
+		if (handshake.mode === 'echo') {
+			const room = lengthOf(layout.header, handshake.field);
+			for (const [what, value] of [
+				['request', handshake.request],
+				['confirm', handshake.confirm]
+			] as const)
+				if (room !== undefined && value.length > room)
+					problem(
+						`handshake.${what}: "${value}" is longer than field "${handshake.field}" (${room})`
+					);
+			if (handshake.request === handshake.confirm)
+				problem('handshake: request and confirm must differ');
+		} else {
+			const room = lengthOf(layout.telegrams[handshake.type], handshake.seqField);
+			if (room !== undefined && seqLength !== undefined && room < seqLength)
+				problem(
+					`handshake.seqField: "${handshake.seqField}" (${room}) is shorter than the sequence number (${seqLength})`
+				);
+		}
+		// A code that does not fit its field could never be sent.
+		for (const [kind, coded] of [
+			['confirmation', 'result'],
+			['scan', 'result'],
+			['status', 'status']
+		] as const) {
+			const mapped:
+				| {
+						type: string;
+						fields: Record<string, string | undefined>;
+						codes: Record<string, string | undefined>;
+				  }
+				| undefined = layout.messages[kind];
+			if (!mapped) continue;
+			const room = lengthOf(layout.telegrams[mapped.type], mapped.fields[coded]);
+			for (const [result, sent] of Object.entries<string | undefined>(mapped.codes))
+				if (room !== undefined && sent !== undefined && sent.length > room)
+					problem(`messages.${kind}.codes.${result}: "${sent}" is longer than its field (${room})`);
+		}
+		// A confirmation must say which task it answers: by its number, or by the move.
+		const { task, confirmation } = layout.messages;
+		if (confirmation.fields.task && !task.fields.task)
+			problem(
+				'messages.confirmation.fields.task: the task telegram carries no task number to send back'
+			);
+		if (
+			!confirmation.fields.task &&
+			!(confirmation.fields.source && confirmation.fields.destination)
+		)
+			problem('messages.confirmation.fields: needs task, or both source and destination');
 		const headerLength = totalLength(layout.header);
 		for (const [type, defs] of Object.entries(layout.telegrams)) {
 			const typeLength = layout.header.find((def) => def.name === roles.typeField)?.length ?? 0;
