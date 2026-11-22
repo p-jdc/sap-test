@@ -2,7 +2,7 @@
  * The app's side of the IDoc receiver: it starts the real receiver from sap-tests/idoc as its own process and
  * drives it only through the control API, like the page does. Samples stand in for SAP.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import type { IdocSnapshot } from '#lib/shared/idoc.js';
 import { must } from '../../test/must.js';
 import {
@@ -19,6 +19,11 @@ import {
 } from './idoc.js';
 import { importedPackages, missingPackages } from './mfs.js';
 import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
+
+// What the app reads from sap-tests/.env: a stand-in, so no test depends on (or reads) the real file. Vitest
+// hoists both above the imports.
+const envFile = vi.hoisted((): { values: Record<string, string> } => ({ values: {} }));
+vi.mock('./env-file.js', () => ({ readTestEnv: () => Promise.resolve(envFile.values) }));
 
 /** Reads the live view until a snapshot passes `check`. Leaving the loop closes the live view. */
 async function waitFor(
@@ -221,6 +226,36 @@ describe('IDoc receiver', () => {
 		const ready = await waitFor((s) => s.endpoint !== undefined);
 		expect(ready.endpoint?.login).toBe('user');
 		// Sent with the receiver's login, so it is accepted.
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
+	});
+
+	test('settings from the file count where the environment of the app has none', async () => {
+		envFile.values = { IDOC_USER: 'SAPIDOC', IDOC_PASSWORD: 'from-the-file' };
+		delete process.env.IDOC_USER;
+		delete process.env.IDOC_PASSWORD;
+		try {
+			await startReceiver();
+		} finally {
+			process.env.IDOC_USER = '';
+			process.env.IDOC_PASSWORD = '';
+			envFile.values = {};
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('user');
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
+	});
+
+	test('an empty variable in the environment of the app wins over the file', async () => {
+		// As set in beforeAll: empty in the environment, a login in the file.
+		envFile.values = { IDOC_USER: 'SAPIDOC', IDOC_PASSWORD: 'from-the-file' };
+		try {
+			await startReceiver();
+		} finally {
+			envFile.values = {};
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('none');
+		// The receiver asks for no login either, so a sample without one is accepted.
 		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
 	});
 });

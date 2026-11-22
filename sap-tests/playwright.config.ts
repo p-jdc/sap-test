@@ -70,6 +70,10 @@ const webServers: WebServer[] = [
 						MFS_FAKE_EWM: '1',
 						MFS_CONTROL_PORT: String(mfsMockPort),
 						MFS_BASE_PORT: '0',
+						// The PLC ports stay on this computer and the tests get the warehouse they are written
+						// for, whatever the environment file sets up for a real EWM (MFS_HOST, MFS_SETUP).
+						MFS_HOST: '127.0.0.1',
+						MFS_SETUP: 'sap-example',
 						MFS_SPEED: process.env.MFS_SPEED || '10'
 					},
 					reuseExistingServer: false
