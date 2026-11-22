@@ -44,13 +44,23 @@ describe('the mask in front of the MCP server', () => {
 			const rl = require('node:readline').createInterface({ input: process.stdin });
 			rl.on('line', (l) => {
 				const { id } = JSON.parse(l);
-				const text = 'Error: typed ${SECRET}; got mask: ' + (process.env.HEALER_MASK !== undefined) + '; in ' + process.cwd();
+				const text = 'Error: typed ${SECRET}; got mask: ' + (process.env.HEALER_MASK !== undefined) + '; in ' + process.cwd() + '; keep ' + process.env.KEEP + ', other ' + process.env.OTHER;
 				console.log(JSON.stringify({ jsonrpc: '2.0', id, result: { isError: true, content: [{ type: 'text', text }] } }));
 			});`;
 		const child = spawn(
 			process.execPath,
 			[join(import.meta.dirname, 'healer-mask.ts'), process.execPath, '-e', server],
-			{ env: { ...process.env, HEALER_MASK: JSON.stringify([SECRET]), HEALER_CWD: folder } }
+			{
+				env: {
+					...process.env,
+					HEALER_MASK: JSON.stringify([SECRET]),
+					HEALER_CWD: folder,
+					// What Claude Code adds of its own environment does not reach the server.
+					HEALER_ENV_KEYS: JSON.stringify(['KEEP']),
+					KEEP: 'k',
+					OTHER: 'model-key'
+				}
+			}
 		);
 		child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call' })}\n`);
 		const [answer] = await new Promise<string[]>((resolve) => {
@@ -61,5 +71,6 @@ describe('the mask in front of the MCP server', () => {
 		child.kill();
 		expect(answer).toContain(`typed ***; got mask: false; in ${realpathSync(folder)}`);
 		expect(answer).not.toContain('P!ss');
+		expect(answer).toContain('keep k, other undefined');
 	});
 });

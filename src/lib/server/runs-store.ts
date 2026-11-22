@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { database, type AppDatabase } from './db/database.js';
 import { run, runTest } from './db/schema.js';
 import { RUNS_DIR, within } from './paths.js';
+import { healingRun } from './healing-run.js';
 import { decide, retentionFromEnv, type Retention } from './retention.js';
 import {
 	HISTORY_SHOWN,
@@ -455,6 +456,8 @@ export function applyRetention(
 		const dir = within(RUNS_DIR, r.id);
 		const decision = decisions.get(r.id);
 		if (!dir || dir === RUNS_DIR || !decision) continue;
+		// The healer works on it: its files go on the next pass after the session.
+		if (r.id === healingRun()) continue;
 		let touched = false;
 		const set: Partial<RunRow> = {};
 		if (!decision.artifacts && !r.artifactsRemovedAt) {

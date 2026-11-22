@@ -69,8 +69,12 @@ export function masker(secrets: readonly string[]) {
 }
 
 if (import.meta.main) {
-	const { HEALER_MASK, HEALER_CWD, ...env } = process.env;
+	const { HEALER_MASK, HEALER_CWD, HEALER_ENV_KEYS, ...given } = process.env;
 	const secrets = z.array(z.string()).parse(JSON.parse(HEALER_MASK ?? '[]'));
+	// Claude Code starts this process with its own environment under the server's: only the names
+	// the app chose for the server go on (healer.ts, serverEnv).
+	const keys = new Set(z.array(z.string()).parse(JSON.parse(HEALER_ENV_KEYS ?? '[]')));
+	const env = Object.fromEntries(Object.entries(given).filter(([name]) => keys.has(name)));
 	const [command, ...args] = process.argv.slice(2);
 	if (!command) throw new Error('Usage: bun healer-mask.ts <command> <arguments…>');
 	const mask = masker(secrets);

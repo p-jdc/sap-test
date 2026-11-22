@@ -1,4 +1,5 @@
 import {
+	cpSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -28,6 +29,7 @@ import { aiReady } from '#lib/shared/ai.js';
 import { aiStatus } from './ai/settings.js';
 import { authMode, listensLocally } from './auth/policy.js';
 import { masker } from './healer-mask.js';
+import { setHealingRun } from './healing-run.js';
 import { settingNames } from './systems.js';
 import { idocTestEnv } from './idoc.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
@@ -263,7 +265,7 @@ function healerTask(test: RunTest, runId: string): string {
 	return [
 		`Repair the failing test "${test.title}" at ${location}. It failed in the Test Lab run ${runId}.`,
 		error,
-		`Run only this test (\`${runLocation}\` as the location). You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews your change.`,
+		`Run only this test (\`${runLocation}\` as the location; if the file changed since the run and no test starts there, find it by its title with test_list). You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews your change.`,
 		'In this app `browser_run_code_unsafe` is not available: try a locator on the paused page with `browser_evaluate` or `browser_generate_locator` instead. Do not save tool results to files.'
 	].join('\n\n');
 }
@@ -284,7 +286,12 @@ function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
 		try {
 			renameSync(join(BROWSER_FILES, name), join(to, name));
 		} catch {
-			rmSync(join(BROWSER_FILES, name), { recursive: true, force: true });
+			// Another file system (the data on a volume of its own): copy, then remove.
+			try {
+				cpSync(join(BROWSER_FILES, name), join(to, name), { recursive: true });
+			} finally {
+				rmSync(join(BROWSER_FILES, name), { recursive: true, force: true });
+			}
 		}
 	}
 }
@@ -330,7 +337,15 @@ function serverEnv(extra: Record<string, string>, secrets: readonly string[]) {
 	for (const [key, value] of Object.entries(childEnv(extra)))
 		if (value !== undefined && (SYSTEM_ENV.has(key) || known.has(key) || TEST_ENV.test(key)))
 			env[key] = value;
-	return { ...env, ...extra, HEALER_CWD: TESTS_ROOT, HEALER_MASK: JSON.stringify(secrets) };
+	const allowed = { ...env, ...extra };
+	return {
+		...allowed,
+		HEALER_CWD: TESTS_ROOT,
+		HEALER_MASK: JSON.stringify(secrets),
+		// Claude Code adds its own environment to this one: healer-mask.ts hands the server only
+		// these names.
+		HEALER_ENV_KEYS: JSON.stringify(Object.keys(allowed))
+	};
 }
 
 type SessionOptions = {
@@ -471,6 +486,7 @@ export async function startHealing(
 		changes: redact(changesOf(originals))
 	};
 	active = { state, abort };
+	setHealingRun(runId);
 	save(state);
 
 	const note = (line: string) => {
@@ -540,7 +556,10 @@ export async function startHealing(
 		state.changes = redact(changesOf(originals));
 		save(state, originals);
 		moveBrowserFiles(browserFilesBefore, files.browser);
-		if (active?.state === state) active = null;
+		if (active?.state === state) {
+			active = null;
+			setHealingRun(null);
+		}
 	};
 	const stopWithApp = () => {
 		abort.abort();
@@ -594,7 +613,11 @@ export async function startHealing(
 			}
 		} else if (message.type === 'result') {
 			state.costUsd = message.total_cost_usd;
-			if (message.subtype === 'success') state.report = redact(message.result);
+			// A turn that ended on an API error (credentials, quota, a missing deployment) is a
+			// 'success' with is_error: its text is the error, not a report.
+			if (message.subtype === 'success' && message.is_error)
+				state.error = redact(message.result || 'The AI provider answered with an error.');
+			else if (message.subtype === 'success') state.report = redact(message.result);
 			else
 				state.error = redact(
 					message.subtype === 'error_max_budget_usd'

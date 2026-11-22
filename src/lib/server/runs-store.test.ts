@@ -320,6 +320,20 @@ describe('applyRetention', () => {
 		expect(existsSync(healer)).toBe(false);
 	});
 
+	test('the run the healer works on is left alone until its session ends', async () => {
+		const store = await freshStore();
+		const { setHealingRun } = await import('./healing-run.js');
+		const old = writeRun({ flow: 'failed' }, 'failed');
+		writeRun({ flow: 'passed' });
+		const dir = withArtifacts(old);
+		setHealingRun(old);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([]);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+		setHealingRun(null);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([old]);
+		expect(existsSync(join(dir, 'output.log'))).toBe(false);
+	});
+
 	test('recent runs are left alone, and so is everything when the rules are off', async () => {
 		const store = await freshStore();
 		const old = writeRun({ flow: 'passed' });
