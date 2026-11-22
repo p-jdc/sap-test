@@ -7,7 +7,10 @@
 // - a number from the other side that was seen lately is acknowledged again but not processed twice;
 // - telegrams still unacknowledged when the connection ends are handed back, to be sent again after a reconnect;
 // - life telegrams go out at a fixed interval.
+// Faults for tests act on top: withheld acknowledgements, no life telegrams, and rules that drop, delay, double
+// or change the telegrams this side sends.
 import type { Socket } from 'node:net';
+import { z } from 'zod';
 import {
 	decode,
 	encode,
@@ -31,6 +34,8 @@ export interface LogEntry {
 	note?: string;
 	/** Acknowledgements and life telegrams: the protocol's own traffic, hidden in most views. */
 	technical?: boolean;
+	/** About a telegram that did not go out (dropped, withheld, given up): conditions on telegrams skip it. */
+	notSent?: boolean;
 }
 
 export interface ChannelTiming {
@@ -39,11 +44,68 @@ export interface ChannelTiming {
 	lifeIntervalMs: number;
 }
 
+const RuleBase = {
+	/** The telegram type, as in the layout (WTCO, …). */
+	type: z.string().min(1),
+	/** Only telegrams whose fields have these values (field names as in the layout). */
+	fields: z.record(z.string(), z.string()).optional(),
+	/** How many matching telegrams the rule acts on before it is used up. */
+	times: z.number().int().positive().max(10_000).default(1)
+};
+/**
+ * What happens to the next telegram(s) of a type that this side sends:
+ * - drop: never sent, as if the PLC failed to report;
+ * - delay: sent late (protocol time in ms, not shortened by the Mock PLC's speed);
+ * - duplicate: sent twice, the copy with a new sequence number (a second report) or the same one (a repeat);
+ * - change: sent with other field values (a wrong HU, bin or result).
+ */
+export const FaultRuleSchema = z.discriminatedUnion('action', [
+	z.strictObject({ ...RuleBase, action: z.literal('drop') }),
+	z.strictObject({
+		...RuleBase,
+		action: z.literal('delay'),
+		delayMs: z.number().int().positive().max(600_000)
+	}),
+	z.strictObject({ ...RuleBase, action: z.literal('duplicate'), sameSeq: z.boolean().optional() }),
+	z.strictObject({
+		...RuleBase,
+		action: z.literal('change'),
+		set: z
+			.record(z.string(), z.string())
+			.refine((set) => Object.keys(set).length > 0, 'set names at least one field')
+	})
+]);
+export type FaultRule = z.infer<typeof FaultRuleSchema>;
+
+/** What in a rule does not fit the layout: a telegram type it lacks, fields that type lacks, values too long. */
+export function faultRuleProblems(layout: TelegramLayout, rule: FaultRuleInput): string[] {
+	const defs = layout.telegrams[rule.type];
+	if (!defs) return [`the telegram layout has no telegram "${rule.type}"`];
+	const names = [
+		...Object.keys(rule.fields ?? {}),
+		...Object.keys(rule.action === 'change' ? rule.set : {})
+	];
+	const problems = [...new Set(names)]
+		.filter((name) => !defs.some((def) => def.name === name))
+		.map((name) => `telegram ${rule.type} has no field "${name}"`);
+	if (problems.length === 0 && rule.action === 'change')
+		try {
+			encode(layout, rule.type, {}, rule.set);
+		} catch (error) {
+			problems.push(error instanceof Error ? error.message : String(error));
+		}
+	return problems;
+}
+/** A rule as written: `times` may be left out. */
+export type FaultRuleInput = z.input<typeof FaultRuleSchema>;
+
 export interface ChannelFaults {
 	/** Don't acknowledge the next n received telegrams (the other side has to send them again). */
 	dropAcks?: number;
 	/** Stop sending life telegrams. */
 	stopLife?: boolean;
+	/** Rules for the telegrams this side sends; the first that matches acts, a used-up rule goes. */
+	rules?: FaultRule[];
 }
 
 /** A telegram that went out and was not acknowledged. */
@@ -78,6 +140,8 @@ export class Channel {
 	/** The largest number the sequence field holds. */
 	#seqMax: number;
 	#pending = new Map<string, { timer: NodeJS.Timeout } & Unacknowledged>();
+	/** Telegrams held back by a delay rule. */
+	#delayed = new Set<{ timer: NodeJS.Timeout } & Unacknowledged>();
 	#unacknowledged: Unacknowledged[] = [];
 	#seenIn = new Set<string>();
 	#lifeTimer: NodeJS.Timeout | undefined;
@@ -133,10 +197,88 @@ export class Channel {
 		return !this.#closed;
 	}
 
-	/** Sends a telegram that the other side must acknowledge. */
+	/** Sends a telegram that the other side must acknowledge, unless a fault rule changes what happens. */
 	send(type: string, fields: Fields): void {
-		const seq = this.#write(type, fields);
+		const rule = this.#ruleFor(type, fields);
+		if (!rule) {
+			this.#sendNow(type, fields);
+			return;
+		}
+		if (rule.action === 'drop') {
+			this.#entry(this.local, this.remote, type, '', fields, 'dropped (fault rule): never sent', {
+				notSent: true
+			});
+			return;
+		}
+		if (rule.action === 'change') {
+			const changed = Object.keys(rule.set).join(', ');
+			this.#sendNow(type, { ...fields, ...rule.set }, `${changed} changed (fault rule)`);
+			return;
+		}
+		if (rule.action === 'delay') {
+			const held = {
+				type,
+				fields,
+				timer: setTimeout(() => {
+					this.#delayed.delete(held);
+					this.#sendNow(type, fields, `delayed ${rule.delayMs} ms (fault rule)`);
+				}, rule.delayMs)
+			};
+			this.#delayed.add(held);
+			return;
+		}
+		const seq = this.#sendNow(type, fields);
+		if (seq === undefined) return;
+		// The copy with the same number is a repeat the other side must recognise; with a new number it is a
+		// second report of the same thing. Either way only the first waits for its acknowledgement.
+		if (rule.sameSeq)
+			this.#write(type, fields, { seq, note: 'sent again, same sequence number (fault rule)' });
+		else this.#write(type, fields, { note: 'sent twice, new sequence number (fault rule)' });
+	}
+
+	/**
+	 * Writes text to the connection exactly as given: start and end characters, sequence number, padding and
+	 * all, or a broken telegram on purpose. Nothing waits for an acknowledgement.
+	 */
+	sendRaw(text: string): void {
+		if (this.#closed) throw new TelegramError(`${this.name}: not connected`);
+		this.#socket.write(text, 'latin1');
+		let type = '?';
+		let seq = '';
+		let fields: Fields = { raw: JSON.stringify(text) };
+		try {
+			const [frame] = new Framer(this.#layout).push(text).frames;
+			if (frame !== undefined) {
+				const telegram = decode(this.#layout, frame);
+				({ type, fields } = telegram);
+				seq = telegram.header[this.#layout.roles.seqField] ?? '';
+			}
+		} catch {
+			// Not a telegram of this layout: logged as the text that went out.
+		}
+		this.#entry(this.local, this.remote, type, seq, fields, 'raw, sent as written');
+	}
+
+	#sendNow(type: string, fields: Fields, note?: string): string | undefined {
+		const seq = this.#write(type, fields, { note });
 		if (seq !== undefined) this.#expectAck(seq, type, fields, 1);
+		return seq;
+	}
+
+	/** The first rule for this telegram; uses up one of its times. */
+	#ruleFor(type: string, fields: Fields): FaultRule | undefined {
+		const rules = this.faults.rules;
+		const index =
+			rules?.findIndex(
+				(rule) =>
+					rule.type === type &&
+					Object.entries(rule.fields ?? {}).every(([name, value]) => fields[name] === value)
+			) ?? -1;
+		const rule = rules?.[index];
+		if (!rules || !rule) return undefined;
+		rule.times--;
+		if (rule.times <= 0) rules.splice(index, 1);
+		return rule;
 	}
 
 	/** Closes the connection, as if the cable were pulled. */
@@ -154,6 +296,12 @@ export class Channel {
 			this.#unacknowledged.push({ type, fields });
 		}
 		this.#pending.clear();
+		// Held back by a delay rule, so never sent: they go out after a reconnect like unacknowledged ones.
+		for (const { timer, type, fields } of this.#delayed) {
+			clearTimeout(timer);
+			this.#unacknowledged.push({ type, fields });
+		}
+		this.#delayed.clear();
 	}
 
 	/** Counts up to the largest number the sequence field holds, then starts again at 1. */
@@ -186,7 +334,9 @@ export class Channel {
 		};
 		const frame = encode(this.#layout, type, header, fields);
 		this.#socket.write(frame, 'latin1');
-		this.#entry(this.local, this.remote, type, seq, fields, options.note, options.technical);
+		this.#entry(this.local, this.remote, type, seq, fields, options.note, {
+			technical: options.technical
+		});
 		return seq;
 	}
 
@@ -202,7 +352,8 @@ export class Channel {
 					type,
 					seq,
 					fields,
-					`no acknowledgement after ${tries} tries, given up`
+					`no acknowledgement after ${tries} tries, given up`,
+					{ notSent: true }
 				);
 				return;
 			}
@@ -263,7 +414,7 @@ export class Channel {
 				seq,
 				telegram.fields,
 				handshake.mode === 'echo' ? 'acknowledgement' : undefined,
-				true
+				{ technical: true }
 			);
 			return;
 		}
@@ -274,7 +425,9 @@ export class Channel {
 				: telegram.header[handshake.field] === handshake.request;
 		if (telegram.type === roles.life) {
 			this.lastLifeAt = Date.now();
-			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields, undefined, true);
+			this.#entry(this.remote, this.local, telegram.type, seq, telegram.fields, undefined, {
+				technical: true
+			});
 			if (wantsAck) this.#acknowledge(telegram, seq);
 			return;
 		}
@@ -297,7 +450,7 @@ export class Channel {
 					handshake.mode === 'telegram' ? '' : seq,
 					handshake.mode === 'telegram' ? { [handshake.seqField]: seq } : telegram.fields,
 					'acknowledgement withheld (fault)',
-					true
+					{ technical: true, notSent: true }
 				);
 			} else {
 				this.#acknowledge(telegram, seq);
@@ -340,7 +493,7 @@ export class Channel {
 				seq,
 				telegram.fields,
 				`acknowledgement not sent: ${error instanceof Error ? error.message : String(error)}`,
-				true
+				{ technical: true, notSent: true }
 			);
 		}
 	}
@@ -352,7 +505,7 @@ export class Channel {
 		seq: string,
 		fields: Fields,
 		note?: string,
-		technical?: boolean
+		flags: { technical?: boolean; notSent?: boolean } = {}
 	) {
 		this.#log({
 			n: ++logCounter,
@@ -364,7 +517,8 @@ export class Channel {
 			seq: seq && bare(seq).padStart(this.#seqLength, '0'),
 			fields,
 			note,
-			...(technical ? { technical } : {})
+			...(flags.technical ? { technical: true } : {}),
+			...(flags.notSent ? { notSent: true } : {})
 		});
 	}
 }

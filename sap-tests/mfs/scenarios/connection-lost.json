@@ -10,7 +10,11 @@
 			"wait": { "event": { "kind": "task-taken", "hu": "A", "from": "IP", "to": "A1-IN" } }
 		},
 		{ "faults": "CONS", "disconnect": true },
-		{ "wait": { "event": { "kind": "ewm-connected", "plc": "CONS" } } },
+		{
+			"title": "Wait until EWM connects to CONS again",
+			"wait": { "event": { "kind": "ewm-connected", "plc": "CONS" } },
+			"since": "last-step"
+		},
 		{ "wait": { "hu": "A", "at": "bin" } }
 	],
 	"expect": [

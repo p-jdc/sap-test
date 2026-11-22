@@ -11,7 +11,15 @@ import {
 import { createServer, type Server } from 'node:net';
 import { z } from 'zod';
 import { fail, json, readBody, requestTarget, UserError } from './http.mts';
-import { Channel, type ChannelFaults, type ChannelTiming, type LogEntry } from './channel.mts';
+import {
+	Channel,
+	faultRuleProblems,
+	FaultRuleSchema,
+	type ChannelFaults,
+	type ChannelTiming,
+	type FaultRuleInput,
+	type LogEntry
+} from './channel.mts';
 import {
 	deviceFor,
 	isBinOf,
@@ -22,6 +30,7 @@ import {
 } from './setup.mts';
 import {
 	checkValue,
+	encode,
 	fromWire,
 	toWire,
 	wireCode,
@@ -57,8 +66,16 @@ const StatusBody = z.object({ status: z.enum(['UP', 'DOWN']) });
 const FaultsBody = z.object({
 	dropAcks: z.number().int().nonnegative().optional(),
 	stopLife: z.boolean().optional(),
-	disconnect: z.boolean().optional()
+	disconnect: z.boolean().optional(),
+	/** Replaces the PLC's fault rules; [] clears them. */
+	rules: z.array(FaultRuleSchema).max(100).optional()
 });
+/** A telegram the PLC sends on request: built from type and fields, or raw text exactly as given. */
+export const SendBodySchema = z.union([
+	z.strictObject({ type: z.string().min(1), fields: z.record(z.string(), z.string()).default({}) }),
+	z.strictObject({ raw: z.string().min(1).max(10_000) })
+]);
+export type SendBody = z.input<typeof SendBodySchema>;
 
 export interface HuState {
 	hu: string;
@@ -368,6 +385,7 @@ export class Emulator {
 		for (const plc of this.#plcs.values()) {
 			delete plc.faults.dropAcks;
 			delete plc.faults.stopLife;
+			delete plc.faults.rules;
 			plc.outbox = [];
 		}
 		this.#event('reset', 'Reset: the warehouse is empty, all devices are up');
@@ -393,15 +411,52 @@ export class Emulator {
 		if (status === 'UP') this.#pump(device);
 	}
 
-	setFaults(plcId: string, faults: ChannelFaults & { disconnect?: boolean }): void {
+	setFaults(
+		plcId: string,
+		faults: Omit<ChannelFaults, 'rules'> & { disconnect?: boolean; rules?: FaultRuleInput[] }
+	): void {
 		const plc = this.#plcs.get(plcId);
 		if (!plc) throw new UserError(`unknown PLC ${plcId}`, 404);
-		const { disconnect, ...rest } = faults;
+		const { disconnect, rules, ...rest } = faults;
+		if (rules) {
+			const problems = rules.flatMap((rule, index) =>
+				faultRuleProblems(this.setup.layout, rule).map((problem) => `rule ${index + 1}: ${problem}`)
+			);
+			if (problems.length > 0)
+				throw new UserError(`fault rules refused:\n- ${problems.join('\n- ')}`);
+			// Parsed again: defaults filled in, and a copy, so using a rule up does not change the caller's.
+			plc.faults.rules = rules.map((rule) => FaultRuleSchema.parse(rule));
+		}
 		Object.assign(plc.faults, rest);
 		if (disconnect) {
 			this.#event('connection-dropped', `${plcId}: connection closed (fault)`, { plc: plcId });
 			plc.channel?.close();
 		}
+	}
+
+	/**
+	 * Makes a PLC send a telegram that no device reported: one built from type and fields (it goes through the
+	 * fault rules and waits for its acknowledgement like any other), or raw text exactly as given.
+	 */
+	sendTelegram(plcId: string, body: SendBody): void {
+		const plc = this.#plcs.get(plcId);
+		if (!plc) throw new UserError(`unknown PLC ${plcId}`, 404);
+		const channel = plc.channel;
+		if (!channel?.open) throw new UserError(`${plcId}: EWM is not connected`, 409);
+		const telegram = SendBodySchema.parse(body);
+		if ('raw' in telegram) {
+			channel.sendRaw(telegram.raw);
+			return;
+		}
+		try {
+			// Built once to check it, so a wrong field is the caller's error and not a lost telegram.
+			encode(this.setup.layout, telegram.type, {}, telegram.fields);
+		} catch (error) {
+			throw new UserError(
+				`${plcId}: telegram not possible: ${error instanceof Error ? error.message : String(error)}`
+			);
+		}
+		channel.send(telegram.type, telegram.fields);
 	}
 
 	state() {
@@ -722,6 +777,10 @@ export class Emulator {
 		}
 		if (method === 'POST' && parts[0] === 'plcs' && parts[2] === 'faults' && parts[1]) {
 			this.setFaults(parts[1], await readBody(request, FaultsBody));
+			return json(response, 200, { ok: true });
+		}
+		if (method === 'POST' && parts[0] === 'plcs' && parts[2] === 'send' && parts[1]) {
+			this.sendTelegram(parts[1], await readBody(request, SendBodySchema));
 			return json(response, 200, { ok: true });
 		}
 		throw new UserError(`no route ${method} ${path}`, 404);

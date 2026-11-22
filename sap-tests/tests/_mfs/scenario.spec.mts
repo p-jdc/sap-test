@@ -9,7 +9,8 @@ import {
 	ScenarioRunner,
 	ScenarioSchema,
 	validateScenario,
-	type Scenario
+	type Scenario,
+	type ScenarioInput
 } from '../../mfs/scenario.mts';
 import { loadSetup } from '../../mfs/setup.mts';
 
@@ -48,15 +49,20 @@ async function finished(runner: ScenarioRunner) {
 	return runner.state();
 }
 
-const scenario = (steps: Scenario['steps'], expectations: Scenario['expect'] = []): Scenario => ({
+/** A scenario written in the test, read like a file: defaults filled in. */
+const scenario = (
+	steps: ScenarioInput['steps'],
+	expectations: ScenarioInput['expect'] = []
+): Scenario => ({
 	name: 'inline',
-	title: 'Inline',
-	description: '',
-	setup: 'sap-example',
-	modes: ['demo'],
-	fresh: true,
-	steps,
-	expect: expectations
+	...ScenarioSchema.parse({
+		title: 'Inline',
+		description: '',
+		setup: 'sap-example',
+		modes: ['demo'],
+		steps,
+		expect: expectations
+	})
 });
 
 test('every scenario file is valid and fits its setup', () => {
@@ -68,7 +74,9 @@ test('every scenario file is valid and fits its setup', () => {
 			'bin-occupied',
 			'crane-down',
 			'connection-lost',
-			'putaway-ewm'
+			'putaway-ewm',
+			'confirmation-lost',
+			'confirmation-twice'
 		])
 	);
 	for (const s of scenarios) expect(validateScenario(s, setup), s.name).toEqual([]);
@@ -175,6 +183,82 @@ test('event conditions match the kind and fields of an event, and can count', as
 	expect(run?.status).toBe('failed');
 });
 
+const waitForTakenAfterPause = (since?: 'last-step'): ScenarioInput['steps'] => [
+	{ enter: 'A' },
+	{ wait: { hu: 'A', at: 'bin' } },
+	{ pause: '100ms' },
+	// The transfer car took A long before the pause began.
+	{ wait: { event: { kind: 'task-taken', hu: 'A', device: 'TCAR' } }, since, timeout: '1s' }
+];
+
+test('a wait can count only what happened since the step before it began', async ({ runner }) => {
+	runner.start(scenario(waitForTakenAfterPause()));
+	expect((await finished(runner))?.status).toBe('passed');
+
+	runner.start(scenario(waitForTakenAfterPause('last-step')));
+	const run = await finished(runner);
+	expect(run?.status).toBe('failed');
+	expect(run?.steps[3]).toMatchObject({
+		status: 'failed',
+		detail: 'not reached within 1 s: 0 found'
+	});
+});
+
+test('a PLC can send a telegram no device reported, built or raw', async ({ runner }) => {
+	runner.start(
+		scenario(
+			[
+				{ enter: 'A' },
+				{ wait: { hu: 'A', at: 'bin' } },
+				// A confirmation for a task EWM never sent, and bytes that are no telegram.
+				{
+					send: 'CONS',
+					type: 'WTCO',
+					fields: { hu: '{A}', src: 'IP', dst: 'A1-IN', tanum: '999', result: 'OK' }
+				},
+				{ send: 'CONS', raw: '\u0002not a telegram\u0003' }
+			],
+			[
+				{ telegram: { type: 'WTCO', from: 'CONS', fields: { tanum: '999' } }, count: 1 },
+				{ telegram: { type: '?', from: 'CONS' }, count: 1 },
+				// The confirmation of an unknown task changed nothing in EWM.
+				{ hu: 'A', at: 'bin', ewm: 'stored' }
+			]
+		)
+	);
+
+	const run = await finished(runner);
+	expect(run?.status, JSON.stringify(run, null, 2)).toBe('passed');
+	expect(run?.steps.slice(2).map((step) => step.title)).toEqual([
+		'CONS sends WTCO with hu={A} src=IP dst=A1-IN tanum=999 result=OK',
+		'CONS sends a raw telegram'
+	]);
+});
+
+test('fault steps say what their rules do', async ({ runner }) => {
+	runner.start(
+		scenario([
+			{
+				faults: 'CONS',
+				rules: [
+					{ type: 'WTCO', fields: { hu: '{A}' }, action: 'drop' },
+					{ type: 'SCAN', action: 'delay', delayMs: 3000, times: 2 },
+					{ type: 'WTCO', action: 'duplicate', sameSeq: true },
+					{ type: 'WTCO', action: 'change', set: { result: 'ERR' } }
+				]
+			},
+			{ faults: 'CONS', rules: [] }
+		])
+	);
+
+	const run = await finished(runner);
+	expect(run?.steps.map((step) => step.title)).toEqual([
+		'CONS drops the next WTCO with hu={A}, delays the next 2 SCAN by 3000 ms, sends the next WTCO twice (same sequence number), sends the next WTCO with result=ERR',
+		'CONS clears its fault rules'
+	]);
+	expect(run?.status).toBe('passed');
+});
+
 test('a failing check step stops the run and skips the rest', async ({ runner }) => {
 	runner.start(scenario([{ enter: 'A' }, { check: { hu: 'A', at: 'CLEAR' } }, { pause: '1s' }]));
 
@@ -230,7 +314,18 @@ test('scenario files are checked: wrong keys, HU names and references are report
 				{ check: { event: { kind: 'task-refused', result: 'NoRoute' }, count: 0 } },
 				{ check: { event: { kind: 'bin-occupied', point: 'A1-01-01' }, count: 0 } },
 				// Fields the kind does carry are fine.
-				{ check: { event: { kind: 'telegram-queued', plc: 'CONS', telegram: 'WTCO' }, count: 0 } }
+				{ check: { event: { kind: 'telegram-queued', plc: 'CONS', telegram: 'WTCO' }, count: 0 } },
+				// Rules and sent telegrams must fit the telegram layout; `{A}` is filled in at run time.
+				{
+					faults: 'CONS',
+					rules: [
+						{ type: 'WTCX', action: 'drop' },
+						{ type: 'WTCO', action: 'change', fields: { hu: '{A}' }, set: { result: 'TOOLONG' } },
+						{ type: 'WTCO', action: 'change', set: { hu: '{A}', colour: 'red' } }
+					]
+				},
+				{ send: 'PLC9', type: 'WTCO', fields: { tanum: 'abc' } },
+				{ send: 'CONS', type: 'WTCO', fields: { hu: '{A}' } }
 			]),
 			setup
 		)
@@ -243,6 +338,11 @@ test('scenario files are checked: wrong keys, HU names and references are report
 		'step 4: unknown PLC "PLC9"',
 		'step 5: a delivered event has no "result" (it has plc, device, hu, from, to, task)',
 		'step 6: a task-refused event has no result "NoRoute" (it reports noRoute, wrongPlc, noHu)',
-		'step 7: a bin-occupied event has no "point" (it has plc, device, hu, from, to, task)'
+		'step 7: a bin-occupied event has no "point" (it has plc, device, hu, from, to, task)',
+		'step 9, rule 1: the telegram layout has no telegram "WTCX"',
+		'step 9, rule 2: result: "TOOLONG" is longer than 4 characters',
+		'step 9, rule 3: telegram WTCO has no field "colour"',
+		'step 10: unknown PLC "PLC9"',
+		'step 10: tanum: "abc" is not numeric'
 	]);
 });
