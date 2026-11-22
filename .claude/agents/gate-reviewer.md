@@ -47,17 +47,17 @@ Reply with one JSON object and nothing else:
 
 ```json
 {
-	"head": "<the commit you reviewed>",
-	"filesRead": ["<every changed file you read in full or in its changed parts>"],
-	"findings": [
-		{
-			"severity": "blocker | high | medium | low",
-			"title": "<the defect in one sentence>",
-			"location": "<path>:<line>",
-			"failure": "<inputs or state, and the wrong result>",
-			"fix": "<what to change>"
-		}
-	]
+  "head": "<the commit you reviewed>",
+  "filesRead": ["<every changed file you read in full or in its changed parts>"],
+  "findings": [
+    {
+      "severity": "blocker | high | medium | low",
+      "title": "<the defect in one sentence>",
+      "location": "<path>:<line>",
+      "failure": "<inputs or state, and the wrong result>",
+      "fix": "<what to change>"
+    }
+  ]
 }
 ```
 

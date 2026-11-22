@@ -69,9 +69,7 @@ Test user-visible behavior, not internal implementation:
 
 ```typescript
 // ❌ BRITTLE - Tests exact SVG path
-expect(html).toContain(
-	'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-);
+expect(html).toContain('M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z');
 // Breaks when icon library updates!
 
 // ✅ ROBUST - Tests semantic structure
@@ -79,9 +77,7 @@ expect(html).toContain('text-success'); // CSS class
 expect(html).toContain('<svg'); // Icon present
 
 // ✅ BEST - Tests user experience
-await expect
-	.element(page.getByRole('img', { name: /success/i }))
-	.toBeInTheDocument();
+await expect.element(page.getByRole('img', { name: /success/i })).toBeInTheDocument();
 ```
 
 ### Using `force: true` for Animations

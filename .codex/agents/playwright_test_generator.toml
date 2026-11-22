@@ -70,15 +70,15 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
 
     ```js
     (element) => {
-    	const c = sap.ui.core.Element.closestTo
-    		? sap.ui.core.Element.closestTo(element)
-    		: jQuery(element).control(0);
-    	const properties = {};
-    	for (const name of Object.keys(c.getMetadata().getAllProperties())) {
-    		const v = c.getProperty(name);
-    		if (typeof v === 'string' && v) properties[name] = v;
-    	}
-    	return { type: c.getMetadata().getName(), properties };
+      const c = sap.ui.core.Element.closestTo
+        ? sap.ui.core.Element.closestTo(element)
+        : jQuery(element).control(0);
+      const properties = {};
+      for (const name of Object.keys(c.getMetadata().getAllProperties())) {
+        const v = c.getProperty(name);
+        if (typeof v === 'string' && v) properties[name] = v;
+      }
+      return { type: c.getMetadata().getName(), properties };
     };
     ```
 
@@ -150,16 +150,16 @@ this file disagree, `sap-tests/CLAUDE.md` wins.
   const CATEGORY = 'Laptops';
 
   test.describe('Shopping cart', () => {
-  	test('Add a product to the cart', async ({ page }) => {
-  		await page.goto(URL);
+    test('Add a product to the cart', async ({ page }) => {
+      await page.goto(URL);
 
-  		// 1. Open the category "Laptops"
-  		await page.getByRoleUI5('StandardListItem', { title: CATEGORY }).click();
+      // 1. Open the category "Laptops"
+      await page.getByRoleUI5('StandardListItem', { title: CATEGORY }).click();
 
-  		// 2. Press "Add to Cart"
-  		await button(page, 'Add to Cart').click();
-  		await expect(page.getByRoleUI5('ObjectListItem', { intro: '1 x' })).toBeVisible();
-  	});
+      // 2. Press "Add to Cart"
+      await button(page, 'Add to Cart').click();
+      await expect(page.getByRoleUI5('ObjectListItem', { intro: '1 x' })).toBeVisible();
+    });
   });
   ```
 

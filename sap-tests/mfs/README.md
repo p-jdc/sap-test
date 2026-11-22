@@ -106,12 +106,12 @@ serves the app (choose one on the start card, or run one on a running Mock PLC),
 
 ```json
 {
-	"title": "Bin occupied on putaway",
-	"description": "The stacker crane finds the destination bin full …",
-	"setup": "sap-example",
-	"modes": ["demo"],
-	"steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
-	"expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
+  "title": "Bin occupied on putaway",
+  "description": "The stacker crane finds the destination bin full …",
+  "setup": "sap-example",
+  "modes": ["demo"],
+  "steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
+  "expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
 }
 ```
 
@@ -176,16 +176,16 @@ Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (cur
 import { test, expect } from '../../sap-plugin/mfs';
 
 test('crane failure: the waiting HU is stored once the crane runs again', async ({ mfs, page }) => {
-	const result = await mfs.runScenario('crane-down');
-	// result.hus.A is the HU number the scenario used: check in EWM what became of it.
+  const result = await mfs.runScenario('crane-down');
+  // result.hus.A is the HU number the scenario used: check in EWM what became of it.
 });
 
 test('putaway against EWM Dev', async ({ mfs, page }) => {
-	// A real EWM takes its time: room for creating the HU, the run and the checks.
-	test.setTimeout(300_000);
-	const hu = '…'; // created in EWM first, in the test
-	await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
-	// then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
+  // A real EWM takes its time: room for creating the HU, the run and the checks.
+  test.setTimeout(300_000);
+  const hu = '…'; // created in EWM first, in the test
+  await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
+  // then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
 });
 ```
 
