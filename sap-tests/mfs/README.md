@@ -106,12 +106,12 @@ serves the app (choose one on the start card, or run one on a running Mock PLC),
 
 ```json
 {
-  "title": "Bin occupied on putaway",
-  "description": "The stacker crane finds the destination bin full …",
-  "setup": "sap-example",
-  "modes": ["demo"],
-  "steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
-  "expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
+	"title": "Bin occupied on putaway",
+	"description": "The stacker crane finds the destination bin full …",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
+	"expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
 }
 ```
 
@@ -127,8 +127,29 @@ serves the app (choose one on the start card, or run one on a running Mock PLC),
 
 Conditions: `{ "hu": "A", "at": "bin" | "<point or bin>" | "A1-*", "notAt": …, "movingOn": "TCAR", "left": true,
 "ewm": "stored" }`, `{ "telegram": { "type": "WTCO", "from": "SRM1", "fields": { "hu": "{A}", "result": "OCCU" } },
-"count": 1 }`, `{ "event": "HU {A} IP → A1-IN" }`. Every step can have a `"title"`; otherwise one is written from the
-step.
+"count": 1 }`, `{ "event": { "kind": "task-taken", "hu": "A", "from": "IP", "to": "A1-IN" }, "count": 1 }`. Every
+step can have a `"title"`; otherwise one is written from the step.
+
+An event condition matches what the Mock PLC did, by the event's kind and fields, never by its text: the text in
+"What happened" is for people and may change. `count` means exactly that many since the scenario started; without
+it, at least one. `hu` is the scenario's HU name; `from`, `to` and `point` take an id, `bin` or a pattern with `*`,
+as in HU conditions. `result` is the emulator's name, not the telegram's code, so the condition holds with any
+telegram layout.
+
+| Kind                                                                                                   | Fields                                                                     |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `hu-entered`, `hu-left`                                                                                | `hu`, `point`                                                              |
+| `task-taken`, `delivered`, `bin-occupied`                                                              | `plc`, `device`, `hu`, `from`, `to`, `task` (as in the telegram)           |
+| `task-refused`                                                                                         | `plc`, `hu`, `from`, `to`, `task`, `result`: `noRoute`, `wrongPlc`, `noHu` |
+| `scanned`                                                                                              | `plc`, `device`, `hu`, `point`, `result`: `OK`, `NORD`, `CONT`, `WGHT`     |
+| `device-status`                                                                                        | `plc`, `device`, `status`: `UP`, `DOWN`                                    |
+| `ewm-connected`, `ewm-disconnected`, `connection-refused`, `connection-replaced`, `connection-dropped` | `plc`                                                                      |
+| `telegram-queued`, `telegram-not-sent`, `telegram-ignored`                                             | `plc`, `telegram` (its type)                                               |
+| `telegrams-kept`, `telegrams-dropped`                                                                  | `plc`, `count`                                                             |
+| `no-telegram`                                                                                          | `plc`, `message` (the report the layout has no telegram for)               |
+| `reset`                                                                                                |                                                                            |
+
+`GET /events` and `events()` return the same fields, with `n`, `at` (time) and `text`.
 
 - HUs are named A, B, …; `{A}` in a text stands for A's number. In the demo each run gives them numbers (300001
   upward) unless the caller gives some. Against a real EWM the caller must give every number: EWM has to know an
@@ -153,16 +174,16 @@ Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (cur
 import { test, expect } from '../../sap-plugin/mfs';
 
 test('crane failure: the waiting HU is stored once the crane runs again', async ({ mfs, page }) => {
-  const result = await mfs.runScenario('crane-down');
-  // result.hus.A is the HU number the scenario used: check in EWM what became of it.
+	const result = await mfs.runScenario('crane-down');
+	// result.hus.A is the HU number the scenario used: check in EWM what became of it.
 });
 
 test('putaway against EWM Dev', async ({ mfs, page }) => {
-  // A real EWM takes its time: room for creating the HU, the run and the checks.
-  test.setTimeout(300_000);
-  const hu = '…'; // created in EWM first, in the test
-  await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
-  // then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
+	// A real EWM takes its time: room for creating the HU, the run and the checks.
+	test.setTimeout(300_000);
+	const hu = '…'; // created in EWM first, in the test
+	await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
+	// then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
 });
 ```
 

@@ -131,6 +131,50 @@ test('a scenario whose expectation is not met fails and says which check', async
 	]);
 });
 
+test('event conditions match the kind and fields of an event, and can count', async ({
+	runner
+}) => {
+	runner.start(
+		scenario(
+			[
+				{ enter: 'A', idPoint: 'CONT' },
+				{ enter: 'B' },
+				{ wait: { event: { kind: 'delivered', hu: 'B', device: 'SRM1', to: 'bin' } } }
+			],
+			[
+				{ event: { kind: 'scanned', hu: 'A', point: 'IP', result: 'CONT' } },
+				{ event: { kind: 'task-taken', hu: 'B', plc: 'CONS', from: 'IP', to: 'A*-IN' } },
+				// To A1-IN on the transfer car, then into an aisle 1 bin.
+				{ event: { kind: 'delivered', hu: 'B', to: 'A1-*' }, count: 2 },
+				{ event: { kind: 'delivered', hu: 'A', to: 'bin' }, count: 0 },
+				// Deliberately wrong: B never fails a scan.
+				{ event: { kind: 'scanned', hu: 'B', result: 'NORD' } }
+			]
+		)
+	);
+
+	const run = await finished(runner);
+	expect(run?.steps[2]).toMatchObject({
+		title: 'Wait until event delivered with hu=B device=SRM1 to=bin',
+		status: 'done'
+	});
+	expect(run?.checks).toEqual([
+		{
+			title: `event scanned with hu=A (${run?.hus.A}) point=IP result=CONT`,
+			ok: true,
+			detail: `IP reads HU ${run?.hus.A}: CONT`
+		},
+		expect.objectContaining({ ok: true }),
+		expect.objectContaining({ ok: true, detail: '2 found' }),
+		expect.objectContaining({
+			title: `event delivered with hu=A (${run?.hus.A}) to=bin exactly 0 time(s)`,
+			ok: true
+		}),
+		expect.objectContaining({ ok: false, detail: '0 found' })
+	]);
+	expect(run?.status).toBe('failed');
+});
+
 test('a failing check step stops the run and skips the rest', async ({ runner }) => {
 	runner.start(scenario([{ enter: 'A' }, { check: { hu: 'A', at: 'CLEAR' } }, { pause: '1s' }]));
 
@@ -167,19 +211,29 @@ test('scenario files are checked: wrong keys, HU names and references are report
 		steps: [{ enter: 'a' }]
 	});
 	expect(lowerCase.success).toBe(false);
+	// Events are matched by kind and fields; the text form of earlier scenarios and unknown kinds are refused.
+	for (const event of ['HU {A} IP → A1-IN', { kind: 'arrived' }, { kind: 'reset', text: 'x' }])
+		expect(
+			ScenarioSchema.safeParse({ ...scenario([{ enter: 'A' }]), expect: [{ event }] }).success,
+			JSON.stringify(event)
+		).toBe(false);
 
 	expect(
 		validateScenario(
 			scenario([
 				{ wait: { hu: 'B', at: 'bin' } },
 				{ device: 'SRM9', status: 'DOWN' },
-				{ enter: 'A', at: 'NOWHERE' }
+				{ enter: 'A', at: 'NOWHERE' },
+				{ wait: { event: { kind: 'delivered', hu: 'C', device: 'SRM9', plc: 'PLC9' } } }
 			]),
 			setup
 		)
 	).toEqual([
 		'step 1: HU B is used before it enters',
 		'step 2: unknown device "SRM9"',
-		'step 3: unknown point "NOWHERE"'
+		'step 3: unknown point "NOWHERE"',
+		'step 4: HU C is used before it enters',
+		'step 4: unknown device "SRM9"',
+		'step 4: unknown PLC "PLC9"'
 	]);
 });

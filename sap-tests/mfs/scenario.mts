@@ -3,7 +3,12 @@
 // The Mock PLC runs them itself, so the same file serves the app, tests and demos. Files: scenarios/<name>.json.
 import { existsSync, readdirSync } from 'node:fs';
 import { z } from 'zod';
-import { ScanResultSchema, type Emulator } from './emulator.mts';
+import {
+	EventKindSchema,
+	ScanResultSchema,
+	type Emulator,
+	type EmulatorEvent
+} from './emulator.mts';
 import type { FakeEwm } from './fake-ewm.mts';
 import { UserError } from './http.mts';
 import { isBinOf, readJson, type LoadedSetup } from './setup.mts';
@@ -41,8 +46,29 @@ const TelegramCondition = z.strictObject({
 	/** Exactly this many matching telegrams since the scenario started; without it, at least one. */
 	count: z.number().int().min(0).optional()
 });
-/** Part of the text of a "What happened" event since the scenario started. */
-const EventCondition = z.strictObject({ event: z.string().min(1) });
+/**
+ * An event of the Mock PLC since the scenario started, by its kind and fields (see EventKindSchema). Matched on
+ * fields, never on the event's text: the text is for people and may change.
+ */
+const EventCondition = z.strictObject({
+	event: z.strictObject({
+		kind: EventKindSchema,
+		hu: Alias.optional(),
+		plc: z.string().optional(),
+		device: z.string().optional(),
+		/** Locations, as in HU conditions: an id, `bin`, or a pattern with `*`. */
+		from: Location.optional(),
+		to: Location.optional(),
+		point: Location.optional(),
+		task: z.string().optional(),
+		/** The emulator's name for the result (noRoute, NORD, …), not the code in the telegram. */
+		result: z.string().optional(),
+		status: z.enum(['UP', 'DOWN']).optional()
+	}),
+	/** Exactly this many matching events since the scenario started; without it, at least one. */
+	count: z.number().int().min(0).optional()
+});
+type EventWanted = z.infer<typeof EventCondition>['event'];
 const Condition = z.union([HuCondition, TelegramCondition, EventCondition]);
 
 const Title = z.string().min(1).optional();
@@ -151,6 +177,13 @@ export function validateScenario(scenario: Scenario, setup: LoadedSetup): string
 				errors.push(`${where}: unknown device "${condition.movingOn}"`);
 			if (condition.ewm && !scenario.modes.every((mode) => mode === 'demo'))
 				errors.push(`${where}: an EWM status can only be checked in demo mode`);
+		}
+		if ('event' in condition) {
+			const want = condition.event;
+			if (want.hu) huKnown(where, want.hu);
+			if (want.device && !devices.has(want.device))
+				errors.push(`${where}: unknown device "${want.device}"`);
+			if (want.plc && !plcs.has(want.plc)) errors.push(`${where}: unknown PLC "${want.plc}"`);
 		}
 	};
 	scenario.steps.forEach((step, index) => {
@@ -599,9 +632,29 @@ export class ScenarioRunner {
 				condition.count === undefined ? matching.length > 0 : matching.length === condition.count;
 			return { ok, detail: `${matching.length} found` };
 		}
-		const text = this.#fill(run, condition.event);
-		const found = this.#emulator.events(this.#eventFrom).find((event) => event.text.includes(text));
-		return found ? { ok: true, detail: found.text } : { ok: false, detail: `no event "${text}"` };
+		const matching = this.#emulator
+			.events(this.#eventFrom)
+			.filter((event) => this.#eventMatches(event, condition.event, run));
+		const ok =
+			condition.count === undefined ? matching.length > 0 : matching.length === condition.count;
+		const last = matching.at(-1);
+		return {
+			ok,
+			detail: condition.count === undefined && last ? last.text : `${matching.length} found`
+		};
+	}
+
+	#eventMatches(event: EmulatorEvent, want: EventWanted, run: ScenarioRun): boolean {
+		const setup = this.#emulator.setup;
+		if (event.kind !== want.kind) return false;
+		// An HU that has not entered yet has no number, so nothing can match it.
+		if (want.hu && (!run.hus[want.hu] || event.hu !== run.hus[want.hu])) return false;
+		if (want.from && !locationMatches(setup, event.from, want.from)) return false;
+		if (want.to && !locationMatches(setup, event.to, want.to)) return false;
+		if (want.point && !locationMatches(setup, event.point, want.point)) return false;
+		return (['plc', 'device', 'task', 'result', 'status'] as const).every(
+			(field) => want[field] === undefined || event[field] === want[field]
+		);
 	}
 
 	#stepTitle(step: Step): string {
@@ -660,6 +713,15 @@ export class ScenarioRunner {
 			const count = condition.count === undefined ? '' : ` exactly ${condition.count} time(s)`;
 			return `telegram ${want.type}${route}${fields ? ` with ${fields}` : ''}${want.note ? ` (${want.note})` : ''}${count}`;
 		}
-		return `event "${fill(condition.event)}"`;
+		const want = condition.event;
+		const fields = Object.entries(want)
+			.filter(([name]) => name !== 'kind')
+			.map(([name, value]) => {
+				const number = name === 'hu' && run ? run.hus[value] : undefined;
+				return `${name}=${value}${number ? ` (${number})` : ''}`;
+			})
+			.join(' ');
+		const count = condition.count === undefined ? '' : ` exactly ${condition.count} time(s)`;
+		return `event ${want.kind}${fields ? ` with ${fields}` : ''}${count}`;
 	}
 }

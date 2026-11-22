@@ -54,6 +54,26 @@ test('putaway: an HU from goods receipt is identified and stored via transfer ca
 		'SRM1>EWM1 WTCO'
 	]);
 	expect([...ewm.tasks.values()].map((task) => task.status)).toEqual(['confirmed', 'confirmed']);
+	// What happened to the HU, as events with fields: what scenarios and tests match on. Task numbers as they
+	// travel in the telegram (the demo layout pads them to 12 digits).
+	const tasks = ['000000000001', '000000000002'];
+	expect(
+		emulator
+			.events()
+			.filter((event) => event.hu === '100001')
+			.map(({ n: _n, at: _at, text: _text, ...facts }) => facts)
+	).toEqual([
+		{ kind: 'hu-entered', hu: '100001', point: 'GR-IN' },
+		{ kind: 'delivered', plc: 'CONS', device: 'CV-GR', hu: '100001', from: 'GR-IN', to: 'IP' },
+		{ kind: 'scanned', plc: 'CONS', device: 'IP', hu: '100001', point: 'IP', result: 'OK' },
+		...[
+			['CONS', 'TCAR', 'IP', 'A1-IN', tasks[0]],
+			['SRM1', 'SRM1', 'A1-IN', 'A1-01-01', tasks[1]]
+		].flatMap(([plc, device, from, to, task]) => [
+			{ kind: 'task-taken', plc, device, hu: '100001', from, to, task },
+			{ kind: 'delivered', plc, device, hu: '100001', from, to, task }
+		])
+	]);
 });
 
 test('contour error at the identification point: the HU goes to clearing', async ({
@@ -152,7 +172,7 @@ test('missing acknowledgement: EWM sends the task again and the PLC runs it once
 		emulator.log().filter((entry) => entry.note === 'acknowledgement withheld (fault)')
 	).toHaveLength(1);
 	expect(
-		emulator.events().filter((event) => event.text.startsWith('TCAR takes task'))
+		emulator.events().filter((event) => event.kind === 'task-taken' && event.device === 'TCAR')
 	).toHaveLength(1);
 });
 
@@ -275,7 +295,7 @@ async function ewmGone(emulator: Emulator, ewm: FakeEwm) {
 	await expect.poll(() => connected(emulator, 'CONS')).toBe(false);
 }
 
-const eventTexts = (emulator: Emulator) => emulator.events().map((event) => event.text);
+const eventKinds = (emulator: Emulator) => emulator.events().map((event) => event.kind);
 const portOf = (emulator: Emulator, plc: string) =>
 	emulator.state().plcs.find((p) => p.id === plc)?.port ?? 0;
 
@@ -288,7 +308,9 @@ test('a second connection is refused while EWM is alive, and replaces one that w
 	await expect.poll(() => connected(emulator, 'CONS')).toBe(true);
 	const intruder = await silentPeer(port);
 	await expect.poll(() => intruder.socket.destroyed).toBe(true);
-	expect(eventTexts(emulator)).toContain('CONS: second connection refused, the channel is in use');
+	expect(emulator.events()).toContainEqual(
+		expect.objectContaining({ kind: 'connection-refused', plc: 'CONS' })
+	);
 
 	// EWM goes away properly; then one connects and falls silent without closing (a dead pod).
 	await ewmGone(emulator, ewm);
@@ -300,7 +322,7 @@ test('a second connection is refused while EWM is alive, and replaces one that w
 	await expect
 		.poll(async () => {
 			retries.push((await silentPeer(port)).socket);
-			return eventTexts(emulator).some((text) => text.includes('makes way for a new one'));
+			return eventKinds(emulator).includes('connection-replaced');
 		})
 		.toBe(true);
 	await expect.poll(() => dead.socket.destroyed).toBe(true);
@@ -323,8 +345,8 @@ test('a telegram EWM never acknowledged goes out again when EWM connects again',
 	await expect.poll(() => first.data()).toContain('STAT');
 	first.socket.destroy();
 	await expect
-		.poll(() => eventTexts(emulator))
-		.toContain('CONS: 1 unacknowledged telegram(s) kept until EWM connects again');
+		.poll(() => emulator.events())
+		.toContainEqual(expect.objectContaining({ kind: 'telegrams-kept', plc: 'CONS', count: 1 }));
 
 	const second = await silentPeer(port);
 	await expect.poll(() => second.data()).toContain('STAT');
@@ -377,6 +399,10 @@ test.describe('with a telegram layout that shares nothing with the DEMO layout',
 			.toBe('99');
 		// A device going down has nothing to report in this layout, and the emulator keeps running.
 		emulator.setDeviceStatus('SRM1', 'DOWN');
-		expect(emulator.events().at(-1)?.text).toContain('no status telegram');
+		expect(emulator.events().at(-1)).toMatchObject({
+			kind: 'no-telegram',
+			plc: 'SRM1',
+			message: 'status'
+		});
 	});
 });
