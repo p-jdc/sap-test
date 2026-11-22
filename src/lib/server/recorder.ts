@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
@@ -60,6 +61,20 @@ export function withPluginImport(source: string, specFile: string): string {
 	return source.replace(RECORDED_IMPORT, `from '${plugin}'`);
 }
 
+const RECORDED_SESSION = /^[ \t]*storageState: '(?:[^'\\\n]|\\.)*',?[ \t]*\n/m;
+const EMPTY_USE = /^test\.use\(\{\s*\}\);\n+/m;
+
+/**
+ * Codegen started with `--load-storage <file>` writes `test.use({ storageState: '<file>' })` into
+ * the spec. That absolute path exists only on this machine, and the line would replace the
+ * session the system's project gives each test (sap-plugin's storageState fixture). Returns the
+ * spec without it.
+ */
+export function withoutRecordedSession(source: string): string {
+	const without = source.replace(RECORDED_SESSION, '');
+	return without === source ? source : without.replace(EMPTY_USE, '');
+}
+
 export type Invocation = {
 	cmd: string;
 	args: string[];
@@ -67,7 +82,27 @@ export type Invocation = {
 	env: Record<string, string>;
 	/** What must exist for this recorder to start, and how to get it. */
 	needs: { path: string; hint: string };
+	/** `web` only: the saved session the recording starts from, if a test run left one. */
+	session?: string;
 };
+
+/** A saved session (Playwright's storageState file); only whether it holds anything matters. */
+const SessionSchema = z.object({ cookies: z.array(z.unknown()), origins: z.array(z.unknown()) });
+
+/**
+ * The session a test run's sign-in saved for a system (sap-plugin/session.ts), if it holds one.
+ * A failed or skipped sign-in leaves an empty one, which would start the recording signed out
+ * all the same.
+ */
+export function savedSession(systemId: string): string | undefined {
+	const file = resolve(TESTS_ROOT, '.auth', `${systemId}-session.json`);
+	try {
+		const saved = SessionSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+		return saved.cookies.length > 0 || saved.origins.length > 0 ? file : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 /**
  * Blank values for the user and password of every system: a recorder inherits this app's
@@ -96,8 +131,10 @@ function blankLogins(systems: SignInSystemInfo[]): Record<string, string> {
  * `codegen <url> --sap-login <user> <password>`), because the UI5 recorder's WebGUI support has
  * not been tried on a real system. The fork runs behind recorder/codegen.cjs, which hands it the
  * login from the environment: on the command line every user of the machine could read the
- * password. `web` (Ariba and other systems where the person signs in) records with stock
- * Playwright's codegen: those tests use standard locators, which it writes as well.
+ * password. `web` (Ariba and other systems with a login page of their own) records with stock
+ * Playwright's codegen: those tests use standard locators, which it writes as well. It gets no
+ * password: it starts from the session the last test run's sign-in saved (`--load-storage`), and
+ * without one the person signs in in its window.
  */
 export function recorderInvocation(
 	input: Pick<RecordInput, 'name' | 'noLogin'> & { recorder: RecordTarget['recorder'] },
@@ -140,16 +177,25 @@ export function recorderInvocation(
 		};
 	}
 	const codegen = ['codegen', url, '--target', 'playwright-test', '-o', 'tests/' + file];
-	if (input.recorder === 'web')
+	if (input.recorder === 'web') {
+		// Starting signed in keeps the sign-in out of the recording: codegen writes what is typed
+		// into a password field into the spec as it is. The session goes only to a recording that
+		// starts on the system's own address: its browser would otherwise open a page of the
+		// caller's choosing signed in to the system.
+		const home = env[urlVar];
+		const onSystem = !!home && sameOrigin(url, home) && allowsCredentials(url);
+		const session = onSystem ? savedSession(system.id) : undefined;
 		return {
-			...playwrightCommand(codegen),
-			// A person signs in to these systems: the recorder gets no password.
+			...playwrightCommand(session ? [...codegen, '--load-storage', session] : codegen),
+			// The recorder gets no password, only the session.
 			env: blank,
+			...(session ? { session } : {}),
 			needs: {
 				path: PLAYWRIGHT_PACKAGE,
 				hint: `Playwright is not installed in ${PACKAGES_DIR}. Run "bun run setup" in the repo root.`
 			}
 		};
+	}
 	return {
 		...recorderCommand([...codegen, ...certificate, '--sap-login-from-env']),
 		env: { ...blank, SAP_USERNAME: env[user] ?? '', SAP_PASSWORD: env[password] ?? '' },
@@ -158,6 +204,17 @@ export function recorderInvocation(
 			hint: `The WebGUI recorder (Playwright-SAP) is not installed in ${PACKAGES_DIR}. Run "bun run setup" in the repo root.`
 		}
 	};
+}
+
+/** What the log tells the person about signing in to a `web` recording. */
+function webSessionNote(system: SignInSystemInfo, invocation: Invocation): string {
+	const { title } = system;
+	if (invocation.session)
+		return `Starting with the session the last test run saved for ${title}. If it has expired, the page asks you to sign in: delete those steps from the test afterwards.`;
+	const reason = savedSession(system.id)
+		? `the saved session of ${title} is used only when the start page is on ${system.env.url} and that address starts with https://`
+		: `no saved session for ${title}; a test run of ${title} saves one for the next recording`;
+	return `Starting signed out (${reason}). Sign in in the browser window, then delete the sign-in steps from the test.`;
 }
 
 /**
@@ -242,11 +299,13 @@ export async function startRecording(
 	// would show.
 	// The Node warning is about the fork, which only records WebGUI.
 	const nodeWarning = target.recorder === 'webgui' ? playwrightNode().warning : null;
+	const sessionNote = target.recorder === 'web' ? [webSessionNote(system, invocation)] : [];
 	state = {
 		status: 'recording',
 		file,
 		log: [
 			`Recording ${file} – browser opens on the app host.`,
+			...sessionNote,
 			...(nodeWarning ? [`Warning: ${nodeWarning}`] : [])
 		],
 		startedAt: new Date().toISOString()
@@ -290,7 +349,11 @@ export async function startRecording(
 		proc = null;
 		for (const lines of outputs) lines.flush();
 		const saved = existsSync(full);
-		if (saved) writeFileSync(full, withPluginImport(readFileSync(full, 'utf8'), full));
+		if (saved)
+			writeFileSync(
+				full,
+				withPluginImport(withoutRecordedSession(readFileSync(full, 'utf8')), full)
+			);
 		state = {
 			...state,
 			status: saved ? 'saved' : 'error',

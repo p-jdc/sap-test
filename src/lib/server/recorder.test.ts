@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	renameSync,
 	writeFileSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -404,6 +405,81 @@ describe('recorderInvocation', () => {
 		expect(ariba.needs.path).toBe(join(packages, '@playwright', 'test'));
 		// A person signs in to Ariba: its recorder gets no password, not even Ariba's.
 		expect(ariba.env).toEqual(BLANK);
+		expect(ariba.session).toBeUndefined();
+	});
+
+	test("Ariba's recording starts from the session the last test run saved", async () => {
+		const { dir, recorder, systems, system } = await recorderWith(SAP);
+		const record = (start = 'https://ariba.example.com/Buyer/Main') =>
+			recorder.recorderInvocation(
+				{ recorder: 'web', name: 'x' },
+				system('ariba'),
+				systems,
+				'ariba/x.spec.ts',
+				start,
+				{ ...env, ARIBA_URL: 'https://ariba.example.com/' }
+			);
+		const file = join(dir, '.auth', 'ariba-session.json');
+		mkdirSync(join(dir, '.auth'));
+		// A failed or skipped sign-in leaves an empty session: the recording starts signed out.
+		writeFileSync(file, JSON.stringify({ cookies: [], origins: [] }));
+		expect(record().args).not.toContain('--load-storage');
+		writeFileSync(
+			file,
+			JSON.stringify({
+				cookies: [{ name: 'session', value: 'v', domain: 'ariba.example.com' }],
+				origins: []
+			})
+		);
+		const signedIn = record();
+		expect(signedIn.args.slice(-2)).toEqual(['--load-storage', file]);
+		expect(signedIn.session).toBe(file);
+		// Only the session, still no password.
+		expect(signedIn.env).toEqual(BLANK);
+		// A start page elsewhere opens signed out: the session would be a page's of anyone's choosing.
+		for (const start of ['https://attacker.example/', 'http://ariba.example.com/'])
+			expect(record(start).args).not.toContain('--load-storage');
+		// Another system's session is not Ariba's.
+		renameSync(file, join(dir, '.auth', 'sap-session.json'));
+		expect(record().args).not.toContain('--load-storage');
+	});
+
+	test('a recording started from a session keeps no path to it', async () => {
+		const { recorder } = await recorderWith(SAP);
+		// What Playwright 1.63's codegen writes with --load-storage.
+		const recorded = [
+			"import { test, expect } from '@playwright/test';",
+			'',
+			'test.use({',
+			"  storageState: '/Users/someone/sap-test/sap-tests/.auth/ariba-session.json'",
+			'});',
+			'',
+			"test('test', async ({ page }) => {",
+			"  await page.goto('https://ariba.example.com/');",
+			'});',
+			''
+		].join('\n');
+		const saved = recorder.withoutRecordedSession(recorded);
+		expect(saved).not.toContain('storageState');
+		expect(saved).not.toContain('test.use');
+		expect(saved).toBe(
+			[
+				"import { test, expect } from '@playwright/test';",
+				'',
+				"test('test', async ({ page }) => {",
+				"  await page.goto('https://ariba.example.com/');",
+				'});',
+				''
+			].join('\n')
+		);
+		// Other options stay.
+		expect(
+			recorder.withoutRecordedSession(
+				"test.use({\n  storageState: '/x/s.json',\n  viewport: {\n    height: 720,\n    width: 1280\n  }\n});\n"
+			)
+		).toBe('test.use({\n  viewport: {\n    height: 720,\n    width: 1280\n  }\n});\n');
+		// A spec without one is left as it is.
+		expect(recorder.withoutRecordedSession(saved)).toBe(saved);
 	});
 
 	test('the SAP recorders accept a self-signed certificate on the host of SAP_SELF_SIGNED_HOST only', async () => {
