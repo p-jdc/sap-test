@@ -390,6 +390,14 @@ function removeDetails(id: string, keep: Set<string>): boolean {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The results folders of the healer's test runs (healer.ts: `<test>-results`, `<test>-server`). */
+function removeHealerResults(dir: string) {
+	if (!existsSync(dir)) return;
+	for (const name of readdirSync(dir))
+		if (name.endsWith('-results') || name.endsWith('-server'))
+			rmSync(join(dir, name), { recursive: true, force: true });
+}
+
 /**
  * Applies the retention rules (retention.ts) to the finished runs: deletes reports, screenshots,
  * videos and traces, steps, error messages and logs that the rules no longer keep. What happened in
@@ -452,6 +460,8 @@ export function applyRetention(
 		if (!decision.artifacts && !r.artifactsRemovedAt) {
 			rmSync(join(dir, 'report'), { recursive: true, force: true });
 			rmSync(join(dir, 'results'), { recursive: true, force: true });
+			// The healer's test runs: traces, screenshots and videos like the run's own.
+			removeHealerResults(join(dir, 'healer'));
 			set.artifactsRemovedAt = new Date(now);
 			touched = true;
 		}

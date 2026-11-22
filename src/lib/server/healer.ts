@@ -26,6 +26,8 @@ import type { HealerState, RunTest } from '#lib/shared/types.js';
 
 /** The healer's definition, the same file Claude Code uses for its subagent. */
 const HEALER_AGENT = resolve(APP_ROOT, '.claude/agents/playwright-test-healer.md');
+/** Masks what the MCP server answers before the model sees it; runs on Bun, like the app. */
+const MASK_SCRIPT = resolve(APP_ROOT, 'src/lib/server/healer-mask.ts');
 
 /** The most one repair may cost (an estimate); TEST_APP_HEALER_BUDGET_USD overrides it. */
 const DEFAULT_BUDGET_USD = 5;
@@ -45,6 +47,8 @@ export function healerProblem(): string | undefined {
 	if (resolve(TESTS_ROOT) !== resolve(APP_ROOT, 'sap-tests'))
 		return 'The healer works only on the test project in this repository (SAP_TESTS_DIR points elsewhere).';
 	if (!existsSync(HEALER_AGENT)) return `The healer's definition is missing: ${HEALER_AGENT}.`;
+	if (!process.versions.bun || !existsSync(MASK_SCRIPT))
+		return 'The healer needs the app to run on Bun from this repository (it starts src/lib/server/healer-mask.ts).';
 	if (!existsSync(PLAYWRIGHT_PACKAGE))
 		return 'Playwright is not installed. Run "bun run setup" in the repository root.';
 	return undefined;
@@ -196,7 +200,16 @@ function healerSession(test: RunTest, runId: string, agent: AgentFile, o: Sessio
 		resolve(TESTS_ROOT, 'playwright.config.ts')
 	]);
 	// The browser tools write their logs into the folder the server runs in.
-	const inFolder = ['-c', 'cd "$0" && exec "$@"', o.serverCwd, server.cmd, ...server.args];
+	// In its own folder, behind the mask: every answer of the server passes healer-mask.ts.
+	const inFolder = [
+		'-c',
+		'cd "$0" && exec "$@"',
+		o.serverCwd,
+		process.execPath,
+		MASK_SCRIPT,
+		server.cmd,
+		...server.args
+	];
 	// The model process gets no password, neither in its environment nor on its command line.
 	const secretValues = new Set(o.secrets);
 	const modelEnv = Object.fromEntries(
@@ -222,7 +235,7 @@ function healerSession(test: RunTest, runId: string, agent: AgentFile, o: Sessio
 					type: 'stdio',
 					command: '/bin/sh',
 					args: inFolder,
-					env: o.serverEnv,
+					env: { ...o.serverEnv, HEALER_MASK: JSON.stringify(o.secrets) },
 					alwaysLoad: true
 				}
 			},
@@ -276,7 +289,13 @@ export async function startHealing(
 
 	const redact = redactor(settings.secrets);
 	const allowed = new Set(agent.tools);
+	// A repair of this test that was not discarded: this session goes on from it, so its diff and
+	// "Discard the repair" still go back to the files as they were before the first session.
 	const originals = new Map<string, Original>();
+	if (!healingState(runId, testId)?.discarded)
+		for (const [abs, original] of Object.entries(readJson(files.originals, originalsSchema) ?? {}))
+			if (within(TESTS_ROOT, relative(TESTS_ROOT, abs)))
+				originals.set(abs, { before: original.before });
 	const abort = new AbortController();
 	const state: HealerState = {
 		runId,
@@ -286,7 +305,7 @@ export async function startHealing(
 		status: 'running',
 		startedAt: new Date().toISOString(),
 		activity: [],
-		changes: []
+		changes: redact(changesOf(originals))
 	};
 	mkdirSync(files.server, { recursive: true });
 	active = { state, abort };

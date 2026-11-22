@@ -69,7 +69,7 @@
 </script>
 
 <div class="healer">
-	{#if !heal || (!working && !heal.report && !heal.changes.length)}
+	{#if !heal}
 		<div class="row">
 			<ui5-button
 				design="Transparent"

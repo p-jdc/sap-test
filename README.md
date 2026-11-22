@@ -461,7 +461,8 @@ report (the cause, test or application, what it changed) and a diff of every fil
 - Its changes stay in the working tree of the app's checkout. Nothing is committed: a person checks
   that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
   von:`, and commits, or presses "Discard the repair", which puts back the files as they were
-  before (a file someone changed since is left alone).
+  before (a file someone changed since is left alone). "Diagnose again" on a repair that was not
+  discarded goes on from it: the diff and the discard still go back to before the first session.
 - With sign-in on, only an admin can start the healer or discard its repair.
 - The app, not only the instructions, limits the tools: it reads and searches only in
   `sap-tests/tests`, `helpers`, `sap-plugin`, `specs`, `setup` and `test-results`, and in the
@@ -472,17 +473,24 @@ report (the cause, test or application, what it changed) and a diff of every fil
   hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
   Claude login.
 - The passwords go to the MCP server only, which signs in as a run does. They are not in the model
-  process's environment or on its command line (the SDK hands the server's settings over stdin),
-  and a password in what a tool returns is masked before the model sees it, as in a run's log.
+  process's environment or on its command line (the SDK hands the server's settings over stdin).
+  Every answer of the server passes `src/lib/server/healer-mask.ts` before the model sees it, also
+  one that ends as an error: it masks the passwords as they are and URL- or form-encoded, login
+  headers (`Cookie`, `Set-Cookie`, `Authorization`, `X-CSRF-Token`) and SAP's session cookies
+  (`MYSAPSSO2`, `SAP_SESSIONID_…`). What the built-in tools return is masked as well. A request
+  of the browser's network list can be read only for its response, not for the headers and body
+  it sent. Other encodings of a password (Base64 in a hand-made header, for example) are not
+  caught.
 - **What the app cannot prevent:** the healer changes test code and runs it, and test code runs with
   the test users' passwords. A test the healer wrote can read them and send them anywhere, in a way
   that no masking catches. A misled model (for example by text on an SAP screen or in an error
   message) could do that. So use the healer only with test users of test systems, and read every
   repair before it is committed or run again.
-- One healer at a time, and not during a run (a run waits for the healer as well). Its report, the
-  record of the files before it and the results of its test runs (traces, screenshots and videos
-  of the SAP screens) are kept with the run (`healer/` in the run's folder) and removed with the
-  run's log under the retention rules. Once a run's log is gone, the healer no longer starts on it.
+- One healer at a time, and not during a run (a run waits for the healer as well). The results of
+  its test runs (traces, screenshots and videos of the SAP screens) are kept with the run
+  (`healer/` in the run's folder) and removed with the run's own files
+  (`TEST_APP_KEEP_REPORT_DAYS`); its report and the record of the files before it are removed with
+  the run's log. Once a run's log is gone, the healer no longer starts on it.
 
 ## Development
 

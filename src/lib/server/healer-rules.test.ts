@@ -51,7 +51,8 @@ describe('toolDecision', () => {
 		'Write',
 		'mcp__playwright-test__test_run',
 		'mcp__playwright-test__browser_snapshot',
-		'mcp__playwright-test__browser_run_code_unsafe'
+		'mcp__playwright-test__browser_run_code_unsafe',
+		'mcp__playwright-test__browser_network_request'
 	]);
 	// The healer's results folder lies in the app's data, outside the repository.
 	let output = '';
@@ -82,6 +83,15 @@ describe('toolDecision', () => {
 				typeof v === 'string' ? v.replace('OUT', output) : v
 			])
 		);
+
+	test('lets it read what a request got back, not what it sent', () => {
+		const tool = 'mcp__playwright-test__browser_network_request';
+		expect(decide(tool, { index: 1, part: 'response-body' })).toEqual({ allow: true });
+		expect(decide(tool, { index: 1, part: 'response-headers' })).toEqual({ allow: true });
+		expect(decide(tool, { index: 1, part: 'request-headers' }).allow).toBe(false);
+		expect(decide(tool, { index: 1, part: 'request-body' }).allow).toBe(false);
+		expect(decide(tool, { index: 1 }).allow).toBe(false);
+	});
 
 	test('allows the tools of the MCP server it lists', () => {
 		expect(decide('mcp__playwright-test__test_run', { locations: [] })).toEqual({ allow: true });

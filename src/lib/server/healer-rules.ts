@@ -60,6 +60,7 @@ const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS']);
  * with browser_evaluate, which runs in the page.
  */
 const DENIED_MCP_TOOLS = new Set(['mcp__playwright-test__browser_run_code_unsafe']);
+const RESPONSE_PARTS = new Set(['response-headers', 'response-body']);
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
 
 export type ToolDecision = { allow: true; writes?: string } | { allow: false; reason: string };
@@ -142,6 +143,15 @@ export function toolDecision(
 		// Saving to or reading from a file through the browser tools passes no check of the paths.
 		if (input.filename !== undefined)
 			return { allow: false, reason: 'Do not save to files; take the result as the answer.' };
+		// A request's headers and body hold the session cookies and, at the sign-in, the password.
+		if (
+			tool === 'mcp__playwright-test__browser_network_request' &&
+			!RESPONSE_PARTS.has(String(input.part))
+		)
+			return {
+				allow: false,
+				reason: 'Look at a request only with part "response-headers" or "response-body".'
+			};
 		return { allow: true };
 	}
 	if (READ_TOOLS.has(tool)) {
