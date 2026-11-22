@@ -31,7 +31,7 @@
 		"*.svelte",
 		// Third-party source kept as it came, and generated files.
 		"sap-tests/sap-plugin/vendor",
-		"sap-tests/tools/oxlint/anti-slop",
+		"tools/oxlint/anti-slop",
 		"sap-tests/odata/clients",
 		"sap-tests/odata/metadata/options-per-service.json",
 		".claude/mcp",

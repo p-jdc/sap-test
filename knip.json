@@ -11,12 +11,14 @@
 		"sap-tests/odata/**/*.mjs",
 		"sap-tests/sap-plugin/{record.mjs,entries/*.ts}",
 		"sap-tests/recorder/codegen.cjs",
-		"sap-tests/tools/oxlint/*/index.ts"
+		"sap-tests/tools/oxlint/*/index.ts",
+		"tools/oxlint/*/index.ts"
 	],
 	"project": [
 		"src/**/*.{ts,svelte}",
 		"reporter/**/*.ts",
 		"scripts/**/*.ts",
+		"tools/**/*.ts",
 		"tests/**/*.ts",
 		"sap-tests/**/*.{ts,mts,mjs,cjs}",
 		"!sap-tests/sap-plugin/vendor/**",

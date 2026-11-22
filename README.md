@@ -437,11 +437,12 @@ Same layout as the reference app, but stricter:
   injection, unsafe regular expressions, `innerHTML`, secrets in browser storage, …), and five
   rules from [anti-slop](https://github.com/dmmulroy/anti-slop) that flag ways around the type
   checker (`Reflect.get`, `as unknown as T`, `Record<string, unknown>`), vendored in
-  `sap-tests/tools/oxlint/anti-slop`. The rule list follows the play-bun-ai project. They are
+  `tools/oxlint/anti-slop`. The rule list follows the play-bun-ai project. They are
   heuristics: a clean run does not mean the code is free of these problems.
 - **ESLint** keeps only what oxlint cannot do (eslint-plugin-svelte, incl.
   `svelte/no-navigation-without-resolve`); `eslint-plugin-oxlint` turns off everything oxlint runs.
-- **sap-tests** has its own `bun run lint` (oxlint, type-aware). Its main job is
+- **sap-tests** has its own oxlint rules (`sap-tests/.oxlintrc.json`, type-aware), run by the same
+  `bun run lint`. Their main job is
   `no-floating-promises`: a missing `await` in a recorded flow is the classic source of flaky tests.
   It also enforces the rules of `sap-tests/CLAUDE.md` that a machine can decide: no `waitForTimeout`
   (guide §5.2), `test` and `expect` from sap-plugin in files under `tests/`, and passwords typed
