@@ -70,17 +70,13 @@ test('cart demo', async ({ page }) => {
 			id: 'container-cart---checkoutView--creditCardExpirationDate',
 			interaction: { idSuffix: 'inner' }
 		})
-		.click();
-	await page
-		.locateUI5Control({ id: 'container-cart---checkoutView--creditCardExpirationDate-icon' })
-		.click();
+		.fill('12/2026');
 	await page
 		.locateUI5Control({
-			id: 'container-cart---checkoutView--creditCardExpirationDate-cal--Month0',
-			searchOpenDialogs: true,
-			interaction: { idSuffix: '20261208' }
+			id: 'container-cart---checkoutView--creditCardExpirationDate',
+			interaction: { idSuffix: 'inner' }
 		})
-		.click({ force: true });
+		.press('Enter');
 	await page
 		.locateUI5Control({
 			id: 'container-cart---checkoutView--creditCardStep-nextButton',

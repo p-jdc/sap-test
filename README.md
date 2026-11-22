@@ -25,7 +25,9 @@ which also runs on stock Playwright. It asks UI5 itself (`sap.ui.test.RecordRepl
 control and writes `page.locateUI5Control({...})`, a locator that can name a row by the record it
 shows instead of by its position. A bar, point or slice of a chart (`sap.viz`) is recorded by the
 values it stands for: `.locator(ui5ChartPointSelector({ 'Item Category': 'Pop', measureNames: 'Revenue' }))`
-on the chart's locator.
+on the chart's locator. A date picked in a calendar is recorded as the value it put into the field
+(`.fill('12/2026')` and Enter), not as clicks on a day, which only exists while its month is shown.
+A click on the icon of a button is recorded as a click on the button.
 
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the
