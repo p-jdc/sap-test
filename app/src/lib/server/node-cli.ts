@@ -77,17 +77,18 @@ export function playwrightNode(): PlaywrightNode {
 	return checked;
 }
 
-/** `node <sap-tests>/node_modules/@playwright/test/cli.js <args>`: stock Playwright, runs the tests. */
+/** Stock Playwright in sap-tests: runs the tests, and records Ariba and other web pages. */
+export const PLAYWRIGHT_PACKAGE = resolve(TESTS_ROOT, 'node_modules/@playwright/test');
+
+/** `node <sap-tests>/node_modules/@playwright/test/cli.js <args>` */
 export function playwrightCommand(args: string[]): { cmd: string; args: string[] } {
-	return {
-		cmd: realNode(),
-		args: [resolve(TESTS_ROOT, 'node_modules/@playwright/test/cli.js'), ...args]
-	};
+	return { cmd: realNode(), args: [resolve(PLAYWRIGHT_PACKAGE, 'cli.js'), ...args] };
 }
 
 /**
- * Where the Playwright-SAP fork is installed. It is used for recording only: its codegen writes
- * SAP locators (getByRoleUI5, locateSID), which sap-tests/sap-plugin runs on stock Playwright.
+ * Where the Playwright-SAP fork is installed. It records WebGUI only: its codegen signs in to SAP
+ * and writes SID locators (getByRoleSID, locateSID), which sap-tests/sap-plugin runs on stock
+ * Playwright.
  */
 export const RECORDER_PACKAGE = resolve(TESTS_ROOT, 'recorder/node_modules/@playwright/test');
 
