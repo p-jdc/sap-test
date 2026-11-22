@@ -23,16 +23,14 @@ if (odataMock)
 	});
 
 // IDOC_HUB_MOCK=1 (`bun run test:idoc`): Playwright starts the IDoc receiver (idoc/server.mts) on this computer,
-// and the idocInbox fixture reads its inbox. IDOC_MOCK_URL is the endpoint tests post IDocs to in SAP's place.
+// and the idocInbox fixture reads its inbox. The receiver takes free ports. Fixed ones, such as its defaults
+// 47200 and 47201, lie in the range Linux hands out for free ports and outgoing connections, so another process
+// can hold them (in CI, the Mock PLC that runs just before did). Playwright reads both addresses from the
+// receiver's ready line (`wait` below) into IDOC_HUB_URL, its control API, and IDOC_MOCK_URL, the endpoint tests
+// post IDocs to in SAP's place. That replaces any IDOC_HUB_URL from the environment file, and the workers
+// inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
-const idocPort = Number(process.env.IDOC_MOCK_PORT || 47200);
-const idocControlPort = Number(process.env.IDOC_MOCK_CONTROL_PORT || 47201);
-if (idocMock)
-	Object.assign(process.env, {
-		IDOC_HUB_URL: `http://127.0.0.1:${idocControlPort}`,
-		IDOC_HUB_TOKEN: '',
-		IDOC_MOCK_URL: `http://127.0.0.1:${idocPort}`
-	});
+if (idocMock) process.env.IDOC_HUB_TOKEN = '';
 
 // MFS_MOCK=1 (`bun run test:mfs`): tests with the `mfs` fixture (sap-plugin/mfs.ts) run against a local
 // Mock PLC with the simulated EWM instead of one from MFS_EMULATOR_URL. Bun runs it, as in the app.
@@ -45,7 +43,9 @@ if (mfsMock) {
 }
 type WebServer = {
 	command: string;
-	url: string;
+	/** Ready once this answers, or (with `wait`) once the output matches. */
+	url?: string;
+	wait?: { stdout: RegExp };
 	env: Record<string, string>;
 	reuseExistingServer: boolean;
 };
@@ -79,14 +79,18 @@ const webServers: WebServer[] = [
 		? [
 				{
 					command: 'bun idoc/server.mts',
-					url: `http://127.0.0.1:${idocControlPort}/health`,
+					// Ready once it prints its addresses; the named groups become IDOC_MOCK_URL and IDOC_HUB_URL.
+					wait: {
+						stdout:
+							/IDOC_READY \{"idocUrl":"(?<idoc_mock_url>[^"]+)","controlUrl":"(?<idoc_hub_url>[^"]+)"\}/
+					},
 					// Playwright adds these to the whole environment, .env included: a login, certificates or a
 					// token set there for a real receiver are cleared, so the local one runs plain and open.
 					env: {
 						IDOC_HOST: '127.0.0.1',
-						IDOC_PORT: String(idocPort),
+						IDOC_PORT: '0',
 						IDOC_CONTROL_HOST: '127.0.0.1',
-						IDOC_CONTROL_PORT: String(idocControlPort),
+						IDOC_CONTROL_PORT: '0',
 						IDOC_USER: '',
 						IDOC_PASSWORD: '',
 						IDOC_TLS_CERT: '',
