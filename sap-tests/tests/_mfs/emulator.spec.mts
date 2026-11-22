@@ -6,14 +6,15 @@ import { connect, type Socket } from 'node:net';
 import { test as base, expect } from '../../sap-plugin';
 import { Emulator } from '../../mfs/emulator.mts';
 import { FakeEwm } from '../../mfs/fake-ewm.mts';
-import { loadSetup } from '../../mfs/setup.mts';
+import { loadSetup, type LoadedSetup } from '../../mfs/setup.mts';
+import { foreignLayout } from './foreign-layout.mts';
 
 const timing = { ackTimeoutMs: 150, maxResends: 3, lifeIntervalMs: 200 };
 
-const test = base.extend<{ emulator: Emulator; ewm: FakeEwm }>({
-	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
-	emulator: async ({}, use) => {
-		const emulator = new Emulator({ setup: loadSetup('sap-example'), speed: 50, timing });
+const test = base.extend<{ setup: LoadedSetup; emulator: Emulator; ewm: FakeEwm }>({
+	setup: [loadSetup('sap-example'), { option: true }],
+	emulator: async ({ setup }, use) => {
+		const emulator = new Emulator({ setup, speed: 50, timing });
 		await emulator.start();
 		await use(emulator);
 		await emulator.stop();
@@ -33,7 +34,7 @@ const test = base.extend<{ emulator: Emulator; ewm: FakeEwm }>({
 const telegramTypes = (emulator: Emulator) =>
 	emulator
 		.log()
-		.filter((entry) => entry.type !== 'ACK' && entry.type !== 'LIFE')
+		.filter((entry) => !entry.technical)
 		.map((entry) => `${entry.from}>${entry.to} ${entry.type}`);
 
 test('putaway: an HU from goods receipt is identified and stored via transfer car and crane', async ({
@@ -329,4 +330,53 @@ test('a telegram EWM never acknowledged goes out again when EWM connects again',
 	await expect.poll(() => second.data()).toContain('STAT');
 	expect(second.data()).toContain(device);
 	second.socket.destroy();
+});
+
+test.describe('with a telegram layout that shares nothing with the DEMO layout', () => {
+	// Other telegram and field names, numeric codes, no start and end characters, telegrams sent back as
+	// acknowledgement, tasks without a task number, no status telegram.
+	test.use({ setup: { ...loadSetup('sap-example'), layout: foreignLayout } });
+
+	test('putaway runs through, and an unreadable HU goes to clearing', async ({ emulator, ewm }) => {
+		emulator.enter('100001');
+		emulator.enter('100002', undefined, { idPoint: 'NORD' });
+
+		await expect.poll(() => emulator.hu('100001')?.at).toBe('A1-01-01');
+		await expect.poll(() => emulator.hu('100002')?.at).toBe('CLEAR');
+		const sent = emulator
+			.log()
+			.filter((entry) => !entry.technical && entry.fields.HUIDENT === '100001')
+			.map((entry) => `${entry.from}>${entry.to} ${entry.type} ${entry.fields.ERROR ?? ''}`.trim());
+		expect(sent).toEqual([
+			'CONS>EWM1 SCANNR 00',
+			'EWM1>CONS TORDER',
+			'CONS>EWM1 TCONF 00',
+			'EWM1>SRM1 TORDER',
+			'SRM1>EWM1 TCONF 00'
+		]);
+		// The no-read went out with the layout's code for it, and without an HU number.
+		expect(
+			emulator
+				.log()
+				.filter(
+					(entry) => !entry.technical && entry.type === 'SCANNR' && entry.fields.ERROR === '11'
+				)
+		).toMatchObject([{ fields: { HUIDENT: '' } }]);
+		expect(ewm.hu('NOREAD-1')?.scan).toBe('11');
+	});
+
+	test('a refusal without a code of its own is sent as the general error', async ({
+		emulator,
+		ewm
+	}) => {
+		emulator.enter('100001', 'GI');
+		ewm.sendTask('CONS', '100001', 'GI', 'GR-IN');
+
+		await expect
+			.poll(() => emulator.log().find((entry) => entry.type === 'TCONF')?.fields.ERROR)
+			.toBe('99');
+		// A device going down has nothing to report in this layout, and the emulator keeps running.
+		emulator.setDeviceStatus('SRM1', 'DOWN');
+		expect(emulator.events().at(-1)?.text).toContain('no status telegram');
+	});
 });

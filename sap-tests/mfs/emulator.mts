@@ -20,9 +20,20 @@ import {
 	type DeviceDef,
 	type LoadedSetup
 } from './setup.mts';
-import { encode, type Fields, type Telegram } from './telegram.mts';
+import {
+	checkValue,
+	fromWire,
+	toWire,
+	wireCode,
+	type Fields,
+	type MessageKind,
+	type Telegram
+} from './telegram.mts';
 
-/** Results the emulator reports for an HU at the identification point. */
+/**
+ * Results the emulator reports for an HU at the identification point. These are the emulator's names; the code
+ * that travels in the telegram is the telegram layout's (messages.scan.codes).
+ */
 export const ScanResultSchema = z.enum(['OK', 'NORD', 'CONT', 'WGHT']);
 export type ScanResult = z.infer<typeof ScanResultSchema>;
 
@@ -34,6 +45,8 @@ export const HuScriptSchema = z.object({
 	binOccupied: z.boolean().optional()
 });
 export type HuScript = z.infer<typeof HuScriptSchema>;
+
+const SCAN_CODE = { OK: 'ok', NORD: 'noRead', CONT: 'contour', WGHT: 'overweight' } as const;
 
 const EnterBody = z.object({
 	hu: z.string().min(1),
@@ -68,10 +81,11 @@ export interface EmulatorEvent {
 interface Job {
 	hu: HuState;
 	/** The HU field of the task as EWM sent it (empty after a no-read); the confirmation echoes it. */
-	taskHu: string;
+	taskHu: string | undefined;
 	src: string;
 	dst: string;
-	tanum: string;
+	/** The task number as EWM sent it; the confirmation echoes it. */
+	task: string | undefined;
 	/** Moved on by the device itself (no warehouse task, no confirmation). */
 	automatic: boolean;
 }
@@ -233,7 +247,8 @@ export class Emulator {
 		// The HU number travels in telegrams. One that does not fit their layout (too long, other
 		// characters) is refused here, not when a device first has to report it.
 		try {
-			encode(this.setup.layout, 'SCAN', {}, { hu });
+			checkValue(this.setup.layout, 'scan', 'hu', hu);
+			checkValue(this.setup.layout, 'task', 'hu', hu);
 		} catch (error) {
 			throw new UserError(
 				`HU number not possible in a telegram: ${error instanceof Error ? error.message : String(error)}`
@@ -289,7 +304,7 @@ export class Emulator {
 		if (!device) throw new UserError(`unknown device ${id}`, 404);
 		device.status = status;
 		this.#event(`${id} is ${status === 'UP' ? 'up again' : 'down'}`, { device: id });
-		this.#send(device.def.plc, 'STAT', { device: id, status });
+		this.#send(device.def.plc, 'status', { device: id, status: status === 'UP' ? 'up' : 'down' });
 		if (status === 'UP') this.#pump(device);
 	}
 
@@ -341,30 +356,33 @@ export class Emulator {
 	// --- protocol and layout behaviour -------------------------------------------------------------------------
 
 	#onTelegram(plcId: string, telegram: Telegram) {
-		if (telegram.type === 'WT') this.#onTask(plcId, telegram.fields);
+		const message = fromWire(this.setup.layout, telegram);
+		if (message?.kind === 'task') this.#onTask(plcId, message.values);
 		else this.#event(`${plcId}: telegram ${telegram.type} not handled by a PLC, ignored`);
 	}
 
-	#onTask(plcId: string, fields: Fields) {
-		const { hu = '', src = '', dst = '', tanum = '' } = fields;
+	#onTask(plcId: string, values: Record<string, string | undefined>) {
+		const { hu, source: src = '', destination: dst = '', task } = values;
+		const label = task ? `task ${task}` : 'task';
 		const refuse = (result: string, reason: string) => {
-			this.#event(`${plcId}: task ${tanum} ${src} → ${dst} refused (${result}): ${reason}`, { hu });
-			this.#send(plcId, 'WTCO', { hu, src, dst, tanum, result });
+			const code = wireCode(this.setup.layout, 'confirmation', result);
+			this.#event(`${plcId}: ${label} ${src} → ${dst} refused (${code}): ${reason}`, { hu });
+			this.#send(plcId, 'confirmation', { hu, source: src, destination: dst, task, result });
 		};
 		const device = deviceFor(this.setup, src, dst);
-		if (!device) return refuse('NORT', `the layout has no connection from ${src} to ${dst}`);
+		if (!device) return refuse('noRoute', `the layout has no connection from ${src} to ${dst}`);
 		if (device.plc !== plcId)
-			return refuse('WPLC', `${src} → ${dst} is run by ${device.plc}, not ${plcId}`);
-		// No HU ident (after a no-read): the HU standing at the source is meant.
+			return refuse('wrongPlc', `${src} → ${dst} is run by ${device.plc}, not ${plcId}`);
+		// No HU ident (after a no-read, or a layout whose tasks carry none): the HU standing at the source is meant.
 		const state = hu
 			? this.#hus.get(hu)
 			: [...this.#hus.values()].find((candidate) => candidate.at === src && !candidate.left);
 		if (!state || state.left || state.at !== src || this.#isQueued(state))
-			return refuse('NOHU', `HU ${hu || '(no ident)'} is not waiting at ${src}`);
+			return refuse('noHu', `HU ${hu || '(no ident)'} is not waiting at ${src}`);
 		const deviceState = this.#devices.get(device.id);
-		if (!deviceState) return refuse('NORT', `device ${device.id} missing`);
-		deviceState.queue.push({ hu: state, taskHu: hu, src, dst, tanum, automatic: false });
-		this.#event(`${device.id} takes task ${tanum}: HU ${state.hu} ${src} → ${dst}`, {
+		if (!deviceState) return refuse('noRoute', `device ${device.id} missing`);
+		deviceState.queue.push({ hu: state, taskHu: hu, src, dst, task, automatic: false });
+		this.#event(`${device.id} takes ${label}: HU ${state.hu} ${src} → ${dst}`, {
 			hu: state.hu,
 			device: device.id
 		});
@@ -403,11 +421,11 @@ export class Emulator {
 			job.hu.moving = undefined;
 			const reply = (result: string) => {
 				if (!job.automatic)
-					this.#send(def.plc, 'WTCO', {
+					this.#send(def.plc, 'confirmation', {
 						hu: job.taskHu,
-						src: job.src,
-						dst: job.dst,
-						tanum: job.tanum,
+						source: job.src,
+						destination: job.dst,
+						task: job.task,
 						result
 					});
 			};
@@ -423,7 +441,7 @@ export class Emulator {
 						device: def.id
 					}
 				);
-				reply('OCCU');
+				reply('occupied');
 			} else {
 				job.hu.at = job.dst;
 				job.hu.path.push(job.dst);
@@ -431,7 +449,7 @@ export class Emulator {
 					hu: job.hu.hu,
 					device: def.id
 				});
-				reply('OK');
+				reply('ok');
 				this.#arrive(job.hu, job.dst);
 			}
 			this.#pump(device);
@@ -449,7 +467,11 @@ export class Emulator {
 			if (def.type === 'id-point' && def.point === point) {
 				const result = hu.script.idPoint ?? 'OK';
 				this.#event(`${def.id} reads HU ${hu.hu}: ${result}`, { hu: hu.hu, device: def.id });
-				this.#send(def.plc, 'SCAN', { cp: point, hu: result === 'NORD' ? '' : hu.hu, result });
+				this.#send(def.plc, 'scan', {
+					point,
+					hu: result === 'NORD' ? '' : hu.hu,
+					result: SCAN_CODE[result]
+				});
 			}
 			if (def.type === 'conveyor' && def.automatic && def.from === point) {
 				device.queue.push({
@@ -457,7 +479,7 @@ export class Emulator {
 					taskHu: hu.hu,
 					src: def.from,
 					dst: def.to,
-					tanum: '',
+					task: undefined,
 					automatic: true
 				});
 				this.#pump(device);
@@ -479,9 +501,16 @@ export class Emulator {
 		);
 	}
 
-	#send(plcId: string, type: string, fields: Fields) {
+	/** Sends what a device has to report, as the telegram the layout has for it. */
+	#send(plcId: string, kind: MessageKind, values: Record<string, string | undefined>) {
 		const plc = this.#plcs.get(plcId);
 		if (!plc) return;
+		const telegram = toWire(this.setup.layout, kind, values);
+		if (!telegram) {
+			this.#event(`${plcId}: the telegram layout has no ${kind} telegram, nothing reported`);
+			return;
+		}
+		const { type, fields } = telegram;
 		if (!plc.channel?.open) {
 			plc.outbox.push({ type, fields });
 			this.#trimOutbox(plc);

@@ -123,7 +123,7 @@
 	const goodsIssue = $derived(snap?.setup?.points.find((p) => p.role === 'gi')?.id);
 	const telegrams = $derived(
 		(snap?.telegrams ?? [])
-			.filter((t) => view.technical || (t.type !== 'ACK' && t.type !== 'LIFE') || t.note)
+			.filter((t) => view.technical || !t.technical || t.note)
 			.slice(-100)
 			.toReversed()
 	);
