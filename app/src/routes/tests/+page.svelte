@@ -4,7 +4,7 @@
 	import { flowHref, recorderHref } from '#lib/client/links.js';
 	import { runAndOpen } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
-	import { SURFACE_LABEL, specName } from '#lib/shared/format.js';
+	import { kindLabel, SURFACE_LABEL, specName } from '#lib/shared/format.js';
 	import { getSpecs, getSystems } from '#lib/remote/specs.remote.js';
 	import { getRuns, getStability } from '#lib/remote/runs.remote.js';
 	import type { SpecFile, Surface } from '#lib/shared/types.js';
@@ -14,7 +14,8 @@
 	const stab = getStability();
 	const runs = getRuns();
 
-	const ALL = 'all';
+	// Neither a system id (lower case letters, digits, dashes) nor a surface group.
+	const ALL = '*';
 	/**
 	 * Tests that start signed in to no system of sap-tests/systems.json are grouped by what they
 	 * drive (the Fiori demo kit, API, demo, the plugin's own tests).
@@ -51,11 +52,6 @@
 	const files = $derived(
 		(specs.current ?? []).filter((f) => filter === ALL || groupOf(f) === filter)
 	);
-	/** Fiori, WebGUI, API and demo say what a test drives; anything else, which system it is for. */
-	const tag = (f: SpecFile) => {
-		if (f.surface === 'other') return f.system ? title(f.system) : 'Other';
-		return SURFACE_LABEL[f.surface];
-	};
 	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 	const lastStatus = $derived(
 		new Map((stab.current?.rows ?? []).map((r) => [r.key, r.lastStatus]))
@@ -113,7 +109,7 @@
 	<ui5-panel header-text={name} class="file-panel">
 		<div slot="header" class="file-head">
 			<ui5-title level="H5">{name}</ui5-title>
-			<ui5-tag hide-state-icon>{tag(file)}</ui5-tag>
+			<ui5-tag hide-state-icon>{kindLabel(file.surface, file.systemTitle)}</ui5-tag>
 			<span class="spacer"></span>
 			<ui5-button
 				icon="play"

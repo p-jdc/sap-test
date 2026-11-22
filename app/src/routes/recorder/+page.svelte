@@ -15,14 +15,17 @@
 		(env.current?.systems ?? [])
 			.toSorted((a, b) => Number(!!a.optional) - Number(!!b.optional))
 			.flatMap((system) =>
-				system.record.map((target) => ({
-					system,
-					target,
-					label:
-						target.recorder === 'web'
-							? system.title
-							: `${system.title} · ${RECORDER_LABEL[target.recorder]}`
-				}))
+				system.record.map((target) => {
+					const kind = target.recorder === 'web' ? '' : ` · ${RECORDER_LABEL[target.recorder]}`;
+					// Two folders with the same recorder are told apart by the folder.
+					const shared = system.record.filter((t) => t.recorder === target.recorder).length > 1;
+					return {
+						system,
+						target,
+						label: `${system.title}${kind}${shared ? ` (tests/${target.folder})` : ''}`,
+						shared
+					};
+				})
 			)
 	);
 	let chosen = $state<string | null>(null);
@@ -118,7 +121,7 @@
 					data-value={t.target.folder}
 					selected={t.target.folder === current?.target.folder || undefined}
 				>
-					{t.label}{view.technical ? ` (tests/${t.target.folder})` : ''}
+					{t.label}{view.technical && !t.shared ? ` (tests/${t.target.folder})` : ''}
 				</ui5-option>
 			{/each}
 		</ui5-select>

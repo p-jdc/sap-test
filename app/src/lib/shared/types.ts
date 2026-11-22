@@ -74,6 +74,8 @@ export interface SpecFile {
 	surface: Surface;
 	/** The id of the system in sap-tests/systems.json whose sign-in its tests start with. */
 	system?: string;
+	/** That system's title. */
+	systemTitle?: string;
 	tests: SpecTest[];
 	issues: Issue[];
 	parseError?: string;

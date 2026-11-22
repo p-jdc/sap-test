@@ -84,14 +84,19 @@ export function readSystems(file: string = SYSTEMS_FILE): {
 }
 
 /**
- * For each spec file (relative to tests/), the id of the system its tests start signed in to.
+ * For each spec file (relative to tests/), the system its tests start signed in to.
  */
 export function systemsOfFiles(
 	files: string[],
 	file: string = SYSTEMS_FILE
-): Map<string, string | undefined> {
+): Map<string, { id: string; title: string } | undefined> {
 	const { systems } = parsed(file);
-	return new Map(files.map((f) => [f, systemOfFile(f, systems)?.id]));
+	return new Map(
+		files.map((f) => {
+			const system = systemOfFile(f, systems);
+			return [f, system && { id: system.id, title: system.title }];
+		})
+	);
 }
 
 /** The systems of systems.json; none when the file is missing or broken (see systemsProblem). */

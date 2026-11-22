@@ -42,8 +42,13 @@ export function listSpecs(): SpecFile[] {
 	// Set on every call, also on a cached spec: systems.json may have changed since it was parsed.
 	for (const spec of specs) {
 		const system = systems.get(spec.file);
-		if (system) spec.system = system;
-		else delete spec.system;
+		if (system) {
+			spec.system = system.id;
+			spec.systemTitle = system.title;
+		} else {
+			delete spec.system;
+			delete spec.systemTitle;
+		}
 	}
 	return specs;
 }

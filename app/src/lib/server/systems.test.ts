@@ -60,7 +60,8 @@ describe('systemsOfFiles', () => {
 			'_demo/f.spec.ts',
 			'api/g.spec.ts'
 		];
-		expect(Object.fromEntries(systemsOfFiles(files, repoSystems()))).toEqual({
+		const ids = [...systemsOfFiles(files, repoSystems())].map(([f, s]) => [f, s?.id]);
+		expect(Object.fromEntries(ids)).toEqual({
 			'fiori/a.spec.ts': 'sap',
 			'fiori/demokit/b.spec.ts': undefined,
 			'webgui/c.spec.ts': 'sap',

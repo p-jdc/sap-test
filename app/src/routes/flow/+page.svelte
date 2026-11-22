@@ -18,7 +18,7 @@
 	import { view } from '#lib/client/view.svelte.js';
 	import { matchFlow } from '#lib/shared/flow-match.js';
 	import { overlaySteps } from '#lib/shared/flow-overlay.js';
-	import { duration, LOCATOR_LABEL, statusLabel, SURFACE_LABEL, when } from '#lib/shared/format.js';
+	import { duration, kindLabel, LOCATOR_LABEL, statusLabel, when } from '#lib/shared/format.js';
 	import { describeStep } from '#lib/shared/step-text.js';
 	import { getSpecSource, getSpecs } from '#lib/remote/specs.remote.js';
 	import { getRun, getRuns, startTestRun, watchRunLive } from '#lib/remote/runs.remote.js';
@@ -47,7 +47,9 @@
 	);
 	const test = $derived(flow.test);
 	/** Findings on the whole spec file, such as a missing reviewer; not tied to a step. */
-	const fileIssues = $derived(specs.current?.find((f) => f.file === test?.file)?.issues ?? []);
+	const specFile = $derived(specs.current?.find((f) => f.file === test?.file));
+	const fileIssues = $derived(specFile?.issues ?? []);
+	const kind = $derived(test ? kindLabel(test.surface, specFile?.systemTitle) : '');
 	const runTest = $derived(flow.runTest);
 	const source = $derived(test ? getSpecSource(test.file) : undefined);
 	const overlay = $derived(test ? overlaySteps(test.steps, runTest) : {});
@@ -74,7 +76,7 @@
 				id: 'start',
 				type: 'terminal',
 				position: { x: 0, y: 0 },
-				data: { label: test.title, sub: SURFACE_LABEL[test.surface] },
+				data: { label: test.title, sub: kind },
 				draggable: false
 			},
 			...steps.map((step, i) => ({
@@ -172,7 +174,7 @@
 				</div>
 			{/if}
 		</div>
-		<ui5-tag hide-state-icon>{SURFACE_LABEL[test.surface]}</ui5-tag>
+		<ui5-tag hide-state-icon>{kind}</ui5-tag>
 		{#if test.dynamic && view.technical}
 			<ui5-tag hide-state-icon design="Information">generated title</ui5-tag>
 		{/if}

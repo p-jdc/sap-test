@@ -69,6 +69,14 @@ export const SURFACE_LABEL: Record<Surface, string> = {
 	other: 'Other'
 };
 
+/**
+ * What a test is about: Fiori, WebGUI, API or demo; any other test by the system it signs in to
+ * (its title from systems.json), else "Other".
+ */
+export function kindLabel(surface: Surface, systemTitle?: string): string {
+	return surface === 'other' && systemTitle ? systemTitle : SURFACE_LABEL[surface];
+}
+
 /** What the recorder records: the app's kind of page. */
 export const RECORDER_LABEL: Record<Recorder, string> = {
 	ui5: 'Fiori / UI5',
