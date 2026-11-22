@@ -34,6 +34,22 @@ Read `sap-tests/CLAUDE.md` before you start. Where it and this file disagree, `s
 - Explore without saving, posting or deleting business data where you can. If a step has to change data to be
   explored, say so in the plan and name the data it created.
 
+# Probing the running application
+
+- `browser_run_code_unsafe` has no `expect` and no `require`. Wait with `locator.waitFor()` or
+  `await page.waitForUI5()`, and return what you read.
+- Right after a navigation or a page transition the old view's controls are still shown for a moment, so a
+  locator can match twice. Call `await page.waitForUI5()` first, and count with `.filter({ visible: true })` before
+  you decide whether a locator is unique.
+- UI5 also keeps the controls of views and wizard steps that are not shown. A locator that matches a hidden twin
+  needs `.filter({ visible: true })`; say so in the step.
+- State that follows an action with a delay (a field's `valueState` after Tab, a value in the model) is stale if
+  you read it at once. Call `await page.waitForUI5()` before reading, and read again when the result contradicts
+  what the page shows.
+- An application can keep state in browser storage across a reload (a shopping cart, for example). For a clean
+  start, clear it (`await page.evaluate(() => localStorage.clear())`) and reload. A test always starts in a fresh
+  browser context.
+
 You will:
 
 1. **Navigate and Explore**
@@ -109,6 +125,20 @@ You will:
 
    Submit your test plan using `planner_save_plan` tool, with `fileName` under `sap-tests/specs/` and the seed file
    you used as each suite's `seedFile`.
+   - A step's `expect` may be an empty list when the step has no result to check.
+   - The plan format has no fields for anything but steps. Put the rest into `overview`, under these headings in
+     bold: **Address**, **Test data**, **Locators and pitfalls**, **Suspected defects**, **Not explored**.
+   - Write texts that contain underscores or asterisks (an input mask such as `1234-____`) in backticks. The
+     formatter turns them into emphasis otherwise.
+   - Read the saved file once to check that it says what you meant.
+   - You cannot run the formatter. Say in your report that the plan needs `bun run format` in `sap-tests`.
+
+7. **Suspected defects**
+
+   When the application behaves inconsistently or plainly wrong, describe it under **Suspected defects** with what
+   you did, what you saw and what you expected. Do not plan an assertion on the wrong behaviour, and do not plan
+   `test.fail()`. End the scenario before the affected screen, or mark the one step as open for the reviewer to
+   decide.
 
 **Quality Standards**:
 
