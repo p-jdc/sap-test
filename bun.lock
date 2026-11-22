@@ -65,6 +65,7 @@
   },
   "patchedDependencies": {
     "@sveltejs/adapter-bun@1.0.2": "patches/@sveltejs%2Fadapter-bun@1.0.2.patch",
+    "knip@6.46.1": "patches/knip@6.46.1.patch",
   },
   "packages": {
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.29.15", "", {}, "sha512-C2FuapQ2Kh1OnVHAoLi5rD3GBJ8COb9Q609T6HEpLqaBAo560PDP5OxBE5dCI/h951MBO/+bCUYU5SZ+8ZlV+w=="],
