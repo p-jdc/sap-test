@@ -6,7 +6,9 @@ Everything for testing IDocs without a partner system:
 - **The IDoc receiver:** plays the partner system SAP sends IDocs to, and keeps what it got.
 - **The `idocInbox` fixture:** lets a test wait for the IDoc a business step produced.
 
-Still to come: a sender for IDocs into SAP, a "Mock IDoc" page in the test app, and tRFC with SNC.
+In the test app, the **Mock IDoc** page starts the receiver, shows what it got and sets its answers. Tests started from the app reach that receiver through `idocInbox`.
+
+Still to come: a sender for IDocs into SAP, and tRFC with SNC.
 
 ## Try it
 

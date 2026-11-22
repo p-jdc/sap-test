@@ -49,7 +49,7 @@ passkey).
   inside one, read the property with `evaluate_script` on the element instead of the inner DOM.
 - After each flow, check `list_console_messages` for errors.
 - What can run without an SAP system: the tests under `sap-tests/tests/_demo`, the Mock PLC page
-  (`/mfs`) and the recorder against a local page. Anything that signs in to a system needs the
+  (`/mfs`), the Mock IDoc page (`/idoc`, with its sample IDocs) and the recorder against a local page. Anything that signs in to a system needs the
   user's systems and credentials: do not read `sap-tests/.env`, and ask before starting a run
   against a real system.
 - Live pages hold a streaming request open. On plain HTTP a browser allows six connections per
