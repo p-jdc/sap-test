@@ -1,5 +1,33 @@
 import { describe, expect, test } from 'vitest';
-import { nodeWarning, playwrightNode, REQUIRED_NODE_MAJOR } from './node-cli.js';
+import { delimiter } from 'node:path';
+import {
+	APP_SECRETS,
+	childEnv,
+	nodeWarning,
+	playwrightNode,
+	REQUIRED_NODE_MAJOR
+} from './node-cli.js';
+
+describe('childEnv', () => {
+	const parent = {
+		PATH: ['/tmp/bun-node-123', '/usr/bin'].join(delimiter),
+		SAP_URL: 'https://sap.example.com',
+		...Object.fromEntries(APP_SECRETS.map((name) => [name, `secret of ${name}`]))
+	};
+
+	test("the app's secrets stay in the app", () => {
+		const env = childEnv({}, parent);
+		for (const name of APP_SECRETS) expect(env).not.toHaveProperty(name);
+		expect(JSON.stringify(env)).not.toContain('secret of');
+	});
+
+	test('everything else is passed on, without the node shim, plus the extras', () => {
+		const env = childEnv({ SYSTEM: 'sap' }, parent);
+		expect(env.SAP_URL).toBe('https://sap.example.com');
+		expect(env.SYSTEM).toBe('sap');
+		expect(env.PATH).toBe('/usr/bin');
+	});
+});
 
 describe('nodeWarning', () => {
 	test('the supported major passes', () => {

@@ -280,29 +280,34 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 
 ### Settings (environment variables of the app)
 
-| Variable                     | Default                        | Purpose                                                                                                                                                                                                                                                              |
-| ---------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SAP_TESTS_DIR`              | `./sap-tests`                  | Test project to drive. Inside this repository it shares the root install; a test project elsewhere needs its own `node_modules`                                                                                                                                      |
-| `TEST_APP_PACKAGES_DIR`      | the install of `SAP_TESTS_DIR` | Where the app finds Playwright, the recorders and the packages of the Mock PLC and the IDoc receiver, and the recorders load them from. Set by the app's own tests, which run stand-ins; not needed otherwise                                                        |
-| `TEST_APP_DATA_DIR`          | `./.data`                      | The database (`app.sqlite`: run history and sign-in) and each run's files                                                                                                                                                                                            |
-| `TEST_APP_KEEP_RUNS`         | unset (keep all)               | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion                                                                                                                   |
-| `TEST_APP_KEEP_REPORT_DAYS`  | `14`                           | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again                                                                                                                            |
-| `TEST_APP_KEEP_STEPS_DAYS`   | `30`                           | Days a run keeps the steps of its tests and its log                                                                                                                                                                                                                  |
-| `TEST_APP_KEEP_FAILURE_DAYS` | `90`                           | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows                                                                                                                                              |
-| `TEST_APP_RETENTION`         | on                             | `off` never deletes anything from a run                                                                                                                                                                                                                              |
-| `PLAYWRIGHT_NODE`            | first `node` on PATH           | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version                                                                                                       |
-| `DEV_PORT`                   | `5180`                         | Port of `bun run dev` (fails if taken instead of moving to another port)                                                                                                                                                                                             |
-| `PREVIEW_PORT`               | `4180`                         | Port of `bun run preview` and of the e2e tests                                                                                                                                                                                                                       |
-| `PORT`                       | `3000`                         | Port of `bun run start` (adapter-bun)                                                                                                                                                                                                                                |
-| `HOST`                       | `127.0.0.1`                    | Address `bun run start` listens on. Another address (the network) needs `TEST_APP_AUTH=passkey`: without sign-in the app refuses to start there, since it can start runs and the recorder with the saved credentials                                                 |
-| `TEST_APP_AUTH`              | `off`                          | `passkey`: everyone signs in with a passkey (see below)                                                                                                                                                                                                              |
-| `BETTER_AUTH_URL`            | unset                          | The app's https address, e.g. `https://lab.example.com`, with sign-in on. Passkeys belong to its host name, and cookies are Secure. Required when `HOST` is not this computer (the app refuses to start without it); on a laptop the address of each request is used |
-| `TEST_APP_CLIENT_IP_HEADER`  | unset                          | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself                                                                                          |
-| `BETTER_AUTH_SECRET`         | generated                      | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only)                                                                                                                                                   |
-| `TEST_APP_SETUP_TOKEN`       | random                         | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered                                                                                                                     |
-| `TEST_APP_RECOVERY`          | unset                          | `on`: logs a recovery link at start, for when no admin can sign in any more (see below). Unset it again afterwards                                                                                                                                                   |
-| `TEST_APP_RECOVERY_TOKEN`    | random                         | The token of the recovery link (at least 24 characters). It works once, also across restarts. Unset, a random one is logged at each start with `TEST_APP_RECOVERY=on`                                                                                                |
-| `TEST_APP_ALLOWED_HOSTS`     | unset                          | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy    |
+| Variable                                                  | Default                        | Purpose                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SAP_TESTS_DIR`                                           | `./sap-tests`                  | Test project to drive. Inside this repository it shares the root install; a test project elsewhere needs its own `node_modules`                                                                                                                                                  |
+| `TEST_APP_PACKAGES_DIR`                                   | the install of `SAP_TESTS_DIR` | Where the app finds Playwright, the recorders and the packages of the Mock PLC and the IDoc receiver, and the recorders load them from. Set by the app's own tests, which run stand-ins; not needed otherwise                                                                    |
+| `TEST_APP_DATA_DIR`                                       | `./.data`                      | The database (`app.sqlite`: run history and sign-in) and each run's files                                                                                                                                                                                                        |
+| `TEST_APP_KEEP_RUNS`                                      | unset (keep all)               | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion                                                                                                                               |
+| `TEST_APP_KEEP_REPORT_DAYS`                               | `14`                           | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again                                                                                                                                        |
+| `TEST_APP_KEEP_STEPS_DAYS`                                | `30`                           | Days a run keeps the steps of its tests and its log                                                                                                                                                                                                                              |
+| `TEST_APP_KEEP_FAILURE_DAYS`                              | `90`                           | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows                                                                                                                                                          |
+| `TEST_APP_RETENTION`                                      | on                             | `off` never deletes anything from a run                                                                                                                                                                                                                                          |
+| `PLAYWRIGHT_NODE`                                         | first `node` on PATH           | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version                                                                                                                   |
+| `DEV_PORT`                                                | `5180`                         | Port of `bun run dev` (fails if taken instead of moving to another port)                                                                                                                                                                                                         |
+| `PREVIEW_PORT`                                            | `4180`                         | Port of `bun run preview` and of the e2e tests                                                                                                                                                                                                                                   |
+| `PORT`                                                    | `3000`                         | Port of `bun run start` (adapter-bun)                                                                                                                                                                                                                                            |
+| `HOST`                                                    | `127.0.0.1`                    | Address `bun run start` listens on. Another address (the network) needs `TEST_APP_AUTH=passkey`: without sign-in the app refuses to start there, since it can start runs and the recorder with the saved credentials                                                             |
+| `TEST_APP_AUTH`                                           | `off`                          | `passkey`: everyone signs in with a passkey (see below)                                                                                                                                                                                                                          |
+| `BETTER_AUTH_URL`                                         | unset                          | The app's https address, e.g. `https://lab.example.com`, with sign-in on. Passkeys belong to its host name, and cookies are Secure. Required when `HOST` is not this computer (the app refuses to start without it); on a laptop the address of each request is used             |
+| `TEST_APP_CLIENT_IP_HEADER`                               | unset                          | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself                                                                                                      |
+| `BETTER_AUTH_SECRET`                                      | generated                      | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only)                                                                                                                                                               |
+| `TEST_APP_SETUP_TOKEN`                                    | random                         | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered                                                                                                                                 |
+| `TEST_APP_RECOVERY`                                       | unset                          | `on`: logs a recovery link at start, for when no admin can sign in any more (see below). Unset it again afterwards                                                                                                                                                               |
+| `TEST_APP_RECOVERY_TOKEN`                                 | random                         | The token of the recovery link (at least 24 characters). It works once, also across restarts. Unset, a random one is logged at each start with `TEST_APP_RECOVERY=on`                                                                                                            |
+| `TEST_APP_ALLOWED_HOSTS`                                  | unset                          | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy                |
+| `TEST_APP_AI`                                             | `off`                          | `vertex` or `foundry`: the AI features use Claude through the company's Vertex AI or Microsoft Foundry (see "AI provider" below). `anthropic`: the direct Anthropic API, for local tests only (refused with sign-in on or `HOST` on the network). No other value is accepted     |
+| `TEST_APP_AI_MODEL`                                       | `claude-opus-5-5`              | The model. On Foundry, the name of its deployment                                                                                                                                                                                                                                |
+| `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`         | unset                          | With `TEST_APP_AI=vertex`: the Google Cloud project and its location, `eu` for the EU endpoint. Sign-in uses Google's credentials: `gcloud auth application-default login` on a laptop, a service account (`GOOGLE_APPLICATION_CREDENTIALS`) or workload identity on the cluster |
+| `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_FOUNDRY_API_KEY` | unset                          | With `TEST_APP_AI=foundry`: the name of the Foundry resource (the first part of `<resource>.services.ai.azure.com`) and its key                                                                                                                                                  |
+| `ANTHROPIC_API_KEY`                                       | unset                          | With `TEST_APP_AI=anthropic`: your Anthropic API key, for local tests                                                                                                                                                                                                            |
 
 ### Signing in to the app (passkeys)
 
@@ -386,6 +391,43 @@ It is a convention, written down in `CLAUDE.md`: nothing on GitHub prevents a me
 and a review by agents can miss defects or be wrong about one. It does not replace a person
 reading a change to sign-in or credentials.
 
+### AI provider
+
+With the company's systems, the AI features reach Claude only through the two platforms the
+company approved: Google's Vertex AI and Microsoft Foundry. Other models may only be used through
+these two as well. `TEST_APP_AI` chooses the platform and is `off` by default; the settings it
+needs are in the table above.
+
+For local tests before the company access, `TEST_APP_AI=anthropic` uses the direct Anthropic API
+with your own key. The app refuses it as soon as sign-in is on or `HOST` reaches the network, so
+it cannot be used on the cluster. Use it with the demo tests only (`_demo`, the UI5 demokit): what
+the AI sees is sent to Anthropic. Moving to the company platform changes only the settings.
+
+- **Where the code is:** only `src/lib/server/ai/` uses the AI SDK (`ai`, `@ai-sdk/anthropic`,
+  `@ai-sdk/google-vertex`, at exact versions, since these packages change often). A lint rule
+  (`no-restricted-imports` in `.oxlintrc.json`) refuses them anywhere else: a model named by a
+  plain string would go to Vercel's AI Gateway, and the Anthropic provider without an address and
+  a key would go to the direct API.
+- **Credentials** stay on the server, in its environment (a Kubernetes secret on the cluster).
+  They never reach the browser. Test runs, recordings and the mock servers start without them,
+  and without the app's sign-in secrets, because a test can read anything in its environment.
+  This does not protect a key file of the same user on the same computer; on the cluster, runs
+  belong in pods of their own.
+- **Checking the connection:** Settings shows the platform, the model and any missing setting. An
+  admin can send one short test message ("Check connection"); its answer, time and tokens show
+  there, and the server log notes each check. Nothing from a test or a system goes into it.
+- **What will be sent:** so far only that test message. The planned features send the error, the
+  steps and the screenshot of a failed test, the test's code and the rules in
+  `sap-tests/CLAUDE.md` (#14), and the agents (#15) send what they see in the browser. Everything
+  on those screens counts as shared with the provider, so they may only use test systems with
+  synthetic or anonymised data. SAP credentials and the values of `sap-tests/.env` never go into
+  a request.
+- **Review:** the app saves what the AI writes for review and never commits or merges it. Such
+  tests carry `// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there.
+- **The agents' sandbox** (#15) is decided when that work starts. The agents edit files and run
+  tests, and must reach the RISE systems, so the likely place is one Kubernetes Job per agent run
+  on the company cluster.
+
 ### AI test agents (guide §5.4, §6.4)
 
 Playwright's own test agents are set up for Claude Code and adapted to the SAP rules in
@@ -411,7 +453,8 @@ Ask for a role by name in Claude Code, for example "use the planner agent to pla
 <address>". A person reviews every plan and every generated or repaired test; such tests carry
 `// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there, and the app lists
 them as not reviewed. What the agents see on screen is sent to the AI provider, so use them on test
-systems with synthetic data only (guide §9).
+systems with synthetic data only (guide §9), and set Claude Code up to use Vertex AI or Microsoft
+Foundry, like the app (see "AI provider" above).
 
 #### In VS Code (GitHub Copilot) and Codex
 

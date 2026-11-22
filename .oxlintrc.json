@@ -188,9 +188,29 @@
 		"browser-security/require-https-only": "error",
 		"browser-security/no-insecure-websocket": "error",
 		"browser-security/no-unvalidated-deeplinks": "error",
-		"browser-security/no-client-side-auth-logic": "error"
+		"browser-security/no-client-side-auth-logic": "error",
+
+		// AI only through the approved providers (Vertex AI, Microsoft Foundry; the direct Anthropic
+		// API for local tests): the AI SDK is used in src/lib/server/ai/ only, which creates their
+		// models. Elsewhere a model named by a string would go to Vercel's AI Gateway, and a provider
+		// package could reach an unapproved API.
+		"no-restricted-imports": [
+			"error",
+			{
+				"patterns": [
+					{
+						"group": ["ai", "ai/*", "@ai-sdk/*"],
+						"message": "Use src/lib/server/ai/: it reaches the AI only through Vertex AI or Microsoft Foundry."
+					}
+				]
+			}
+		]
 	},
 	"overrides": [
+		{
+			"files": ["src/lib/server/ai/**"],
+			"rules": { "no-restricted-imports": "off" }
+		},
 		{
 			// TypeScript itself reports these; the JS versions only add false positives on TS syntax.
 			"files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],

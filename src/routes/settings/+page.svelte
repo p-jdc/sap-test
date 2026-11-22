@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
+	import AiProvider from '#lib/components/AiProvider.svelte';
 	import People from '#lib/components/People.svelte';
 	import { getMe } from '#lib/remote/people.remote.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
@@ -231,6 +232,7 @@
 				</div>
 			</ui5-card>
 		{/each}
+		<AiProvider {admin} />
 		{#if me.current?.auth && admin}
 			<People />
 		{/if}
