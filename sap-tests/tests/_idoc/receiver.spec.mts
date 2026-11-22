@@ -149,7 +149,7 @@ test('a partner set to reject gets the error status, and the IDoc is kept as rej
 		{ partner: 'OTHER', accepted: true, reply: 'accept' }
 	]);
 	expect((await control(r, 'GET', '/replies')).body).toEqual({
-		PWMOCK: { mode: 'reject', status: 503, message: 'Partner down' }
+		PWMOCK: { mode: 'reject', status: 503, message: 'Partner down', setBy: 'person' }
 	});
 
 	await control(r, 'DELETE', '/replies/PWMOCK');
@@ -163,10 +163,13 @@ test('a partner set to slow gets its answer only after the delay', async () => {
 	const r = await receiver();
 	await control(r, 'PUT', '/replies/PWMOCK', { mode: 'slow', delayMs: 400 });
 	const started = Date.now();
-	const response = await send(r, 'PWMOCK', orders);
+	const sending = send(r, 'PWMOCK', orders);
+	// Kept at once, with its answer still on the way.
+	await expect.poll(async () => (await listed(r))[0]?.answered).toBe(false);
+	const response = await sending;
 	expect(response.status).toBe(200);
 	expect(Date.now() - started).toBeGreaterThanOrEqual(380);
-	expect((await listed(r))[0]).toMatchObject({ accepted: true, reply: 'slow' });
+	expect((await listed(r))[0]).toMatchObject({ accepted: true, answered: true, reply: 'slow' });
 });
 
 test('an IDoc whose sender hangs up before the slow answer counts as not accepted', async () => {
@@ -181,6 +184,7 @@ test('an IDoc whose sender hangs up before the slow answer counts as not accepte
 	});
 	await expect(sending).rejects.toThrow();
 	await expect.poll(async () => (await listed(r))[0]?.accepted).toBe(false);
+	expect((await listed(r))[0]?.answered).toBe(true);
 });
 
 async function refused(response: Promise<Response>, status: number, text: RegExp) {
@@ -346,13 +350,18 @@ test('a reply set by a test holds while it runs; then whatever applies without i
 	inbox.setReply('P', { mode: 'slow', delayMs: 10 }, 'test-a');
 	inbox.setReply('P', { mode: 'accept' }, 'test-b');
 	expect(inbox.replyFor('P').mode).toBe('accept');
+	// A test's accept is in effect, so the partner isn't listed; A's slow reply is, and a test set it.
+	expect(inbox.allReplies()).toEqual({});
+	inbox.setReply('P', { mode: 'slow', delayMs: 10 }, 'test-a');
+	expect(inbox.allReplies()).toEqual({ P: { mode: 'slow', delayMs: 10, setBy: 'test' } });
+	inbox.setReply('P', { mode: 'accept' }, 'test-b');
 	// Test A ends first: B's reply still holds.
 	inbox.resetReply('P', 'test-a');
 	expect(inbox.replyFor('P').mode).toBe('accept');
 	// Test B ends: the reply set without an owner is back, not accept.
 	inbox.resetReply('P', 'test-b');
 	expect(inbox.replyFor('P')).toEqual(reject);
-	expect(inbox.allReplies()).toEqual({ P: reject });
+	expect(inbox.allReplies()).toEqual({ P: { ...reject, setBy: 'person' } });
 	inbox.resetReply('P');
 	expect(inbox.allReplies()).toEqual({});
 });

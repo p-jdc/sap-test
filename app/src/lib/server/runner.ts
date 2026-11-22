@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { runSettings } from './env-file.js';
+import { idocTestEnv } from './idoc.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
@@ -101,6 +102,8 @@ export async function startRun(
 		cwd: TESTS_ROOT,
 		env: childEnv({
 			...settings.env,
+			// The IDoc receiver this app started, for the idocInbox fixture.
+			...idocTestEnv(),
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'

@@ -19,6 +19,7 @@ export const ReplySchema = z.discriminatedUnion('mode', [
 ]);
 
 export type Reply = z.output<typeof ReplySchema>;
+export type ReplyInEffect = Reply & { setBy: 'test' | 'person' };
 export type ReplyInput = z.input<typeof ReplySchema>;
 
 const ACCEPT: Reply = { mode: 'accept' };
@@ -44,6 +45,8 @@ export const ReceivedIdocSchema = z.object({
 	/** False when SAP sees an error instead of a sent IDoc: the partner's reply mode rejected it, or SAP hung up
 	 * before a slow answer came. */
 	accepted: z.boolean(),
+	/** False while a slow answer is still on its way: whether SAP waits for it is not known yet. */
+	answered: z.boolean(),
 	reply: z.enum(['accept', 'reject', 'slow']),
 	idoc: z.object({
 		control: z.record(z.string(), z.string()),
@@ -151,12 +154,14 @@ export class IdocInbox {
 		this.prune(partner);
 	}
 
-	/** The partners whose reply isn't accept, with the reply they get now. */
-	allReplies(): Record<string, Reply> {
-		const result: Record<string, Reply> = {};
-		for (const partner of this.replies.keys()) {
+	/** The partners whose reply isn't accept, with the reply they get now and who set it: a running test (an
+	 * owner) or a person (without an owner). */
+	allReplies(): Record<string, ReplyInEffect> {
+		const result: Record<string, ReplyInEffect> = {};
+		for (const [partner, entry] of this.replies) {
 			const reply = this.replyFor(partner);
-			if (reply.mode !== 'accept') result[partner] = reply;
+			if (reply.mode !== 'accept')
+				result[partner] = { ...reply, setBy: entry.leases.size > 0 ? 'test' : 'person' };
 		}
 		return result;
 	}
@@ -178,6 +183,7 @@ export class IdocInbox {
 			soap: parsed.soap,
 			root: parsed.root,
 			accepted: reply.mode !== 'reject',
+			answered: reply.mode !== 'slow',
 			reply: reply.mode,
 			idoc
 		}));
@@ -189,9 +195,18 @@ export class IdocInbox {
 		return added;
 	}
 
-	/** SAP hung up before the answer: for SAP these IDocs were not sent. */
+	/** The slow answer went out: SAP waited for it. */
+	markAnswered(seqs: number[]): void {
+		for (const idoc of this.idocs) if (seqs.includes(idoc.seq)) idoc.answered = true;
+	}
+
+	/** SAP hung up before the slow answer: for SAP these IDocs were not sent. */
 	markUnanswered(seqs: number[]): void {
-		for (const idoc of this.idocs) if (seqs.includes(idoc.seq)) idoc.accepted = false;
+		for (const idoc of this.idocs)
+			if (seqs.includes(idoc.seq)) {
+				idoc.accepted = false;
+				idoc.answered = true;
+			}
 	}
 
 	fail(failure: Omit<Failure, 'at'>): void {

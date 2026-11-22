@@ -58,6 +58,7 @@ const ReceivedSchema: z.ZodType<ReceivedIdoc> = z.object({
 	soap: z.boolean(),
 	root: z.string(),
 	accepted: z.boolean(),
+	answered: z.boolean(),
 	reply: z.enum(['accept', 'reject', 'slow']),
 	idoc: z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
 });
