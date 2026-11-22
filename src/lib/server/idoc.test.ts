@@ -50,7 +50,8 @@ async function nextUntil(
 
 const stopped = (s: IdocSnapshot) => !s.status.running;
 
-// A developer's own receiver settings must not reach these tests: they start a plain one on this computer.
+// A developer's own receiver settings must not reach these tests: they start a plain one on this computer. Set
+// empty rather than deleted: an empty variable wins over a value in sap-tests/.env, which the app also reads.
 const SETTINGS = [
 	'IDOC_HUB_URL',
 	'IDOC_HUB_TOKEN',
@@ -66,7 +67,7 @@ const saved = new Map<string, string | undefined>();
 beforeAll(() => {
 	for (const name of SETTINGS) {
 		saved.set(name, process.env[name]);
-		delete process.env[name];
+		process.env[name] = '';
 	}
 	// A free port, so a receiver someone left running doesn't get in the way.
 	saved.set('IDOC_PORT', process.env.IDOC_PORT);
@@ -203,7 +204,23 @@ describe('IDoc receiver', () => {
 			expect(idocStatus()).toMatchObject({ running: false });
 			expect(idocStatus().error).toMatch(/TLS certificate/);
 		} finally {
-			delete process.env.IDOC_HOST;
+			process.env.IDOC_HOST = '';
 		}
+	});
+
+	test('the page shows and uses the login the receiver was started with', async () => {
+		process.env.IDOC_USER = 'SAPIDOC';
+		process.env.IDOC_PASSWORD = 'mock-only';
+		try {
+			await startReceiver();
+		} finally {
+			// The receiver keeps what it was started with; the page must keep the same.
+			process.env.IDOC_USER = '';
+			process.env.IDOC_PASSWORD = '';
+		}
+		const ready = await waitFor((s) => s.endpoint !== undefined);
+		expect(ready.endpoint?.login).toBe('user');
+		// Sent with the receiver's login, so it is accepted.
+		expect(await sendSample('orders05.xml', 'PWMOCK')).toMatchObject({ status: 200 });
 	});
 });
