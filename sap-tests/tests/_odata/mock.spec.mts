@@ -287,7 +287,7 @@ test('sales orders: a new one gets a number, its deep-inserted parts land in the
 				to_Item: {
 					results: [
 						{
-							SalesOrderItem: '10',
+							// No item number: numbered 10, as S/4HANA does.
 							Material: 'TG11',
 							RequestedQuantity: '3',
 							to_ScheduleLine: { results: [{ ScheduleLineOrderQuantity: '3' }] }
@@ -420,6 +420,17 @@ test('deliveries: refused as S/4HANA refuses them, and the order follows the del
 	expect((await action('PostGoodsIssue')).status).toBe(200);
 	expect((await action('PostGoodsIssue')).status).toBe(400);
 	expect((await action('PickOneItem')).status).toBe(501);
+	// Not simulated wins over everything: also bound to an item, also for a delivery that does not exist.
+	const notSimulated = (path: string) =>
+		call(DELIVERY_BASE, path, { method: 'POST', ifMatch: true });
+	expect(
+		(
+			await notSimulated(
+				`/CreateBatchSplitItem?DeliveryDocument='${delivery}'&DeliveryDocumentItem='10'&Batch='B1'`
+			)
+		).status
+	).toBe(501);
+	expect((await notSimulated(`/PickOneItem?DeliveryDocument='99999999'`)).status).toBe(501);
 
 	// An order with a delivery stays; a delivery with goods issue stays.
 	const remove = (base: string, path: string) =>

@@ -7,7 +7,8 @@
 //   referential constraints, so the mock would keep them inside the delivery). The create answer
 //   therefore holds the header only; read the items with $expand.
 // - The actions PickAllItems, PostGoodsIssue and ReverseGoodsIssue set the statuses as S/4HANA
-//   does. Goods issue needs complete picking. Any other action of the service answers 501.
+//   does. Goods issue needs complete picking. Any other action of the service answers 501, also
+//   those bound to an item (A_OutbDeliveryItem.js).
 //   The actions and a delete need If-Match (428 without), as on S/4HANA.
 // - Deleting a delivery deletes its items and partners and opens the order items again.
 // What the mock does not do: stock, warehouse tasks, availability checks, partial deliveries.
@@ -15,6 +16,9 @@
 
 /** Stands in for the number until it is given, just before the entry is stored. */
 const NEW = '$new';
+
+/** The actions this file simulates; the service's others answer 501. */
+const SIMULATED = new Set(['PickAllItems', 'PostGoodsIssue', 'ReverseGoodsIssue']);
 
 /**
  * S/4HANA keeps an ETag on this entity (ConcurrencyMode="Fixed" in the metadata) and answers 428 to
@@ -200,6 +204,8 @@ export default {
 	},
 
 	async executeAction(action, data, _keys, odataRequest) {
+		if (!SIMULATED.has(action.name))
+			this.throwError(`The mock does not simulate ${action.name}.`, 501);
 		requireIfMatch(this, odataRequest, action.name);
 		const delivery = parameter(odataRequest, data, 'DeliveryDocument');
 		const [header] = await this.base.fetchEntries({ DeliveryDocument: delivery }, odataRequest);
