@@ -54,7 +54,14 @@ test('settings page lists the settings without showing values', async ({ page })
 	await page.goto('/settings');
 	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 	// The browser path is for whoever installs the app; it shows with technical details only.
-	await expect(page.locator('[data-setting]')).toHaveCount(10);
+	await expect(page.locator('[data-setting]')).toHaveCount(18);
+	// Where the Mock IDoc receiver sends IDocs: four settings each for S/4HANA and EWM.
+	await expect(page.locator('[data-setting^="IDOC_S4_"]')).toHaveCount(4);
+	await expect(page.locator('[data-setting^="IDOC_EWM_"]')).toHaveCount(4);
+	await expect(page.locator('[data-setting="IDOC_EWM_PASSWORD"] ui5-input')).toHaveAttribute(
+		'type',
+		'Password'
+	);
 	await expect(page.getByText('SAP_PASSWORD')).toBeHidden();
 	await expect(page.locator('[data-setting="SAP_PASSWORD"] ui5-input')).toHaveAttribute(
 		'type',
@@ -68,7 +75,7 @@ test('settings page shows the setting names and the browser settings with techni
 	await technical(page);
 	await page.goto('/settings');
 	// The two browser settings: the Chromium path and the self-signed host.
-	await expect(page.locator('[data-setting]')).toHaveCount(12);
+	await expect(page.locator('[data-setting]')).toHaveCount(20);
 	await expect(page.locator('[data-setting="SAP_SELF_SIGNED_HOST"]')).toBeVisible();
 	await expect(page.getByText('SAP_PASSWORD')).toBeVisible();
 });
