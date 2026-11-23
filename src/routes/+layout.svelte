@@ -18,6 +18,7 @@
 		{ href: '/recorder', link: resolve('/recorder'), text: 'Record a test', icon: 'record' },
 		{ href: '/mfs', link: resolve('/mfs'), text: 'Mock PLC', icon: 'machine' },
 		{ href: '/idoc', link: resolve('/idoc'), text: 'Mock IDoc', icon: 'inbox' },
+		{ href: '/odata', link: resolve('/odata'), text: 'Mock OData', icon: 'database' },
 		{ href: '/settings', link: resolve('/settings'), text: 'Settings', icon: 'action-settings' }
 	];
 

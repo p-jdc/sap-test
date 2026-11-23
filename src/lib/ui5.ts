@@ -58,6 +58,8 @@ import '@ui5/webcomponents-icons/dist/machine.js';
 import '@ui5/webcomponents-icons/dist/delete.js';
 import '@ui5/webcomponents-icons/dist/paper-plane.js';
 import '@ui5/webcomponents-icons/dist/inbox.js';
+import '@ui5/webcomponents-icons/dist/database.js';
+import '@ui5/webcomponents-icons/dist/reset.js';
 import '@ui5/webcomponents-icons/dist/media-play.js';
 import '@ui5/webcomponents-icons/dist/media-pause.js';
 import '@ui5/webcomponents-icons/dist/less.js';

@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runSettings } from './env-file.js';
 import { idocTestEnv } from './idoc.js';
+import { odataTestEnv } from './odata.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, PACKAGES_DIR, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
@@ -104,6 +105,9 @@ export async function startRun(
 			...settings.env,
 			// The IDoc receiver this app started, for the idocInbox fixture.
 			...idocTestEnv(),
+			// The OData mock this app started, when the Mock OData page points the API tests at it. Last, so it
+			// wins over SAP_API_* from the settings.
+			...odataTestEnv(),
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'

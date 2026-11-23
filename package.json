@@ -36,6 +36,7 @@
 		"test:plugin": "cd sap-tests && node ../node_modules/@playwright/test/cli.js test tests/_plugin",
 		"test:demokit": "cd sap-tests && node ../node_modules/@playwright/test/cli.js test tests/fiori/demokit",
 		"test:mfs": "cd sap-tests && MFS_MOCK=1 node ../node_modules/@playwright/test/cli.js test tests/_mfs",
+		"test:odata": "cd sap-tests && node ../node_modules/@playwright/test/cli.js test tests/_odata",
 		"test:idoc": "cd sap-tests && IDOC_HUB_MOCK=1 node ../node_modules/@playwright/test/cli.js test tests/_idoc",
 		"test:api:mock": "cd sap-tests && SAP_API_MOCK=1 node ../node_modules/@playwright/test/cli.js test tests/api",
 		"report": "cd sap-tests && node ../node_modules/@playwright/test/cli.js show-report",

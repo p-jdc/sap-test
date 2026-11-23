@@ -11,8 +11,7 @@ import { signInSystems, signInTag, testFiles } from './sap-plugin/systems';
 const executablePath = process.env.CHROMIUM_PATH || undefined;
 
 // SAP_API_MOCK=1 (`bun run test:api:mock`): the API tests call the local OData mock in odata/mock
-// instead of an SAP system, overriding any SAP_API_* values from .env. The mock runs on the same
-// Node as Playwright.
+// instead of an SAP system, overriding any SAP_API_* values from .env. Bun runs it, as in the app.
 const odataMock = process.env.SAP_API_MOCK === '1';
 const mockPort = Number(process.env.ODATA_MOCK_PORT || 4010);
 if (odataMock)
@@ -55,9 +54,14 @@ const webServers: WebServer[] = [
 	...(odataMock
 		? [
 				{
-					command: `"${process.execPath}" odata/mock/server.mjs`,
+					command: 'bun odata/mock/server.mts',
 					url: `http://127.0.0.1:${mockPort}/health`,
-					env: { ODATA_MOCK_PORT: String(mockPort) },
+					// The control API takes a free port; the API tests don't use it.
+					env: {
+						ODATA_MOCK_PORT: String(mockPort),
+						ODATA_CONTROL_PORT: '0',
+						ODATA_CONTROL_TOKEN: ''
+					},
 					reuseExistingServer: false
 				}
 			]

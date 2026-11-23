@@ -41,6 +41,9 @@ jobs:
       # The OData tests against the local mock of their services (odata/mock). No browser needed;
       # `bun install` above has generated the clients.
       - run: bun run test:api:mock
+      # The OData mock itself (odata/mock): its request log, the answers it can be told to give, the data
+      # view and the reset, all through its control API. Local ports only.
+      - run: bun run test:odata
       # The Mock PLC (mfs/): telegrams, the protocol and the emulator against the fake EWM, over
       # local TCP ports. No browser and no SAP system.
       - run: bun run test:mfs
