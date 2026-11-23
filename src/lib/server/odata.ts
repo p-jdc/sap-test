@@ -52,6 +52,14 @@ type Running = {
 let running: Running | null = null;
 let starting = false;
 let lastError: string | undefined;
+/**
+ * Set when the mock stops unexpectedly while the API tests were set to call it. Without the mock, `odataTestEnv`
+ * is empty and those tests would call the SAP system in the settings, which the person chose not to: no run starts
+ * until the mock is started again.
+ */
+let lostForTests = false;
+const LOST_FOR_TESTS =
+	'The OData mock stopped while the API tests were set to call it, so no run starts: they would call the SAP system in the settings instead. Start the mock again on the Mock OData page.';
 
 // The mock belongs to the app that started it: it must not keep its ports open after the app is gone.
 process.once('exit', () => {
@@ -76,6 +84,16 @@ export function odataTestEnv(): Record<string, string> {
 		SAP_API_PASSWORD: 'mock',
 		SAP_CLIENT: ''
 	};
+}
+
+/** Why no run may start now, because of the mock; undefined when runs may start. */
+export function odataTestProblem(): string | undefined {
+	return lostForTests ? LOST_FOR_TESTS : undefined;
+}
+
+/** The mock's process id while it runs, for tests that stop it the hard way. */
+export function odataMockPid(): number | undefined {
+	return running?.proc.pid;
 }
 
 /** Points the API tests this app starts at the running mock, or back at the system in the settings. */
@@ -172,10 +190,16 @@ async function launch(): Promise<void> {
 		forTests: false
 	};
 	running = current;
+	lostForTests = false;
 	proc.once('exit', (code) => {
 		if (running !== current) return;
 		running = null;
-		if (!current.stopping) lastError = `The OData mock stopped unexpectedly (exit code ${code}).`;
+		if (current.stopping) return;
+		lastError = `The OData mock stopped unexpectedly (exit code ${code}).`;
+		if (current.forTests) {
+			lostForTests = true;
+			lastError += ` ${LOST_FOR_TESTS}`;
+		}
 	});
 }
 
@@ -296,7 +320,9 @@ export async function* watchOdata(): AsyncGenerator<OdataSnapshot, void, void> {
 					status: { ...status, error: error instanceof Error ? error.message : String(error) },
 					odataUrl,
 					services,
-					requests
+					requests,
+					// What runs started now get, also while the control API does not answer.
+					forTests: running?.forTests ?? false
 				};
 			}
 		} else {

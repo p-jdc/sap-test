@@ -268,10 +268,14 @@ this computer and shows:
   included);
 - answers per service: fail with an HTTP status and message, in the form SAP Gateway sends errors,
   or answer late, for negative tests;
-- the data it holds now, writes included, and a reset to the data files.
+- the data it holds now, writes included, and a reset to the data files. The mock keeps the data
+  of each `sap-client` apart; the page shows that of requests without one, which is how the API
+  tests started in the app call it.
 
 The mock has no login, so it never listens beyond this computer. Its control API (log, answers,
-data, reset) takes a token the app makes up for each start.
+data, reset) takes a token the app makes up for each start. A run that sends its API tests to the
+mock says so in its log. If the mock stops unexpectedly while the API tests are set to call it, no
+run starts until the mock is started again: those tests would otherwise call the real system.
 
 To add or update a service:
 

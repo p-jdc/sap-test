@@ -338,7 +338,7 @@
 			<ui5-card-header
 				slot="header"
 				title-text="Data"
-				subtitle-text="What the mock holds now, written changes included"
+				subtitle-text="What the mock holds now, written changes included (requests without sap-client)"
 			></ui5-card-header>
 			<div class="card-body">
 				<div class="form">

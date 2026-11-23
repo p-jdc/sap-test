@@ -8,10 +8,12 @@ import { must } from '../../test/must.js';
 import {
 	clearOdataRequests,
 	odataEntitySets,
+	odataMockPid,
 	odataRequest,
 	odataRows,
 	odataStatus,
 	odataTestEnv,
+	odataTestProblem,
 	resetOdataData,
 	setOdataAnswer,
 	startOdataMock,
@@ -116,8 +118,23 @@ describe('OData mock', () => {
 		stopOdataMock();
 		await waitFor(stopped);
 		expect(odataTestEnv()).toEqual({});
+		expect(odataTestProblem()).toBeUndefined();
 		await started();
 		expect(odataTestEnv()).toEqual({});
+	});
+
+	test('a mock that stops unexpectedly while the API tests call it keeps runs from starting', async () => {
+		await started();
+		useOdataMockForTests(true);
+		process.kill(must(odataMockPid()), 'SIGKILL');
+		const snapshot = await waitFor(stopped);
+		expect(snapshot.status.error).toContain('no run starts');
+		// The tests would otherwise call the SAP system in the settings.
+		expect(odataTestEnv()).toEqual({});
+		expect(odataTestProblem()).toContain('Start the mock again');
+
+		await started();
+		expect(odataTestProblem()).toBeUndefined();
 	});
 
 	test('fails a service as set, until set back', async () => {
