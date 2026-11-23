@@ -211,3 +211,74 @@ test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and t
 	await page.locator('ui5-button[icon="stop"]').click();
 	await expect(page.getByText('Start the IDoc receiver')).toBeVisible();
 });
+
+test('Mock OData: shows the data, logs a request, fails a service as set, and stops', async ({
+	page
+}) => {
+	await page.goto('/odata');
+	await expect(page.getByText('Start the OData mock')).toBeVisible();
+	await page.locator('ui5-button[icon="play"]').click();
+	await expect(page.locator('ui5-tag', { hasText: 'Serving' })).toBeVisible({ timeout: 20_000 });
+
+	// The service and where it is served; the test calls it there, as an API test would.
+	const served = page.locator('.line', { hasText: 'GWSAMPLE_BASIC' }).locator('.mono').first();
+	await expect(served).toHaveText(
+		/^http:\/\/127\.0\.0\.1:\d+\/sap\/opu\/odata\/IWBEP\/GWSAMPLE_BASIC$/
+	);
+	const service = (await served.textContent()) ?? '';
+
+	// The data, as the files have it.
+	await page.getByRole('button', { name: /^ProductSet\s+3$/ }).click();
+	const table = page.getByRole('table', { name: 'Entries of ProductSet' });
+	await expect(table.getByRole('cell', { name: 'MK-1000' })).toBeVisible();
+
+	expect((await page.request.get(`${service}/ProductSet('MK-1000')?$format=json`)).status()).toBe(
+		200
+	);
+	const read = page.locator('button.request', { hasText: "/ProductSet('MK-1000')" });
+	await expect(read.locator('ui5-tag', { hasText: '200' })).toBeVisible();
+	await read.click();
+	await expect(page.locator('pre.raw', { hasText: 'Mock Notebook 15' })).toBeVisible();
+
+	// A write shows after a refresh; a reset brings back the files.
+	const created = await page.request.post(`${service}/ProductSet`, {
+		data: {
+			ProductID: 'MKE2E',
+			TypeCode: 'PR',
+			Category: 'Notebooks',
+			Name: 'Written by the e2e test',
+			SupplierID: '0100000000',
+			TaxTarifCode: 1,
+			MeasureUnit: 'EA',
+			CurrencyCode: 'EUR',
+			Price: '1.00'
+		}
+	});
+	expect(created.status()).toBe(201);
+	await page.getByRole('button', { name: 'Refresh' }).click();
+	await expect(page.getByRole('button', { name: /^ProductSet\s+4$/ })).toBeVisible();
+	await expect(table.getByRole('cell', { name: 'MKE2E' })).toBeVisible();
+	await page.getByRole('button', { name: 'Reset to the files' }).click();
+	await expect(page.getByRole('button', { name: /^ProductSet\s+3$/ })).toBeVisible();
+	await expect(table.getByRole('cell', { name: 'MKE2E' })).toBeHidden();
+
+	// Fail the service: the next request gets the error, marked in the log.
+	await page.locator('#fail-status').locator('input').fill('503');
+	await page.getByText('Set', { exact: true }).click();
+	await expect(page.getByText('Fails with HTTP 503')).toBeVisible();
+	expect((await page.request.get(`${service}/ProductSet/$count`)).status()).toBe(503);
+	const failed = page.locator('button.request', { hasText: '/ProductSet/$count' });
+	await expect(failed.locator('ui5-tag', { hasText: 'Failed as set' })).toBeVisible();
+	await page.getByText('Back to normal').click();
+	await expect(page.getByText('Every service answers normally.')).toBeVisible();
+
+	// Tests started here call the system in the settings until switched.
+	await expect(
+		page.getByText('Tests started here call the SAP system in the settings.')
+	).toBeVisible();
+	await page.locator('ui5-switch#for-tests').click();
+	await expect(page.getByText(/Tests started here call the mock instead/)).toBeVisible();
+
+	await page.locator('ui5-button[icon="stop"]').click();
+	await expect(page.getByText('Start the OData mock')).toBeVisible();
+});

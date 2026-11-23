@@ -252,8 +252,8 @@ otherwise activate it in `/IWFND/MAINT_SERVICE`; the ABAP Cloud Developer Trial 
 SAP's public demo system ES5 (sapes5.sapdevcenter.com), which used to host it, has been shut down.
 
 The app's Settings page has a group for these values (`SAP_API_URL`, `SAP_API_USERNAME`,
-`SAP_API_PASSWORD`, `SAP_CLIENT`); saved there, runs started from the app use them. The mock mode
-below is started from the terminal only.
+`SAP_API_PASSWORD`, `SAP_CLIENT`); saved there, runs started from the app use them, unless the
+Mock OData page points them at the mock (below).
 
 Without a system, `bun run test:api:mock` (in `sap-tests`) runs the same tests against a local
 mock of the services: SAP's Fiori mock server (`@sap-ux/fe-mockserver-core`) serves each metadata
@@ -261,6 +261,25 @@ file at its `basePath`, with the fixed data in `odata/mock/data/<service>/<Entit
 stay in memory until the run ends. Playwright starts the mock and points `SAP_API_*` at it, whatever
 `.env` says. CI runs this on every pull request. The mock checks requests against the metadata, not
 against SAP's business logic, so a pass on the mock does not replace a run on a real system.
+`bun run test:odata` tests the mock itself.
+
+In the app, the **Mock OData** page starts the same mock (`odata/mock/server.mts`) on free ports on
+this computer and shows:
+
+- where each service is served, and a switch that points the API tests started in the app at the
+  mock instead of the system in the settings (off at every start);
+- every request it answered, with what was sent and what came back (bodies up to 16 KB, `$batch`
+  included);
+- answers per service: fail with an HTTP status and message, in the form SAP Gateway sends errors,
+  or answer late, for negative tests;
+- the data it holds now, writes included, and a reset to the data files. The mock keeps the data
+  of each `sap-client` apart; the page shows that of requests without one, which is how the API
+  tests started in the app call it.
+
+The mock has no login, so it never listens beyond this computer. Its control API (log, answers,
+data, reset) takes a token the app makes up for each start. A run that sends its API tests to the
+mock says so in its log. If the mock stops unexpectedly while the API tests are set to call it, no
+run starts until the mock is started again: those tests would otherwise call the real system.
 
 To add or update a service:
 

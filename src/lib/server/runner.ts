@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runSettings } from './env-file.js';
 import { idocTestEnv } from './idoc.js';
+import { odataTestEnv, odataTestProblem } from './odata.js';
 import { lineSplitter } from './lines.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
 import { LIVE_REPORTER, PACKAGES_DIR, RUNS_DIR, TESTS_DIR, TESTS_ROOT, within } from './paths.js';
@@ -89,6 +90,8 @@ export async function startRun(
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
 	const other = busy?.();
 	if (other) return { ok: false, error: other };
+	const odataProblem = odataTestProblem();
+	if (odataProblem) return { ok: false, error: odataProblem };
 	if (!existsSync(PLAYWRIGHT_PACKAGE)) {
 		return {
 			ok: false,
@@ -104,6 +107,9 @@ export async function startRun(
 	mkdirSync(dir, { recursive: true });
 
 	const args = runArgs(input, files, join(dir, 'results'));
+	// The OData mock this app started, when the Mock OData page points the API tests at it. Last in the
+	// environment, so it wins over SAP_API_* from the settings; named in the log, so the run shows it.
+	const mock = odataTestEnv();
 	const command = playwrightCommand(args);
 	const proc = spawn(command.cmd, command.args, {
 		cwd: TESTS_ROOT,
@@ -111,6 +117,7 @@ export async function startRun(
 			...settings.env,
 			// The IDoc receiver this app started, for the idocInbox fixture.
 			...idocTestEnv(),
+			...mock,
 			PLAYWRIGHT_HTML_OUTPUT_DIR: join(dir, 'report'),
 			PLAYWRIGHT_HTML_OPEN: 'never',
 			FORCE_COLOR: '0'
@@ -130,7 +137,14 @@ export async function startRun(
 			grep: input.grep,
 			stats: { total: 0, passed: 0, failed: 0, skipped: 0 },
 			tests: [],
-			log: [`$ playwright ${args.join(' ')}`],
+			log: [
+				`$ playwright ${args.join(' ')}`,
+				...(mock.SAP_API_URL
+					? [
+							`API tests call the local OData mock at ${mock.SAP_API_URL}, not the SAP system in the settings.`
+						]
+					: [])
+			],
 			hasReport: false
 		}
 	};

@@ -66,7 +66,9 @@ const TESTS: Step[] = [
 		name: 'sap-tests: API tests on the mock',
 		command: ['bun', 'run', 'test:api:mock'],
 		portVariable: 'ODATA_MOCK_PORT'
-	}
+	},
+	// Each test starts its own mock on free ports.
+	{ name: 'sap-tests: OData mock tests', command: ['bun', 'run', 'test:odata'] }
 ];
 
 /**

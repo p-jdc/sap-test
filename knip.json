@@ -13,6 +13,7 @@
 		"sap-tests/{tests,setup}/**/*.{ts,mts}",
 		"sap-tests/{mfs,idoc}/*.mts",
 		"sap-tests/odata/**/*.mjs",
+		"sap-tests/odata/mock/server.mts",
 		"sap-tests/sap-plugin/{record.mjs,entries/*.ts}",
 		"sap-tests/recorder/codegen.cjs",
 		"sap-tests/tools/oxlint/*/index.ts",
@@ -35,6 +36,9 @@
 		// Used by the OData clients generated into sap-tests/odata/clients, which git ignores.
 		"@sap-cloud-sdk/odata-v2",
 		"moment",
+		// The OData mock (sap-tests/odata/mock/mock.mts) loads it with `require`: its type declarations need
+		// packages it does not install, so a plain import would break the type check.
+		"@sap-ux/fe-mockserver-core",
 		// The Playwright-SAP fork: sap-tests/recorder/codegen.cjs loads it by path from the install
 		// the app names, and setup:recorder installs its browser.
 		"playwright-sap-recorder",
