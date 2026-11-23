@@ -5,11 +5,25 @@
 //   SAP's metadata names no referential constraints, so the mock would otherwise keep them inside
 //   the order, without the order number, where A_SalesOrderItem and the other sets never see them.
 //   The create answer therefore holds the header only; read the parts with $expand.
-// - Deleting an order deletes its parts. An order with a delivery cannot be deleted.
+// - Deleting an order deletes its parts. An order with a delivery cannot be deleted, and a delete
+//   without If-Match is refused (428), as S/4HANA refuses it.
 // The mock loads this file with `require` when it starts or is reset.
 
 /** Stands in for the number until it is given, just before the entry is stored. */
 const NEW = '$new';
+
+/**
+ * S/4HANA keeps an ETag on this entity (ConcurrencyMode="Fixed" in the metadata) and answers 428 to
+ * a change without If-Match. The mock hands out no ETag, so it only checks that one is sent: a test
+ * that forgets it fails here and not first against a real system.
+ */
+function requireIfMatch(contributor, odataRequest, what) {
+	if (!odataRequest?.headers?.['if-match'])
+		contributor.throwError(
+			`${what} needs the ETag in If-Match (Precondition Required). Read the entity first, or send If-Match: * to override.`,
+			428
+		);
+}
 
 /** The next number: one above the highest so far, as a number range would give it. */
 async function nextNumber(base, odataRequest) {
@@ -92,6 +106,7 @@ export default {
 	},
 
 	async removeEntry(keyValues, odataRequest) {
+		requireIfMatch(this, odataRequest, `Deleting sales order ${keyValues.SalesOrder}`);
 		const items = await this.base.getEntityInterface('A_SalesOrderItem');
 		const delivered = (await items.getAllEntries(odataRequest, true)).some(
 			(row) =>

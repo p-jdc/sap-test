@@ -1,5 +1,6 @@
 // Shared steps for the API tests of the S/4HANA sales chain (tests/api/sales-order*.spec.ts).
 import type { HttpDestination } from '@sap-cloud-sdk/connectivity';
+import { desc } from '@sap-cloud-sdk/odata-v2';
 import { BigNumber } from 'bignumber.js';
 import { expect } from '@playwright/test';
 import type { Cleanup, SapApiFixtures } from '../sap-plugin/odata';
@@ -19,8 +20,9 @@ export const newReference = () => `PW-${Date.now().toString(36).toUpperCase()}`;
 
 /**
  * Creates a sales order with one item (header and item in one request) and registers its deletion.
- * Organization, customer and material come from an existing order with an item, so the test does
- * not depend on how the system's customizing and master data are named.
+ * Organization, customer and material come from the newest order without delivery or billing block
+ * that is not rejected, and its first main item with a material, so the test does not depend on how
+ * the system's customizing and master data are named.
  */
 export async function createSalesOrder(
 	client: SalesOrderClient,
@@ -39,16 +41,30 @@ export async function createSalesOrder(
 			orders.schema.DISTRIBUTION_CHANNEL,
 			orders.schema.ORGANIZATION_DIVISION,
 			orders.schema.SOLD_TO_PARTY,
-			orders.schema.TO_ITEM.select(items.schema.MATERIAL, items.schema.REQUESTED_QUANTITY_UNIT)
+			orders.schema.TO_ITEM.select(
+				items.schema.MATERIAL,
+				items.schema.REQUESTED_QUANTITY_UNIT,
+				items.schema.HIGHER_LEVEL_ITEM
+			)
 		)
+		.filter(
+			orders.schema.DELIVERY_BLOCK_REASON.equals(''),
+			orders.schema.HEADER_BILLING_BLOCK_REASON.equals(''),
+			orders.schema.OVERALL_SD_DOCUMENT_REJECTION_STS.notEquals('C')
+		)
+		// The newest: old, migrated orders are the likeliest to use blocked material or types.
+		.orderBy(desc(orders.schema.SALES_ORDER))
 		.top(1)
 		.execute(sapApi);
-	expect(template, 'the service returned no sales order to copy codes from').toBeDefined();
-	const [templateItem] = template.toItem;
-	expect(templateItem, 'the template order has no item').toBeDefined();
+	expect(
+		template,
+		'the service returned no unblocked sales order to copy codes from'
+	).toBeDefined();
+	const templateItem = template.toItem.find((item) => !item.higherLevelItem && item.material);
+	expect(templateItem, 'the template order has no main item with a material').toBeDefined();
 	const soldToParty = template.soldToParty ?? '';
-	const material = templateItem.material ?? '';
-	const unit = templateItem.requestedQuantityUnit ?? '';
+	const material = templateItem?.material ?? '';
+	const unit = templateItem?.requestedQuantityUnit ?? '';
 
 	const draft = orders
 		.entityBuilder()
@@ -72,7 +88,12 @@ export async function createSalesOrder(
 	// The system assigns the number.
 	expect(created.salesOrder).toBeTruthy();
 	cleanup(`delete sales order ${created.salesOrder}`, () =>
-		orders.requestBuilder().delete(created.salesOrder).execute(sapApi)
+		orders
+			.requestBuilder()
+			.delete(created.salesOrder)
+			// The order has an ETag; If-Match: * deletes it whatever the test changed.
+			.ignoreVersionIdentifier()
+			.execute(sapApi)
 	);
 	return { salesOrder: created.salesOrder, soldToParty, material, unit, quantity };
 }

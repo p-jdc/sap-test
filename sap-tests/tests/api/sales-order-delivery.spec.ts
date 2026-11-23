@@ -22,6 +22,14 @@ test('delivers a sales order: delivery with reference, picking and goods issue',
 		operations
 	} = outboundDelivery;
 
+	/**
+	 * The delivery's ETag for If-Match: S/4HANA refuses the picking and goods issue actions without it
+	 * (428). Read right before the action, as each action changes it. The mock hands out none and only
+	 * checks that one is sent, so it gets `*`.
+	 */
+	const etagOf = async (delivery: string) =>
+		(await deliveries.requestBuilder().getByKey(delivery).execute(sapApi)).versionIdentifier ?? '*';
+
 	const order = await test.step('create the sales order', () =>
 		createSalesOrder(salesOrder, sapApi, cleanup, newReference()));
 
@@ -41,7 +49,12 @@ test('delivers a sales order: delivery with reference, picking and goods issue',
 		expect(created.deliveryDocument).toBeTruthy();
 		// Runs before the order is deleted: cleanup steps run newest first.
 		cleanup(`delete delivery ${created.deliveryDocument}`, () =>
-			deliveries.requestBuilder().delete(created.deliveryDocument).execute(sapApi)
+			deliveries
+				.requestBuilder()
+				.delete(created.deliveryDocument)
+				// The delivery has an ETag; If-Match: * deletes it whatever the test changed.
+				.ignoreVersionIdentifier()
+				.execute(sapApi)
 		);
 
 		const stored = await deliveries
@@ -68,21 +81,28 @@ test('delivers a sales order: delivery with reference, picking and goods issue',
 	});
 
 	await test.step('pick all items', async () => {
-		await operations.pickAllItems({ deliveryDocument: delivery }).execute(sapApi);
+		await operations
+			.pickAllItems({ deliveryDocument: delivery })
+			.addCustomHeaders({ 'if-match': await etagOf(delivery) })
+			.execute(sapApi);
 
 		const picked = await deliveries.requestBuilder().getByKey(delivery).execute(sapApi);
 		expect(picked.overallPickingStatus).toBe('C');
 	});
 
 	await test.step('post goods issue', async () => {
-		await operations.postGoodsIssue({ deliveryDocument: delivery }).execute(sapApi);
+		await operations
+			.postGoodsIssue({ deliveryDocument: delivery })
+			.addCustomHeaders({ 'if-match': await etagOf(delivery) })
+			.execute(sapApi);
 		// Before the delivery is deleted: a delivery with goods issue cannot be deleted.
-		cleanup(`reverse goods issue of delivery ${delivery}`, () =>
+		cleanup(`reverse goods issue of delivery ${delivery}`, async () =>
 			operations
 				.reverseGoodsIssue({
 					deliveryDocument: delivery,
 					actualGoodsMovementDate: moment.utc().startOf('day')
 				})
+				.addCustomHeaders({ 'if-match': await etagOf(delivery) })
 				.execute(sapApi)
 		);
 

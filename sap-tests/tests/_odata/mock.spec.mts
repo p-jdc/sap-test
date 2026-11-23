@@ -336,7 +336,16 @@ test('sales orders: a new one gets a number, its deep-inserted parts land in the
 	]);
 	expect(await count('A_SalesOrderItem')).toBe(4);
 
-	expect((await salesOrder(`/A_SalesOrder('${number}')`, { method: 'DELETE' })).status).toBe(204);
+	// As on S/4HANA, which keeps an ETag on the order: no delete without If-Match.
+	expect((await salesOrder(`/A_SalesOrder('${number}')`, { method: 'DELETE' })).status).toBe(428);
+	expect(
+		(
+			await salesOrder(`/A_SalesOrder('${number}')`, {
+				method: 'DELETE',
+				headers: { 'if-match': '*' }
+			})
+		).status
+	).toBe(204);
 	expect(await count('A_SalesOrder')).toBe(2);
 	expect(await count('A_SalesOrderItem')).toBe(3);
 	expect(await count('A_SalesOrderScheduleLine')).toBe(3);
@@ -351,12 +360,17 @@ test('sales orders: a new one gets a number, its deep-inserted parts land in the
 
 test('deliveries: refused as S/4HANA refuses them, and the order follows the delivery', async () => {
 	const m = await mock();
-	const call = (base: string, path: string, init: RequestInit & { json?: boolean } = {}) =>
+	const call = (
+		base: string,
+		path: string,
+		init: RequestInit & { json?: boolean; ifMatch?: boolean } = {}
+	) =>
 		fetch(`${m.odataUrl}${base}${path}`, {
 			...init,
 			headers: {
 				accept: 'application/json',
-				...(init.json ? { 'content-type': 'application/json' } : {})
+				...(init.json ? { 'content-type': 'application/json' } : {}),
+				...(init.ifMatch ? { 'if-match': '*' } : {})
 			}
 		});
 	const status = async (path: string) =>
@@ -394,8 +408,13 @@ test('deliveries: refused as S/4HANA refuses them, and the order follows the del
 		(await status("/A_SalesOrderItem(SalesOrder='1000001',SalesOrderItem='10')")).DeliveryStatus
 	).toBe('C');
 
-	const action = (name: string) =>
-		call(DELIVERY_BASE, `/${name}?DeliveryDocument='${delivery}'`, { method: 'POST' });
+	const action = (name: string, ifMatch = true) =>
+		call(DELIVERY_BASE, `/${name}?DeliveryDocument='${delivery}'`, { method: 'POST', ifMatch });
+	// As on S/4HANA, which keeps an ETag on the delivery: no action and no delete without If-Match.
+	expect((await action('PickAllItems', false)).status).toBe(428);
+	expect(
+		(await call(DELIVERY_BASE, `/A_OutbDeliveryHeader('${delivery}')`, { method: 'DELETE' })).status
+	).toBe(428);
 	expect((await action('PostGoodsIssue')).status).toBe(400);
 	expect((await action('PickAllItems')).status).toBe(200);
 	expect((await action('PostGoodsIssue')).status).toBe(200);
@@ -403,7 +422,8 @@ test('deliveries: refused as S/4HANA refuses them, and the order follows the del
 	expect((await action('PickOneItem')).status).toBe(501);
 
 	// An order with a delivery stays; a delivery with goods issue stays.
-	const remove = (base: string, path: string) => call(base, path, { method: 'DELETE' });
+	const remove = (base: string, path: string) =>
+		call(base, path, { method: 'DELETE', ifMatch: true });
 	expect((await remove(SALES_ORDER_BASE, "/A_SalesOrder('1000001')")).status).toBe(400);
 	expect((await remove(DELIVERY_BASE, `/A_OutbDeliveryHeader('${delivery}')`)).status).toBe(400);
 

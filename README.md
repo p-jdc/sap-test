@@ -253,7 +253,8 @@ service that ships with SAP Gateway in every ABAP system (often active in develo
 otherwise activate it in `/IWFND/MAINT_SERVICE`), and the S/4HANA sales chain: sales orders
 (`API_SALES_ORDER_SRV`) and outbound deliveries (`API_OUTBOUND_DELIVERY_SRV`), from the order to
 the goods issue. These tests copy organization, customer and material from an existing order
-(`helpers/sales-order.ts`), so they need at least one order with an item in the system. Picking
+(`helpers/sales-order.ts`): the newest order without delivery or billing block that is not
+rejected, so the system needs one with a main item. Picking
 and goods issue also need stock; for a shipping point run by a decentralized EWM they happen in EWM,
 so the delivery test does not apply there. SAP's public demo system ES5 and the ABAP Cloud Developer Trial image,
 which used to offer `GWSAMPLE_BASIC` without a system of your own, have both been withdrawn.
@@ -280,6 +281,9 @@ do and refuse:
   `ReverseGoodsIssue` set the statuses. Goods issue needs complete picking, a delivery with goods
   issue cannot be deleted, and the other actions of the service answer 501. There is no stock,
   warehouse or availability check.
+- Both entities carry an ETag on S/4HANA, which refuses a delete or a delivery action without
+  `If-Match` (428). The mock hands out no ETag, but refuses the same requests without the header,
+  so a test that forgets it fails on the mock too.
   `bun run test:odata` tests the mock itself.
 
 In the app, the **Mock OData** page starts the same mock (`odata/mock/server.mts`) on free ports on

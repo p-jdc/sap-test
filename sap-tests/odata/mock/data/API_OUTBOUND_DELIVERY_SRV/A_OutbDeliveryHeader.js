@@ -8,12 +8,26 @@
 //   therefore holds the header only; read the items with $expand.
 // - The actions PickAllItems, PostGoodsIssue and ReverseGoodsIssue set the statuses as S/4HANA
 //   does. Goods issue needs complete picking. Any other action of the service answers 501.
+//   The actions and a delete need If-Match (428 without), as on S/4HANA.
 // - Deleting a delivery deletes its items and partners and opens the order items again.
 // What the mock does not do: stock, warehouse tasks, availability checks, partial deliveries.
 // The mock loads this file with `require` when it starts or is reset.
 
 /** Stands in for the number until it is given, just before the entry is stored. */
 const NEW = '$new';
+
+/**
+ * S/4HANA keeps an ETag on this entity (ConcurrencyMode="Fixed" in the metadata) and answers 428 to
+ * a change without If-Match. The mock hands out no ETag, so it only checks that one is sent: a test
+ * that forgets it fails here and not first against a real system.
+ */
+function requireIfMatch(contributor, odataRequest, what) {
+	if (!odataRequest?.headers?.['if-match'])
+		contributor.throwError(
+			`${what} needs the ETag in If-Match (Precondition Required). Read the entity first, or send If-Match: * to override.`,
+			428
+		);
+}
 
 /** The next number: one above the highest so far, as a number range would give it. */
 async function nextNumber(base, odataRequest) {
@@ -186,6 +200,7 @@ export default {
 	},
 
 	async executeAction(action, data, _keys, odataRequest) {
+		requireIfMatch(this, odataRequest, action.name);
 		const delivery = parameter(odataRequest, data, 'DeliveryDocument');
 		const [header] = await this.base.fetchEntries({ DeliveryDocument: delivery }, odataRequest);
 		if (!header) this.throwError(`Delivery ${delivery} does not exist.`, 404);
@@ -221,6 +236,7 @@ export default {
 	},
 
 	async removeEntry(keyValues, odataRequest) {
+		requireIfMatch(this, odataRequest, `Deleting delivery ${keyValues.DeliveryDocument}`);
 		const delivery = keyValues.DeliveryDocument;
 		const [header] = await this.base.fetchEntries({ DeliveryDocument: delivery }, odataRequest);
 		if (header?.OverallGoodsMovementStatus === 'C')
