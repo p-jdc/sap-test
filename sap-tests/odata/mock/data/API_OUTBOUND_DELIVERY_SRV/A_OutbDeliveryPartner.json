@@ -1,0 +1,14 @@
+[
+	{
+		"SDDocument": "80000001",
+		"PartnerFunction": "AG",
+		"Customer": "10100001",
+		"SDDocumentItem": "0"
+	},
+	{
+		"SDDocument": "80000001",
+		"PartnerFunction": "WE",
+		"Customer": "10100001",
+		"SDDocumentItem": "0"
+	}
+]

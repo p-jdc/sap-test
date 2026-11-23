@@ -1,0 +1,24 @@
+[
+	{
+		"DeliveryDocument": "80000001",
+		"DeliveryDocumentItem": "10",
+		"DeliveryDocumentItemCategory": "TAN",
+		"DeliveryDocumentItemText": "Trading good 11",
+		"Material": "TG11",
+		"Plant": "1010",
+		"StorageLocation": "101A",
+		"ActualDeliveryQuantity": "1",
+		"OriginalDeliveryQuantity": "1",
+		"DeliveryQuantityUnit": "PC",
+		"ActualDeliveredQtyInBaseUnit": "1",
+		"BaseUnit": "PC",
+		"ReferenceSDDocument": "1000002",
+		"ReferenceSDDocumentItem": "10",
+		"ReferenceSDDocumentCategory": "C",
+		"SDProcessStatus": "A",
+		"PickingStatus": "A",
+		"GoodsMovementStatus": "A",
+		"DeliveryRelatedBillingStatus": "A",
+		"GoodsMovementType": "601"
+	}
+]

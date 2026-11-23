@@ -33,6 +33,8 @@ type MockServerClass = new (configuration: {
 		metadataPath: string;
 		mockdataPath: string;
 		generateMockData: boolean;
+		/** How a data script reaches another service: `this.base.getEntityInterface(set, alias)`. */
+		alias: string;
 	}[];
 }) => MockServer;
 const isMockServerClass = (value: unknown): value is MockServerClass => typeof value === 'function';
@@ -249,7 +251,9 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 				// The core's own option names (the UI5 middleware maps metadataXmlPath / mockdataRootPath).
 				metadataPath: service.metadataPath,
 				mockdataPath: service.dataPath,
-				generateMockData: false
+				generateMockData: false,
+				// The folder name, so that a data script of one service can read and change another's.
+				alias: service.name
 			}))
 		});
 		await mock.isReady;
@@ -372,8 +376,10 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 			response.end();
 			return;
 		}
-		// Read already for the log: body-parser, which the core uses, then takes it as it is.
-		Object.assign(request, { body, _body: true });
+		// Read already for the log: body-parser, which the core uses, then takes it as it is. No body
+		// stays no body: an empty one would reach an action (a V2 function import, whose parameters
+		// are in the URL) as an empty string, and the core fails on it.
+		Object.assign(request, { body: body.length > 0 ? body : undefined, _body: true });
 		current.router(request, response, () => {
 			response.statusCode = 404;
 			response.end();

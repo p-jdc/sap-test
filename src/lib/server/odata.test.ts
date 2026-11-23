@@ -75,7 +75,14 @@ describe('OData mock', () => {
 		const response = await fetch(`${url}${BASE}/ProductSet?$format=json`);
 		expect(response.status).toBe(200);
 		const snapshot = await waitFor((s) => s.requests.length === 1);
-		expect(snapshot.services).toEqual([{ name: SERVICE, basePath: BASE }]);
+		expect(snapshot.services).toEqual([
+			{ name: SERVICE, basePath: BASE },
+			{ name: 'API_SALES_ORDER_SRV', basePath: '/sap/opu/odata/sap/API_SALES_ORDER_SRV' },
+			{
+				name: 'API_OUTBOUND_DELIVERY_SRV',
+				basePath: '/sap/opu/odata/sap/API_OUTBOUND_DELIVERY_SRV;v=0002'
+			}
+		]);
 		const request = must(snapshot.requests[0]);
 		expect(request).toMatchObject({
 			method: 'GET',

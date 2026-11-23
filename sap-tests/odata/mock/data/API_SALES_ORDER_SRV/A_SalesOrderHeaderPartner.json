@@ -1,0 +1,22 @@
+[
+	{
+		"SalesOrder": "1000001",
+		"PartnerFunction": "AG",
+		"Customer": "10100001"
+	},
+	{
+		"SalesOrder": "1000001",
+		"PartnerFunction": "WE",
+		"Customer": "10100001"
+	},
+	{
+		"SalesOrder": "1000002",
+		"PartnerFunction": "AG",
+		"Customer": "10100001"
+	},
+	{
+		"SalesOrder": "1000002",
+		"PartnerFunction": "WE",
+		"Customer": "10100001"
+	}
+]
