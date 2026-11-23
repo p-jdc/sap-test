@@ -112,14 +112,9 @@
 			: '?';
 
 	/** What SAP answered to a send, in a few words. */
-	const sentOutcome = ({ result, to }: SentIdocs) =>
+	const sentOutcome = ({ result, standIn }: SentIdocs) =>
 		result.ok
-			? ({
-					text: snap?.sap.find((t) => t.system === to)?.standIn
-						? 'Taken by the stand-in'
-						: 'Taken by SAP',
-					design: 'Positive'
-				} as const)
+			? ({ text: standIn ? 'Taken by the stand-in' : 'Taken by SAP', design: 'Positive' } as const)
 			: result.status === 0
 				? ({ text: 'SAP not reached', design: 'Critical' } as const)
 				: ({ text: `Refused (HTTP ${result.status})`, design: 'Negative' } as const);

@@ -103,6 +103,8 @@ export const SentIdocsSchema = z.object({
 	by: z.enum(['test', 'person']),
 	/** The SAP system they were sent into. */
 	to: z.enum(SAP_SYSTEMS),
+	/** True when a stand-in for that system took them (IDOC_FAKE_SAP), not the system itself. */
+	standIn: z.boolean(),
 	/** The IDocs as they went to SAP, with TABNAM and DIRECT filled in. */
 	idocs: z.array(IdocBodySchema),
 	result: SendResultSchema

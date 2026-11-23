@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
+import { IDOC_SAP_SETTINGS } from '#lib/shared/idoc.js';
 import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 /**
@@ -41,7 +42,11 @@ export const APP_SECRETS = [
 	'GOOGLE_APPLICATION_CREDENTIALS'
 ];
 
-/** The app's environment for a child process: without Bun's node shim and the app's secrets. */
+/**
+ * The app's environment for a child process: without Bun's node shim and the app's secrets, and with the IDoc
+ * receiver's SAP systems empty. Those only the receiver gets, through `extra`. Empty rather than left out, so that a
+ * test run's dotenv doesn't fill them from sap-tests/.env either.
+ */
 export function childEnv(
 	extra: Record<string, string> = {},
 	env: NodeJS.ProcessEnv = process.env
@@ -53,7 +58,8 @@ export function childEnv(
 	const kept = Object.fromEntries(
 		Object.entries(env).filter(([name]) => !APP_SECRETS.includes(name))
 	);
-	return { ...kept, PATH, ...extra };
+	const noSapSystems = Object.fromEntries(IDOC_SAP_SETTINGS.map((name) => [name, '']));
+	return { ...kept, ...noSapSystems, PATH, ...extra };
 }
 
 /** The Node major CI runs on, and the only one the Playwright-SAP recorder is tested on (README). */

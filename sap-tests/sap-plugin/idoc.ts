@@ -102,6 +102,7 @@ const SentSchema: z.ZodType<SentIdocs> = z.object({
 	sentAt: z.string(),
 	by: z.enum(['test', 'person']),
 	to: z.enum(['s4', 'ewm']),
+	standIn: z.boolean(),
 	idocs: z.array(
 		z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
 	),
@@ -187,10 +188,16 @@ export const test = base.extend<IdocFixtures>({
 							? { xml: idocs, to, by: 'test' }
 							: { idocs: Array.isArray(idocs) ? idocs : [idocs], to, by: 'test' };
 					const sent = SentSchema.parse(await client.call('POST', '/send', body));
+					const title = to === 's4' ? 'S/4HANA' : 'EWM';
+					// A stand-in numbers IDocs SAP never saw: only the run against the local receiver may use it.
+					if (sent.standIn && process.env.IDOC_HUB_MOCK !== '1')
+						throw new Error(
+							`The receiver has no ${title} system, only a stand-in, so the IDocs did not reach SAP. Set ${title} for the receiver (IDOC_${to.toUpperCase()}_URL, on the app's Settings page "IDocs into ${title}") and start it again.`
+						);
 					const { ok, status, reason, idocNumbers } = sent.result;
 					if ((options.expectOk ?? true) && !ok)
 						throw new Error(
-							`${to === 's4' ? 'S/4HANA' : 'EWM'} did not take the IDocs (${status === 0 ? 'not reached' : `HTTP ${status}`}): ${reason ?? 'no reason given'}`
+							`${title} did not take the IDocs (${status === 0 ? 'not reached' : `HTTP ${status}`}): ${reason ?? 'no reason given'}`
 						);
 					if (ok && idocNumbers.length > 0)
 						await testInfo.attach('IDoc numbers', { body: idocNumbers.join('\n') });

@@ -36,7 +36,9 @@ export default defineConfig({
 				IDOC_TLS_CA: '',
 				IDOC_TLS_CLIENT_FINGERPRINT: '',
 				IDOC_USER: '',
-				IDOC_PASSWORD: ''
+				IDOC_PASSWORD: '',
+				// Sending goes to stand-ins only: never into an SAP system this computer has set up.
+				TEST_APP_IDOC_STAND_INS: 'only'
 			}
 		},
 		{

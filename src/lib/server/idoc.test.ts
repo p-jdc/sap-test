@@ -3,7 +3,7 @@
  * drives it only through the control API, like the page does. Samples stand in for SAP.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
-import type { IdocSnapshot } from '#lib/shared/idoc.js';
+import { IDOC_SAP_SETTINGS, type IdocSnapshot } from '#lib/shared/idoc.js';
 import { must } from '../../test/must.js';
 import {
 	clearInbox,
@@ -70,18 +70,11 @@ const SETTINGS = [
 	'IDOC_USER',
 	'IDOC_PASSWORD',
 	'IDOC_FAKE_SAP',
-	...['S4', 'EWM'].flatMap((system) =>
-		[
-			'URL',
-			'CLIENT',
-			'SERVICE',
-			'USER',
-			'PASSWORD',
-			'TLS_CERT',
-			'TLS_KEY',
-			'TLS_CA',
-			'TIMEOUT_MS'
-		].map((name) => `IDOC_${system}_${name}`)
+	'TEST_APP_IDOC_STAND_INS',
+	...IDOC_SAP_SETTINGS,
+	// From before S/4HANA and EWM had settings of their own: the receiver refuses to start with them.
+	...IDOC_SAP_SETTINGS.filter((name) => name.startsWith('IDOC_S4_')).map((name) =>
+		name.replace('IDOC_S4_', 'IDOC_SAP_')
 	)
 ];
 const saved = new Map<string, string | undefined>();
@@ -233,9 +226,9 @@ describe('IDoc receiver', () => {
 		const intoS4 = await sendSampleToSap('orders05-inbound.xml', 's4');
 		expect(intoS4.result.idocNumbers).toEqual(['0000000000000001']);
 		const listed = await waitFor((s) => s.sent.length === 2);
-		expect(listed.sent.map((entry) => [entry.seq, entry.to, entry.by])).toEqual([
-			[1, 'ewm', 'person'],
-			[2, 's4', 'person']
+		expect(listed.sent.map((entry) => [entry.seq, entry.to, entry.by, entry.standIn])).toEqual([
+			[1, 'ewm', 'person', true],
+			[2, 's4', 'person', true]
 		]);
 
 		// An outbound sample is refused before it goes out, and not listed.
@@ -271,8 +264,36 @@ describe('IDoc receiver', () => {
 				{ system: 's4', url: 'http://127.0.0.1:9', client: '100', standIn: false },
 				{ system: 'ewm', standIn: true }
 			]);
-			const { result } = await sendSampleToSap('orders05-inbound.xml', 's4');
-			expect(result).toMatchObject({ ok: false, status: 0 });
+			const sent = await sendSampleToSap('orders05-inbound.xml', 's4');
+			expect(sent).toMatchObject({ standIn: false, result: { ok: false, status: 0 } });
+		} finally {
+			envFile.values = {};
+		}
+	});
+
+	test('the app’s own end-to-end tests send to stand-ins only, whatever SAP systems are set', async () => {
+		envFile.values = { IDOC_S4_URL: 'https://s4dev.example.com', IDOC_S4_CLIENT: '100' };
+		process.env.TEST_APP_IDOC_STAND_INS = 'only';
+		process.env.IDOC_FAKE_SAP = '0';
+		try {
+			await startReceiver();
+			const ready = await waitFor((s) => s.sap.length > 0);
+			expect(ready.sap.map((t) => [t.system, t.standIn])).toEqual([
+				['s4', true],
+				['ewm', true]
+			]);
+		} finally {
+			envFile.values = {};
+			delete process.env.TEST_APP_IDOC_STAND_INS;
+			delete process.env.IDOC_FAKE_SAP;
+		}
+	});
+
+	test('settings from before S/4HANA and EWM had their own stop the receiver from starting', async () => {
+		envFile.values = { IDOC_SAP_URL: 'https://s4dev.example.com' };
+		try {
+			await expect(startReceiver()).rejects.toThrow(/IDOC_SAP_URL.*IDOC_S4_URL/s);
+			expect(idocStatus()).toMatchObject({ running: false });
 		} finally {
 			envFile.values = {};
 		}

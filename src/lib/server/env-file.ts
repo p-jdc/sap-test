@@ -10,11 +10,11 @@ import {
 	API_SYSTEM,
 	IDOC_SYSTEMS,
 	readSystems,
-	receiverOnly,
 	secretSettings,
 	settingNames,
 	signInSystems
 } from './systems.js';
+import { IDOC_SAP_SETTINGS } from '#lib/shared/idoc.js';
 import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
 /**
@@ -168,8 +168,9 @@ function childVars({ values, withheld }: Resolved): Record<string, string> {
 	const vars: Record<string, string> = {};
 	for (const [name, { value, source }] of values) if (source === 'keychain') vars[name] = value;
 	for (const name of withheld.keys()) vars[name] = '';
-	// The IDoc receiver's SAP logins: tests send through the receiver and never need them.
-	for (const name of Object.keys(vars)) if (receiverOnly(name)) delete vars[name];
+	// The IDoc receiver's SAP systems and logins: tests send through the receiver and never get them. childEnv
+	// empties them for every child process.
+	for (const name of IDOC_SAP_SETTINGS) delete vars[name];
 	return vars;
 }
 

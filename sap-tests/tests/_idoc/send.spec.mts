@@ -63,6 +63,22 @@ test('send goes into the system named in `to`, S/4HANA by default', async ({ ido
 	expect(intoEwm.result.idocNumbers[0]).toMatch(/^\d{16}$/);
 });
 
+test('outside the run against the local receiver, a stand-in’s answer fails the step', async ({
+	idocSender
+}) => {
+	expect((await idocSender.send(order)).standIn).toBe(true);
+	const mock = process.env.IDOC_HUB_MOCK;
+	delete process.env.IDOC_HUB_MOCK;
+	try {
+		await expect(idocSender.send(order, { to: 'ewm' })).rejects.toThrow(
+			/no EWM system, only a stand-in, so the IDocs did not reach SAP/
+		);
+		await expect(idocSender.send(order, { expectOk: false })).rejects.toThrow(/IDOC_S4_URL/);
+	} finally {
+		process.env.IDOC_HUB_MOCK = mock;
+	}
+});
+
 test('an IDoc marked outbound is refused before anything is sent', async ({ idocSender }) => {
 	const outbound = readFileSync(
 		new URL('../../idoc/samples/orders05.xml', import.meta.url),

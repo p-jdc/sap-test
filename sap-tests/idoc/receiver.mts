@@ -140,7 +140,7 @@ function targetInfo(system: SapSystem, { target, standIn }: SapDestination): Sap
 /** Sends into SAP and records it, also when SAP refused or couldn't be reached (status 0). */
 async function sendAndRecord(
 	inbox: IdocInbox,
-	sap: SapTarget,
+	{ target: sap, standIn }: SapDestination,
 	body: z.output<typeof SendBodySchema>
 ): Promise<SentIdocs> {
 	if (Boolean(body.xml) === Boolean(body.idocs))
@@ -172,7 +172,7 @@ async function sendAndRecord(
 			durationMs: Date.now() - started
 		};
 	}
-	return inbox.recordSent({ by: body.by, to: body.to, idocs, result });
+	return inbox.recordSent({ by: body.by, to: body.to, standIn: Boolean(standIn), idocs, result });
 }
 
 export interface RunningReceiver {
@@ -388,7 +388,7 @@ function controlHandler(
 					`no ${SAP_SYSTEM_TITLES[body.to]} system to send to: start the receiver with IDOC_${body.to.toUpperCase()}_URL (or IDOC_FAKE_SAP=1)`,
 					409
 				);
-			return json(response, 200, await sendAndRecord(inbox, destination.target, body));
+			return json(response, 200, await sendAndRecord(inbox, destination, body));
 		}
 		// Only with a stand-in: how it answers, to test a refusal from "SAP".
 		if (method === 'PUT' && parts[0] === 'fake-sap' && parts[2] === 'reply' && parts.length === 3) {

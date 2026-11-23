@@ -31,11 +31,6 @@ export const IDOC_SYSTEMS = [
 	{ url: 'IDOC_EWM_URL', user: 'IDOC_EWM_USER', password: 'IDOC_EWM_PASSWORD' }
 ] as const;
 
-/** Whether only the IDoc receiver gets this setting, never a test run. */
-export function receiverOnly(name: SettingName): boolean {
-	return /^IDOC_(S4|EWM)_/.test(name);
-}
-
 /**
  * Where a recording for the system can be saved, and with which recorder: each of its folders
  * except those starting with `_` (reference and agent tests). An SAP system records with the UI5

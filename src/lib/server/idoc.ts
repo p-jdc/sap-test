@@ -10,7 +10,7 @@ import {
 	IdocFailureSchema,
 	IdocInfoSchema,
 	IdocListSchema,
-	IDOC_SAP_SYSTEMS,
+	IDOC_SAP_SETTINGS,
 	IdocReplyInEffectSchema,
 	ReceivedIdocSchema,
 	SentIdocsSchema,
@@ -57,20 +57,6 @@ const ENDPOINT_SETTINGS = [
 	'IDOC_USER',
 	'IDOC_PASSWORD'
 ];
-/** The settings of each SAP system IDocs are sent into: IDOC_S4_URL, IDOC_EWM_URL and so on. */
-const SAP_SETTINGS = IDOC_SAP_SYSTEMS.flatMap((system) =>
-	[
-		'URL',
-		'CLIENT',
-		'SERVICE',
-		'USER',
-		'PASSWORD',
-		'TLS_CERT',
-		'TLS_KEY',
-		'TLS_CA',
-		'TIMEOUT_MS'
-	].map((name) => `IDOC_${system.toUpperCase()}_${name}`)
-);
 /** The receiver's settings by name, an empty value for one not set. */
 type ReceiverSettings = Record<string, string>;
 
@@ -86,12 +72,19 @@ async function receiverSettings(): Promise<ReceiverSettings> {
 	const onSettingsPage = new Set(settingNames());
 	const value = (name: string) =>
 		(onSettingsPage.has(name) ? resolved[name] : (process.env[name] ?? resolved[name])) ?? '';
-	const settings = Object.fromEntries(
-		[...ENDPOINT_SETTINGS, ...SAP_SETTINGS].map((name) => [name, value(name)])
-	);
+	// The app's own end-to-end tests: stand-ins only, whatever SAP systems this computer has set up.
+	const standInsOnly = process.env.TEST_APP_IDOC_STAND_INS === 'only';
+	const settings: ReceiverSettings = Object.fromEntries([
+		...ENDPOINT_SETTINGS.map((name): [string, string] => [name, value(name)]),
+		...IDOC_SAP_SETTINGS.map((name): [string, string] => [name, standInsOnly ? '' : value(name)])
+	]);
 	// A stand-in for each SAP system without an address, so sending can be tried without SAP. IDOC_FAKE_SAP=0
 	// turns that off.
-	settings.IDOC_FAKE_SAP = value('IDOC_FAKE_SAP') === '0' ? '' : '1';
+	settings.IDOC_FAKE_SAP = standInsOnly || value('IDOC_FAKE_SAP') !== '0' ? '1' : '';
+	// Settings from before S/4HANA and EWM had their own (IDOC_SAP_URL and so on), also from the environment file:
+	// passed on, so the receiver refuses to start and names what replaces them. The environment passes them anyway.
+	for (const [name, setting] of Object.entries(resolved))
+		if (name.startsWith('IDOC_SAP_') && setting) settings[name] = setting;
 	return settings;
 }
 

@@ -75,6 +75,13 @@ const fail = (message: string): never => {
 	console.error(message);
 	process.exit(1);
 };
+// Before S/4HANA and EWM had settings of their own, there was one system, IDOC_SAP_*. Ignoring those would send
+// into a stand-in instead without a word.
+const old = Object.keys(env).filter((name) => name.startsWith('IDOC_SAP_') && env[name]);
+if (old.length > 0)
+	fail(
+		`${old.join(', ')}: these settings are now one set per SAP system. Rename them to IDOC_S4_… for S/4HANA (IDOC_SAP_URL becomes IDOC_S4_URL) or IDOC_EWM_… for EWM.`
+	);
 const fakeSap = env.IDOC_FAKE_SAP === '1';
 const fakes: RunningFakeSap[] = [];
 /** Where IDocs for `system` go, from its IDOC_<SYSTEM>_* settings: the system, a stand-in, or nowhere. */

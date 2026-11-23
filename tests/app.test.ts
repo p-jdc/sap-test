@@ -211,9 +211,12 @@ test('Mock IDoc: a sample IDoc is received and shown, refused once set so, the l
 	await page.locator('ui5-button[icon="delete"]').click();
 	await expect(page.getByText('No IDocs yet.')).toBeVisible();
 
-	// Without an SAP system set, each system has a stand-in: send the inbound sample into EWM's.
+	// The e2e app sends to stand-ins only (TEST_APP_IDOC_STAND_INS): send the inbound sample into EWM's.
 	await page.locator('#sap-to').click();
-	await page.locator('#sap-to ui5-option[data-value="ewm"]').click();
+	const ewm = page.locator('#sap-to ui5-option[data-value="ewm"]');
+	await expect(ewm).toContainText('EWM (stand-in)');
+	await ewm.click();
+	await expect(page.locator('ui5-tag', { hasText: 'Stand-in, not SAP' })).toBeVisible();
 	await page.locator('ui5-button', { hasText: 'Send to EWM' }).click();
 	await expect(
 		page.getByText('The stand-in for EWM took the IDoc: IDoc number 0000000000000001.')

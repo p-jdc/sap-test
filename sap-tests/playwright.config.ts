@@ -32,6 +32,10 @@ if (odataMock)
 // receiver's process (IDOC_FAKE_SAP). That replaces any IDOC_HUB_URL from the environment file, and the workers
 // inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
+// The SAP systems the IDoc receiver sends into, and their logins, are the receiver's alone: tests send through it.
+// dotenv may have loaded them from the environment file; no test or worker keeps them.
+for (const name of Object.keys(process.env))
+	if (/^IDOC_(S4|EWM)_/.test(name)) delete process.env[name];
 /** The settings each SAP system IDocs are sent into has (IDOC_S4_URL and so on; idoc/server.mts). */
 const SAP_SETTINGS = [
 	'URL',

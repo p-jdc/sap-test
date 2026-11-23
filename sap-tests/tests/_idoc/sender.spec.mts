@@ -319,7 +319,7 @@ test.describe('the receiver’s POST /send', () => {
 		const intoEwm = SentIdocsSchema.parse(
 			(await control(r, 'POST', '/send', { idocs: [bare], to: 'ewm' })).body
 		);
-		expect(intoEwm).toMatchObject({ to: 'ewm', result: { ok: true } });
+		expect(intoEwm).toMatchObject({ to: 'ewm', standIn: false, result: { ok: true } });
 		expect(ewm.received.map((i) => i.client)).toEqual(['200']);
 		expect(s4.received).toEqual([]);
 		expect((await control(r, 'POST', '/send', { idocs: [bare], to: 'bw' })).status).toBe(400);
@@ -351,6 +351,12 @@ test.describe('the receiver’s POST /send', () => {
 		).toEqual({ mode: 'reject', status: 503, message: 'Rejected by the stand-in for SAP' });
 		expect(other.reply).toMatchObject({ mode: 'reject', status: 503 });
 		expect(sap.reply).toEqual({ mode: 'accept' });
+		// Each send says whether a stand-in took it.
+		await control(withFake, 'PUT', '/fake-sap/ewm/reply', { mode: 'accept' });
+		const sent = SentIdocsSchema.parse(
+			(await control(withFake, 'POST', '/send', { idocs: [bare], to: 'ewm' })).body
+		);
+		expect(sent).toMatchObject({ to: 'ewm', standIn: true, result: { ok: true } });
 
 		expect((await control(withFake, 'PUT', '/fake-sap/s4/reply', { mode: 'accept' })).status).toBe(
 			409

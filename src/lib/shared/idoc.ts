@@ -58,6 +58,21 @@ export const IdocReplyInEffectSchema = z.intersection(
 /** The SAP systems the receiver can send IDocs into, as sap-tests/idoc/sender.mts names them. */
 export const IDOC_SAP_SYSTEMS = ['s4', 'ewm'] as const;
 export type IdocSapSystem = (typeof IDOC_SAP_SYSTEMS)[number];
+/** Every setting of those systems (IDOC_S4_URL, IDOC_EWM_PASSWORD and so on; sap-tests/idoc/server.mts). Only the
+ * receiver gets them: tests send through it. */
+export const IDOC_SAP_SETTINGS = IDOC_SAP_SYSTEMS.flatMap((system) =>
+	[
+		'URL',
+		'CLIENT',
+		'SERVICE',
+		'USER',
+		'PASSWORD',
+		'TLS_CERT',
+		'TLS_KEY',
+		'TLS_CA',
+		'TIMEOUT_MS'
+	].map((name) => `IDOC_${system.toUpperCase()}_${name}`)
+);
 
 /** An SAP system the receiver sends IDocs into, in CPI's place: which login, never the login itself. */
 const SapTargetSchema = z.object({
@@ -94,6 +109,8 @@ export const SentIdocsSchema = z.object({
 	sentAt: z.string(),
 	by: z.enum(['test', 'person']),
 	to: z.enum(IDOC_SAP_SYSTEMS),
+	/** A stand-in for that system took them, not SAP. */
+	standIn: z.boolean(),
 	idocs: z.array(IdocBodySchema),
 	result: z.object({
 		ok: z.boolean(),
