@@ -25,6 +25,17 @@ export const API_SYSTEM = {
 	password: 'SAP_API_PASSWORD'
 } as const;
 
+/** The SAP systems the IDoc receiver sends IDocs into: credentials, but no sign-in, and only for the receiver. */
+export const IDOC_SYSTEMS = [
+	{ url: 'IDOC_S4_URL', user: 'IDOC_S4_USER', password: 'IDOC_S4_PASSWORD' },
+	{ url: 'IDOC_EWM_URL', user: 'IDOC_EWM_USER', password: 'IDOC_EWM_PASSWORD' }
+] as const;
+
+/** Whether only the IDoc receiver gets this setting, never a test run. */
+export function receiverOnly(name: SettingName): boolean {
+	return /^IDOC_(S4|EWM)_/.test(name);
+}
+
 /**
  * Where a recording for the system can be saved, and with which recorder: each of its folders
  * except those starting with `_` (reference and agent tests). An SAP system records with the UI5
@@ -117,5 +128,9 @@ export function settingNames(systems = signInSystems()): SettingName[] {
 
 /** The settings that hold passwords: stored exactly as typed and masked in everything a run records. */
 export function secretSettings(systems = signInSystems()): SettingName[] {
-	return [...systems.map((s) => s.env.password), API_SYSTEM.password];
+	return [
+		...systems.map((s) => s.env.password),
+		API_SYSTEM.password,
+		...IDOC_SYSTEMS.map((s) => s.password)
+	];
 }

@@ -17,23 +17,26 @@
 //   IDOC_CONTROL_PORT   its port (default 47201; 0 = a free port)
 //   IDOC_CONTROL_TOKEN  token every control API request must carry; required when IDOC_CONTROL_HOST is not
 //                       this computer
-// Sending IDocs into SAP (POST /send on the control API), in CPI's place:
-//   IDOC_SAP_URL        the SAP system's address, https://host:port (sender.mts). Without it, nothing is sent.
-//   IDOC_SAP_CLIENT     its client (sap-client)
-//   IDOC_SAP_SERVICE    soap (default: /sap/bc/srt/idoc, as CPI) or xml (/sap/bc/idoc_xml)
-//   IDOC_SAP_USER       user in SAP (basic authentication) ...
-//   IDOC_SAP_PASSWORD   ... and its password
-//   IDOC_SAP_TLS_CERT   client certificate (PEM file) SAP maps to a user: mutual TLS, instead of or besides the user
-//   IDOC_SAP_TLS_KEY    its private key (PEM file)
-//   IDOC_SAP_TLS_CA     CA (PEM file) to trust for SAP's server certificate, besides the usual ones
-//   IDOC_SAP_TIMEOUT_MS how long to wait for SAP's answer (default 60000)
-//   IDOC_FAKE_SAP=1     send to a stand-in for SAP in this process (fake-sap.mts) instead; for trying it out
+// Sending IDocs into SAP (POST /send on the control API), in CPI's place. One set of settings per SAP system,
+// IDOC_S4_* for S/4HANA and IDOC_EWM_* for EWM (here IDOC_S4_*):
+//   IDOC_S4_URL         the system's address, https://host:port (sender.mts). Without it, nothing is sent there.
+//   IDOC_S4_CLIENT      its client (sap-client)
+//   IDOC_S4_SERVICE     soap (default: /sap/bc/srt/idoc, as CPI) or xml (/sap/bc/idoc_xml)
+//   IDOC_S4_USER        user in SAP (basic authentication) ...
+//   IDOC_S4_PASSWORD    ... and its password
+//   IDOC_S4_TLS_CERT    client certificate (PEM file) SAP maps to a user: mutual TLS, instead of or besides the user
+//   IDOC_S4_TLS_KEY     its private key (PEM file)
+//   IDOC_S4_TLS_CA      CA (PEM file) to trust for SAP's server certificate, besides the usual ones
+//   IDOC_S4_TIMEOUT_MS  how long to wait for SAP's answer (default 60000)
+//   IDOC_FAKE_SAP=1     every system without an address gets a stand-in for SAP in this process (fake-sap.mts),
+//                       for trying it out
 // With a login for SAP, IDOC_CONTROL_TOKEN is required: the control API could otherwise send in its name.
 // When ready it prints one line `IDOC_READY {"idocUrl":…,"controlUrl":…}` for programs that start it.
 import { readFileSync } from 'node:fs';
 import { startFakeSap, type RunningFakeSap } from './fake-sap.mts';
 import { startReceiver } from './receiver.mts';
-import type { SapService, SapTarget } from './sender.mts';
+import { SAP_SYSTEMS, type SapService, type SapSystem } from './sender.mts';
+import type { SapDestinations } from './receiver.mts';
 
 const env = process.env;
 const port = (value: string | undefined, fallback: number) =>
@@ -72,45 +75,55 @@ const fail = (message: string): never => {
 	console.error(message);
 	process.exit(1);
 };
-const sapCert = file('IDOC_SAP_TLS_CERT');
-const sapKey = file('IDOC_SAP_TLS_KEY');
-if (Boolean(sapCert) !== Boolean(sapKey))
-	fail('Set IDOC_SAP_TLS_CERT and IDOC_SAP_TLS_KEY together.');
-if (Boolean(env.IDOC_SAP_USER) !== Boolean(env.IDOC_SAP_PASSWORD))
-	fail('Set IDOC_SAP_USER and IDOC_SAP_PASSWORD together.');
-const serviceSetting = env.IDOC_SAP_SERVICE || 'soap';
-const service: SapService =
-	serviceSetting === 'soap' || serviceSetting === 'xml'
-		? serviceSetting
-		: fail(`IDOC_SAP_SERVICE is soap or xml, not "${serviceSetting}".`);
 const fakeSap = env.IDOC_FAKE_SAP === '1';
-if (fakeSap && env.IDOC_SAP_URL) fail('Set IDOC_SAP_URL or IDOC_FAKE_SAP=1, not both.');
-
-let fake: RunningFakeSap | undefined;
-let sap: SapTarget | undefined;
-if (fakeSap) {
-	fake = await startFakeSap();
-	sap = { url: fake.url, service };
-} else if (env.IDOC_SAP_URL) {
-	const sapCa = file('IDOC_SAP_TLS_CA');
-	sap = {
-		url: env.IDOC_SAP_URL,
-		client: env.IDOC_SAP_CLIENT || undefined,
-		service,
-		basicAuth:
-			env.IDOC_SAP_USER && env.IDOC_SAP_PASSWORD
-				? { user: env.IDOC_SAP_USER, password: env.IDOC_SAP_PASSWORD }
-				: undefined,
-		tls: sapCert || sapCa ? { cert: sapCert, key: sapKey, ca: sapCa } : undefined,
-		timeoutMs: env.IDOC_SAP_TIMEOUT_MS ? Number(env.IDOC_SAP_TIMEOUT_MS) : undefined
+const fakes: RunningFakeSap[] = [];
+/** Where IDocs for `system` go, from its IDOC_<SYSTEM>_* settings: the system, a stand-in, or nowhere. */
+async function destination(system: SapSystem): Promise<SapDestinations[SapSystem]> {
+	const prefix = `IDOC_${system.toUpperCase()}_`;
+	const setting = (name: string) => env[prefix + name] || undefined;
+	const serviceSetting = setting('SERVICE') ?? 'soap';
+	const service: SapService =
+		serviceSetting === 'soap' || serviceSetting === 'xml'
+			? serviceSetting
+			: fail(`${prefix}SERVICE is soap or xml, not "${serviceSetting}".`);
+	const url = setting('URL');
+	if (!url) {
+		if (!fakeSap) return undefined;
+		const standIn = await startFakeSap();
+		fakes.push(standIn);
+		return { target: { url: standIn.url, service }, standIn };
+	}
+	const sapCert = file(`${prefix}TLS_CERT`);
+	const sapKey = file(`${prefix}TLS_KEY`);
+	if (Boolean(sapCert) !== Boolean(sapKey))
+		fail(`Set ${prefix}TLS_CERT and ${prefix}TLS_KEY together.`);
+	const user = setting('USER');
+	const password = setting('PASSWORD');
+	if (Boolean(user) !== Boolean(password))
+		fail(`Set ${prefix}USER and ${prefix}PASSWORD together.`);
+	const sapCa = file(`${prefix}TLS_CA`);
+	const timeout = setting('TIMEOUT_MS');
+	return {
+		target: {
+			url,
+			client: setting('CLIENT'),
+			service,
+			basicAuth: user && password ? { user, password } : undefined,
+			tls: sapCert || sapCa ? { cert: sapCert, key: sapKey, ca: sapCa } : undefined,
+			timeoutMs: timeout ? Number(timeout) : undefined
+		}
 	};
+}
+const sap: SapDestinations = {};
+for (const system of SAP_SYSTEMS) {
+	const found = await destination(system);
+	if (found) sap[system] = found;
 }
 
 let receiver;
 try {
 	receiver = await startReceiver({
 		sap,
-		fakeSap: fake,
 		host: env.IDOC_HOST || '127.0.0.1',
 		port: port(env.IDOC_PORT, 47200),
 		tls: cert && key ? { cert, key, ca, clientFingerprint } : undefined,
@@ -137,9 +150,9 @@ console.log(
 	`  IDoc endpoint on ${idocUrl}/idoc/<partner> (login: ${login.join(' and ') || 'none'})`
 );
 console.log(`  control API on ${controlUrl} (GET /health, /idocs, /replies, /failures, /sent)`);
-if (sap)
+for (const [system, { target, standIn }] of Object.entries(sap))
 	console.log(
-		`  sends into SAP at ${sap.url} (${sap.service}${fake ? ', a stand-in for SAP in this process' : ''})`
+		`  sends into ${system} at ${target.url} (${target.service}${standIn ? ', a stand-in for SAP in this process' : ''})`
 	);
 console.log(`IDOC_READY ${JSON.stringify({ idocUrl, controlUrl })}`);
 inbox.onIdoc(({ seq, partner, accepted, idoc: { control } }) =>
@@ -149,7 +162,7 @@ inbox.onIdoc(({ seq, partner, accepted, idoc: { control } }) =>
 );
 
 const shutdown = () => {
-	void Promise.all([receiver.close(), fake?.close()]).then(() => process.exit(0));
+	void Promise.all([receiver.close(), ...fakes.map((f) => f.close())]).then(() => process.exit(0));
 };
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);

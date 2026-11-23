@@ -169,9 +169,11 @@ test('Mock PLC: against a real EWM a scenario asks for the HU numbers and runs w
 	await expect(page.getByText('Start the Mock PLC')).toBeVisible();
 });
 
-test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and the list cleared', async ({
+test('Mock IDoc: a sample IDoc is received and shown, refused once set so, the list cleared, and one sent into EWM', async ({
 	page
 }) => {
+	// The receiver card's send button; the card that sends into SAP has one with the same icon.
+	const sendSample = page.locator('ui5-button[icon="paper-plane"]', { hasText: /^\s*Send\s*$/ });
 	await page.goto('/idoc');
 	await expect(page.getByText('Start the IDoc receiver')).toBeVisible();
 	await page.locator('ui5-button[icon="play"]').click();
@@ -181,8 +183,8 @@ test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and t
 
 	// The sample stands in for SAP.
 	await page.locator('#sample').click();
-	await page.locator('ui5-option[data-value="orders05.xml"]').click();
-	await page.locator('ui5-button[icon="paper-plane"]').click();
+	await page.locator('#sample ui5-option[data-value="orders05.xml"]').click();
+	await sendSample.click();
 	await expect(page.getByText('The receiver accepted the IDoc.')).toBeVisible();
 	const first = page.locator('button.idoc', { hasText: 'ORDERS05 · ORDRSP' });
 	await expect(first).toHaveCount(1);
@@ -198,7 +200,7 @@ test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and t
 	// Refuse PWMOCK's IDocs (the form starts at "Refuse" with HTTP 500).
 	await page.locator('ui5-button', { hasText: /^\s*Set\s*$/ }).click();
 	await expect(page.getByText('Rejected with HTTP 500: Rejected by the IDoc mock')).toBeVisible();
-	await page.locator('ui5-button[icon="paper-plane"]').click();
+	await sendSample.click();
 	await expect(
 		page.getByText('The receiver refused the IDoc (HTTP 500): Rejected by the IDoc mock')
 	).toBeVisible();
@@ -208,6 +210,17 @@ test('Mock IDoc: a sample IDoc is received and shown, refused once set so, and t
 
 	await page.locator('ui5-button[icon="delete"]').click();
 	await expect(page.getByText('No IDocs yet.')).toBeVisible();
+
+	// Without an SAP system set, each system has a stand-in: send the inbound sample into EWM's.
+	await page.locator('#sap-to').click();
+	await page.locator('#sap-to ui5-option[data-value="ewm"]').click();
+	await page.locator('ui5-button', { hasText: 'Send to EWM' }).click();
+	await expect(
+		page.getByText('The stand-in for EWM took the IDoc: IDoc number 0000000000000001.')
+	).toBeVisible();
+	await expect(page.locator('ui5-tag', { hasText: 'Taken by the stand-in' })).toHaveCount(1);
+	await page.locator('ui5-button', { hasText: 'Clear the list' }).click();
+	await expect(page.getByText('Nothing sent yet.')).toBeVisible();
 	await page.locator('ui5-button[icon="stop"]').click();
 	await expect(page.getByText('Start the IDoc receiver')).toBeVisible();
 });

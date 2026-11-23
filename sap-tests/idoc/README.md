@@ -112,18 +112,20 @@ The inbox is shared by everyone using the receiver. Tests that run in parallel a
 
 ## Sending into SAP
 
-The receiver sends IDocs into one SAP system, set when it starts (`server.mts` lists the settings):
+The receiver sends IDocs straight into S/4HANA or EWM, each set when it starts (`server.mts` lists the settings). CPI is not involved: the receiver calls the same service on the SAP system that CPI's IDoc adapter calls. One set of settings per system, `IDOC_S4_*` for S/4HANA and `IDOC_EWM_*` for EWM (here for S/4HANA):
 
-| Setting                                 | Means                                                                                  |
-| --------------------------------------- | -------------------------------------------------------------------------------------- |
-| `IDOC_SAP_URL`                          | The SAP system, `https://host:port`. Without it, the receiver only receives.           |
-| `IDOC_SAP_CLIENT`                       | The client (`sap-client`).                                                             |
-| `IDOC_SAP_SERVICE`                      | `soap` (default) or `xml`, see below.                                                  |
-| `IDOC_SAP_USER`, `IDOC_SAP_PASSWORD`    | A user in SAP, for basic authentication.                                               |
-| `IDOC_SAP_TLS_CERT`, `IDOC_SAP_TLS_KEY` | A client certificate SAP maps to a user (mutual TLS), instead of or besides the user.  |
-| `IDOC_SAP_TLS_CA`                       | A CA to trust for SAP's server certificate, besides the usual ones.                    |
-| `IDOC_SAP_TIMEOUT_MS`                   | How long to wait for SAP's answer (default 60 s).                                      |
-| `IDOC_FAKE_SAP=1`                       | Send to the stand-in in the receiver's process instead. `bun run test:idoc` does this. |
+| Setting                               | Means                                                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `IDOC_S4_URL`                         | The system, `https://host:port`, no path. Without it, nothing goes into that system (see the stand-in).  |
+| `IDOC_S4_CLIENT`                      | The client (`sap-client`).                                                                               |
+| `IDOC_S4_SERVICE`                     | `soap` (default) or `xml`, see below.                                                                    |
+| `IDOC_S4_USER`, `IDOC_S4_PASSWORD`    | A user in SAP, for basic authentication.                                                                 |
+| `IDOC_S4_TLS_CERT`, `IDOC_S4_TLS_KEY` | A client certificate SAP maps to a user (mutual TLS), instead of or besides the user.                    |
+| `IDOC_S4_TLS_CA`                      | A CA to trust for SAP's server certificate, besides the usual ones.                                      |
+| `IDOC_S4_TIMEOUT_MS`                  | How long to wait for SAP's answer (default 60 s).                                                        |
+| `IDOC_FAKE_SAP=1`                     | Each system without an address gets a stand-in in the receiver's process. `bun run test:idoc` does this. |
+
+The app's Settings page has the address, client, user and password of both systems ("IDocs into S/4HANA", "IDocs into EWM"); the other settings come from the app's environment or `sap-tests/.env`. The app hands them to the receiver it starts, never to a test run: tests send through the receiver. It starts the receiver with the stand-ins on, so the Mock IDoc page can send without SAP; `IDOC_FAKE_SAP=0` turns them off. After changing a setting, start the receiver again.
 
 The two services on the SAP side:
 
@@ -136,19 +138,21 @@ Over `http://` the sender only goes to this computer. A login for SAP needs `IDO
 
 Control API:
 
-| Request               | Does                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /send`          | Sends `{"xml": "<IDoc-XML>"}` or `{"idocs": [...]}` (all of one type) into SAP. Answers with the send: the IDocs as sent and `result` (`ok`, `status`, `idocNumbers`, `reason`, SAP's `body`). An IDoc marked outbound (`DIRECT 1`) or anything that isn't IDoc-XML gets 400 and isn't sent. If SAP can't be reached or doesn't answer in time, the send is recorded with status 0. |
-| `GET /sent`           | The newest 200 sends, oldest first; `?after=<seq>` for the newer ones.                                                                                                                                                                                                                                                                                                              |
-| `DELETE /sent`        | Clears the list of sends. Clearing the inbox leaves it.                                                                                                                                                                                                                                                                                                                             |
-| `PUT /fake-sap/reply` | Only with `IDOC_FAKE_SAP=1`: how the stand-in answers, `{"mode":"reject","status":500,"message":"…"}` or `{"mode":"accept"}`. For testing a refusal from SAP.                                                                                                                                                                                                                       |
-| `GET /info`           | Also gives `sap`: the address, client, service, kind of login and whether it is the stand-in (`standIn`), or `null`.                                                                                                                                                                                                                                                                |
+| Request                        | Does                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /send`                   | Sends `{"xml": "<IDoc-XML>"}` or `{"idocs": [...]}` (all of one type) into the system in `to`, `s4` (default) or `ewm`; 409 when that system isn't set. Answers with the send: the IDocs as sent and `result` (`ok`, `status`, `idocNumbers`, `reason`, SAP's `body`). An IDoc marked outbound (`DIRECT 1`) or anything that isn't IDoc-XML gets 400 and isn't sent. If SAP can't be reached or doesn't answer in time, the send is recorded with status 0. |
+| `GET /sent`                    | The newest 200 sends, oldest first; `?after=<seq>` for the newer ones.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `DELETE /sent`                 | Clears the list of sends. Clearing the inbox leaves it.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `PUT /fake-sap/<system>/reply` | Only for a system with a stand-in: how it answers, `{"mode":"reject","status":500,"message":"…"}` or `{"mode":"accept"}`. For testing a refusal from SAP.                                                                                                                                                                                                                                                                                                   |
+| `GET /info`                    | Also gives `sap`: per system set (`system`, `title`), the address, client, service, kind of login and whether it is a stand-in (`standIn`). Empty when none is set.                                                                                                                                                                                                                                                                                         |
 
 In tests:
 
 ```ts
 const { result } = await idocSender.send(readFileSync('…/orders05-inbound.xml', 'utf8'));
 const [idocNumber] = result.idocNumbers;
+// into EWM instead of S/4HANA:
+await idocSender.send(idoc, { to: 'ewm' });
 // then check the IDoc in SAP (WE02 or BD87: status 53) and the document made from it
 ```
 
@@ -177,7 +181,7 @@ These follow SAP's conventions as far as they are documented, but haven't been c
 - **SAP's answer from `/sap/bc/srt/idoc`:** that it names each IDoc's number in a `DbId` element (CPI passes it on as the header `SapIDocDbId`), and that a refusal is a SOAP fault. The stand-in answers that way. What `/sap/bc/idoc_xml` answers is not known either.
 - **The receiver's answers:** that SAP sets status 03 on HTTP 200 whatever the body says, accepts an empty SOAP envelope as the answer to SOAP, and sets an error status on any HTTP error.
 
-A captured IDoc from the RISE dev system settles the first four. Add it to `samples/` once its data is anonymised. The receiver's answers need a test send from SAP to the receiver (WE19, or a business step), with the IDoc statuses checked in WE02. SAP's answer needs one send into the RISE dev system with `IDOC_SAP_URL` set; keep the answer from the Mock IDoc page (technical view) or `GET /sent`.
+A captured IDoc from the RISE dev system settles the first four. Add it to `samples/` once its data is anonymised. The receiver's answers need a test send from SAP to the receiver (WE19, or a business step), with the IDoc statuses checked in WE02. SAP's answer needs one send into the RISE dev system with `IDOC_S4_URL` or `IDOC_EWM_URL` set; keep the answer from the Mock IDoc page (technical view) or `GET /sent`.
 
 ## Not built yet
 

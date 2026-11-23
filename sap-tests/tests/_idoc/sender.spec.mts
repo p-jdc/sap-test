@@ -229,17 +229,27 @@ const SentListSchema = z.array(SentIdocsSchema);
 test.describe('the receiver’s POST /send', () => {
 	test('sends IDoc-XML or IDocs into the SAP system set, and keeps each send with SAP’s answer', async () => {
 		const sap = await fakeSap();
-		const r = await receiver({ sap: { url: sap.url, client: '100' } });
+		const r = await receiver({ sap: { s4: { target: { url: sap.url, client: '100' } } } });
 
 		const info = await control(r, 'GET', '/info');
 		expect(info.body).toMatchObject({
-			sap: { url: sap.url, client: '100', service: 'soap', login: 'none', standIn: false }
+			sap: [
+				{
+					system: 's4',
+					title: 'S/4HANA',
+					url: sap.url,
+					client: '100',
+					service: 'soap',
+					login: 'none',
+					standIn: false
+				}
+			]
 		});
 
 		const first = await control(r, 'POST', '/send', { xml: sample('orders05-inbound.xml') });
 		expect(first.status).toBe(200);
 		const sent = SentIdocsSchema.parse(first.body);
-		expect(sent).toMatchObject({ seq: 1, by: 'person', result: { ok: true } });
+		expect(sent).toMatchObject({ seq: 1, by: 'person', to: 's4', result: { ok: true } });
 		expect(sent.result.idocNumbers).toEqual(['0000000000000001']);
 
 		sap.reply = { mode: 'reject', message: 'No partner profile' };
@@ -265,7 +275,7 @@ test.describe('the receiver’s POST /send', () => {
 
 	test('what can’t be sent is refused and not recorded; SAP out of reach is recorded', async () => {
 		const sap = await fakeSap();
-		const r = await receiver({ sap: { url: sap.url } });
+		const r = await receiver({ sap: { s4: { target: { url: sap.url } } } });
 		const refused = [
 			{ xml: '<nothing/>' },
 			{ xml: sample('orders05.xml') },
@@ -284,7 +294,7 @@ test.describe('the receiver’s POST /send', () => {
 
 	test('a large send keeps characters that fall on a chunk boundary', async () => {
 		const sap = await fakeSap();
-		const r = await receiver({ sap: { url: sap.url } });
+		const r = await receiver({ sap: { s4: { target: { url: sap.url } } } });
 		// Two bytes each in UTF-8, well beyond one chunk of the request. The single-byte x between the runs
 		// shifts them by one byte, so some chunk boundary falls inside a character.
 		const long = Array.from({ length: 40 }, () => 'äöüß'.repeat(1500)).join('x');
@@ -294,20 +304,59 @@ test.describe('the receiver’s POST /send', () => {
 		expect(sap.received[0].idoc.segments[0].fields.BELNR).toBe(long);
 	});
 
-	test('the stand-in’s answer can be set only when there is one', async () => {
+	test('each SAP system has its own target, and a send goes where `to` says', async () => {
+		const s4 = await fakeSap();
+		const ewm = await fakeSap();
+		const r = await receiver({
+			sap: { s4: { target: { url: s4.url } }, ewm: { target: { url: ewm.url, client: '200' } } }
+		});
+		expect((await control(r, 'GET', '/info')).body).toMatchObject({
+			sap: [
+				{ system: 's4', url: s4.url },
+				{ system: 'ewm', title: 'EWM', url: ewm.url, client: '200' }
+			]
+		});
+		const intoEwm = SentIdocsSchema.parse(
+			(await control(r, 'POST', '/send', { idocs: [bare], to: 'ewm' })).body
+		);
+		expect(intoEwm).toMatchObject({ to: 'ewm', result: { ok: true } });
+		expect(ewm.received.map((i) => i.client)).toEqual(['200']);
+		expect(s4.received).toEqual([]);
+		expect((await control(r, 'POST', '/send', { idocs: [bare], to: 'bw' })).status).toBe(400);
+
+		// A system that isn't set can't be sent to, even when another is.
+		const onlyEwm = await receiver({ sap: { ewm: { target: { url: ewm.url } } } });
+		const answer = await control(onlyEwm, 'POST', '/send', { idocs: [bare] });
+		expect(answer.status).toBe(409);
+		expect(answer.body).toEqual({ error: expect.stringContaining('IDOC_S4_URL') });
+	});
+
+	test('a stand-in’s answer can be set only for a system that has one', async () => {
 		const sap = await fakeSap();
-		const withFake = await receiver({ sap: { url: sap.url }, fakeSap: sap });
+		const other = await fakeSap();
+		const withFake = await receiver({
+			sap: {
+				s4: { target: { url: sap.url } },
+				ewm: { target: { url: other.url }, standIn: other }
+			}
+		});
 		expect((await control(withFake, 'GET', '/info')).body).toMatchObject({
-			sap: { standIn: true }
+			sap: [
+				{ system: 's4', standIn: false },
+				{ system: 'ewm', standIn: true }
+			]
 		});
 		expect(
-			(await control(withFake, 'PUT', '/fake-sap/reply', { mode: 'reject', status: 503 })).body
+			(await control(withFake, 'PUT', '/fake-sap/ewm/reply', { mode: 'reject', status: 503 })).body
 		).toEqual({ mode: 'reject', status: 503, message: 'Rejected by the stand-in for SAP' });
-		expect(sap.reply).toMatchObject({ mode: 'reject', status: 503 });
+		expect(other.reply).toMatchObject({ mode: 'reject', status: 503 });
+		expect(sap.reply).toEqual({ mode: 'accept' });
 
-		const withoutFake = await receiver({ sap: { url: sap.url } });
-		expect((await control(withoutFake, 'PUT', '/fake-sap/reply', { mode: 'accept' })).status).toBe(
+		expect((await control(withFake, 'PUT', '/fake-sap/s4/reply', { mode: 'accept' })).status).toBe(
 			409
+		);
+		expect((await control(withFake, 'PUT', '/fake-sap/bw/reply', { mode: 'accept' })).status).toBe(
+			404
 		);
 	});
 
@@ -315,8 +364,8 @@ test.describe('the receiver’s POST /send', () => {
 		const r = await receiver({});
 		const answer = await control(r, 'POST', '/send', { idocs: [bare] });
 		expect(answer.status).toBe(409);
-		expect(answer.body).toEqual({ error: expect.stringContaining('IDOC_SAP_URL') });
-		expect((await control(r, 'GET', '/info')).body).toMatchObject({ sap: null });
+		expect(answer.body).toEqual({ error: expect.stringContaining('IDOC_S4_URL') });
+		expect((await control(r, 'GET', '/info')).body).toMatchObject({ sap: [] });
 	});
 
 	test('with a login for SAP, the control API needs a token', async () => {
@@ -324,16 +373,18 @@ test.describe('the receiver’s POST /send', () => {
 			url: 'https://s4dev.example.com',
 			basicAuth: { user: 'CPI_IDOC', password: 'not-a-real-secret' }
 		};
-		await expect(startReceiver({ sap: target })).rejects.toThrow(/set a control token/);
-		await expect(startReceiver({ sap: { url: 'http://s4dev.example.com' } })).rejects.toThrow(
-			/must start with https/
+		await expect(startReceiver({ sap: { ewm: { target } } })).rejects.toThrow(
+			/set a control token/
 		);
-		const r = await receiver({ sap: target, controlToken: 'test-token' });
+		await expect(
+			startReceiver({ sap: { s4: { target: { url: 'http://s4dev.example.com' } } } })
+		).rejects.toThrow(/must start with https/);
+		const r = await receiver({ sap: { ewm: { target } }, controlToken: 'test-token' });
 		const info = await fetch(`${r.controlUrl}/info`, {
 			headers: { authorization: 'Bearer test-token' }
 		});
 		const body = (await info.json()) as unknown;
-		expect(body).toMatchObject({ sap: { login: 'user' } });
+		expect(body).toMatchObject({ sap: [{ system: 'ewm', login: 'user' }] });
 		// Which login, never the login itself.
 		expect(JSON.stringify(body)).not.toMatch(/CPI_IDOC|not-a-real-secret/);
 	});

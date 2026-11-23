@@ -53,7 +53,7 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Tests, die von SAP gesendete IDocs prüfen oder IDocs an SAP senden, importieren `test` und `expect` aus '../../sap-plugin/idoc'. OData-Fixtures und SAP-Locators bleiben verfügbar.
 - Auf das IDoc mit `idocInbox.waitFor({ partner, messageType })` warten, nicht mit festen Wartezeiten. Mit `where` auf etwas Eindeutiges des Tests einschränken, z. B. die Belegnummer aus der Erfolgsmeldung: Der Empfänger wird geteilt.
 - Fehlerfälle mit `idocInbox.reply(partner, { mode: 'reject' })` oder `{ mode: 'slow', delayMs }` testen und danach den IDoc-Status in SAP prüfen. Die Antwort gilt nur bis zum Ende des Tests.
-- IDocs, die SAP empfangen soll, mit `idocSender.send(xml oder idoc)` senden (wie CPI über HTTPS), nicht mit selbst gebauten Aufrufen. Mit der zurückgegebenen IDoc-Nummer (`result.idocNumbers`) den Status in SAP prüfen (WE02/BD87, Status 53) und den Beleg, der daraus entstand. Negativfälle mit `{ expectOk: false }` und dem Ergebnis prüfen, nicht mit try/catch.
+- IDocs, die SAP empfangen soll, mit `idocSender.send(xml oder idoc)` senden (wie CPI über HTTPS), nicht mit selbst gebauten Aufrufen. Das Ziel ist S/4HANA; für EWM `{ to: 'ewm' }`. Mit der zurückgegebenen IDoc-Nummer (`result.idocNumbers`) den Status in SAP prüfen (WE02/BD87, Status 53) und den Beleg, der daraus entstand. Negativfälle mit `{ expectOk: false }` und dem Ergebnis prüfen, nicht mit try/catch.
 - Neue IDoc-Tests müssen auch gegen den lokalen Empfänger laufen (`bun run test:idoc`).
 
 ## Was abgedeckt sein muss

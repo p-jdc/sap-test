@@ -70,15 +70,19 @@ const SETTINGS = [
 	'IDOC_USER',
 	'IDOC_PASSWORD',
 	'IDOC_FAKE_SAP',
-	'IDOC_SAP_URL',
-	'IDOC_SAP_CLIENT',
-	'IDOC_SAP_SERVICE',
-	'IDOC_SAP_USER',
-	'IDOC_SAP_PASSWORD',
-	'IDOC_SAP_TLS_CERT',
-	'IDOC_SAP_TLS_KEY',
-	'IDOC_SAP_TLS_CA',
-	'IDOC_SAP_TIMEOUT_MS'
+	...['S4', 'EWM'].flatMap((system) =>
+		[
+			'URL',
+			'CLIENT',
+			'SERVICE',
+			'USER',
+			'PASSWORD',
+			'TLS_CERT',
+			'TLS_KEY',
+			'TLS_CA',
+			'TIMEOUT_MS'
+		].map((name) => `IDOC_${system}_${name}`)
+	)
 ];
 const saved = new Map<string, string | undefined>();
 beforeAll(() => {
@@ -214,35 +218,64 @@ describe('IDoc receiver', () => {
 		}
 	});
 
-	test('sends a sample into SAP (here the stand-in) and lists the sends with SAP’s answer', async () => {
-		process.env.IDOC_FAKE_SAP = '1';
+	test('without an SAP system set, it sends into a stand-in for S/4HANA and one for EWM', async () => {
+		await startReceiver();
+		const ready = await waitFor((s) => s.sap.length > 0);
+		expect(ready.sap).toMatchObject([
+			{ system: 's4', title: 'S/4HANA', service: 'soap', login: 'none', standIn: true },
+			{ system: 'ewm', title: 'EWM', standIn: true }
+		]);
+		expect(ready.sent).toEqual([]);
+
+		const { result } = await sendSampleToSap('orders05-inbound.xml', 'ewm');
+		expect(result).toMatchObject({ ok: true, idocNumbers: ['0000000000000001'] });
+		// Each system numbers its own IDocs.
+		const intoS4 = await sendSampleToSap('orders05-inbound.xml', 's4');
+		expect(intoS4.result.idocNumbers).toEqual(['0000000000000001']);
+		const listed = await waitFor((s) => s.sent.length === 2);
+		expect(listed.sent.map((entry) => [entry.seq, entry.to, entry.by])).toEqual([
+			[1, 'ewm', 'person'],
+			[2, 's4', 'person']
+		]);
+
+		// An outbound sample is refused before it goes out, and not listed.
+		await expect(sendSampleToSap('orders05.xml', 's4')).rejects.toThrow(/DIRECT 1/);
+		await expect(sendSampleToSap('../secret.xml', 's4')).rejects.toThrow(/no sample/);
+
+		await clearSent();
+		await waitFor((s) => s.sent.length === 0);
+	});
+
+	test('with the stand-ins turned off and no SAP system set, sending is refused', async () => {
+		process.env.IDOC_FAKE_SAP = '0';
 		try {
 			await startReceiver();
-			const ready = await waitFor((s) => s.sap !== null);
-			expect(ready.sap).toMatchObject({ service: 'soap', login: 'none', standIn: true });
-			expect(ready.sent).toEqual([]);
-
-			const { result } = await sendSampleToSap('orders05-inbound.xml');
-			expect(result).toMatchObject({ ok: true, idocNumbers: ['0000000000000001'] });
-			const listed = await waitFor((s) => s.sent.length === 1);
-			expect(listed.sent[0]).toMatchObject({ seq: 1, by: 'person', result: { ok: true } });
-
-			// An outbound sample is refused before it goes out, and not listed.
-			await expect(sendSampleToSap('orders05.xml')).rejects.toThrow(/DIRECT 1/);
-			await expect(sendSampleToSap('../secret.xml')).rejects.toThrow(/no sample/);
-
-			await clearSent();
-			await waitFor((s) => s.sent.length === 0);
+			const ready = await waitFor((s) => s.endpoint !== undefined);
+			expect(ready.sap).toEqual([]);
+			await expect(sendSampleToSap('orders05-inbound.xml', 's4')).rejects.toThrow(
+				/no S\/4HANA system/
+			);
 		} finally {
 			delete process.env.IDOC_FAKE_SAP;
 		}
 	});
 
-	test('without an SAP system set, the page shows none and sending is refused', async () => {
-		await startReceiver();
-		const ready = await waitFor((s) => s.endpoint !== undefined);
-		expect(ready.sap).toBeNull();
-		await expect(sendSampleToSap('orders05-inbound.xml')).rejects.toThrow(/no SAP system/);
+	test('sends into the S/4HANA system set, and a stand-in only for EWM', async () => {
+		// As the Settings page saves them. An address on this computer that nothing answers on: the send is
+		// recorded as not reached.
+		envFile.values = { IDOC_S4_URL: 'http://127.0.0.1:9', IDOC_S4_CLIENT: '100' };
+		try {
+			await startReceiver();
+			const ready = await waitFor((s) => s.sap.length > 0);
+			expect(ready.sap).toMatchObject([
+				{ system: 's4', url: 'http://127.0.0.1:9', client: '100', standIn: false },
+				{ system: 'ewm', standIn: true }
+			]);
+			const { result } = await sendSampleToSap('orders05-inbound.xml', 's4');
+			expect(result).toMatchObject({ ok: false, status: 0 });
+		} finally {
+			envFile.values = {};
+		}
 	});
 
 	test('a receiver that refuses its settings reports why', async () => {

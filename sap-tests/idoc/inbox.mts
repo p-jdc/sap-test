@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Idoc, Segment } from './idoc.mts';
-import type { SendResult } from './sender.mts';
+import { SAP_SYSTEMS, type SendResult } from './sender.mts';
 import type { ParsedIdocXml } from './xml.mts';
 
 /** How the receiver answers a partner's IDocs. SAP sets status 03 on an accepted IDoc and an error status
@@ -101,6 +101,8 @@ export const SentIdocsSchema = z.object({
 	sentAt: z.string(),
 	/** `test` when a running test sent them (the idocSender fixture), otherwise `person`. */
 	by: z.enum(['test', 'person']),
+	/** The SAP system they were sent into. */
+	to: z.enum(SAP_SYSTEMS),
 	/** The IDocs as they went to SAP, with TABNAM and DIRECT filled in. */
 	idocs: z.array(IdocBodySchema),
 	result: SendResultSchema
