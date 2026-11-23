@@ -1,5 +1,6 @@
 <script lang="ts">
 	import IdocSegments from '#lib/components/idoc/IdocSegments.svelte';
+	import { settingsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
 	import {
@@ -14,7 +15,7 @@
 		stopIdocReceiver,
 		watchIdocLive
 	} from '#lib/remote/idoc.remote.js';
-	import type { IdocReply, ReceivedIdoc, SentIdocs } from '#lib/shared/idoc.js';
+	import type { IdocReply, IdocSapSystem, ReceivedIdoc, SentIdocs } from '#lib/shared/idoc.js';
 
 	const live = watchIdocLive();
 	const samples = getIdocSamples();
@@ -32,6 +33,7 @@
 	let samplePartner = $state('PWMOCK');
 	let sample = $state('');
 	let sapSample = $state('');
+	let sapTo = $state<IdocSapSystem | ''>('');
 
 	let replyPartner = $state('PWMOCK');
 	let replyMode = $state<IdocReply['mode']>('reject');
@@ -79,7 +81,11 @@
 			(samples.current ?? []).find((s) => s.name.includes('inbound')) ??
 			samples.current?.[0]
 	);
+	/** The SAP system to send into: the one chosen, otherwise the first one set (S/4HANA before EWM). */
+	const target = $derived((snap?.sap ?? []).find((t) => t.system === sapTo) ?? snap?.sap[0]);
 	const sent = $derived((snap?.sent ?? []).toReversed());
+	const systemTitle = (system: IdocSapSystem) =>
+		snap?.sap.find((t) => t.system === system)?.title ?? system;
 
 	const time = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour12: false });
 	const kind = ({ idoc: { control } }: ReceivedIdoc) =>
@@ -106,9 +112,9 @@
 			: '?';
 
 	/** What SAP answered to a send, in a few words. */
-	const sentOutcome = ({ result }: SentIdocs) =>
+	const sentOutcome = ({ result, standIn }: SentIdocs) =>
 		result.ok
-			? ({ text: 'Taken by SAP', design: 'Positive' } as const)
+			? ({ text: standIn ? 'Taken by the stand-in' : 'Taken by SAP', design: 'Positive' } as const)
 			: result.status === 0
 				? ({ text: 'SAP not reached', design: 'Critical' } as const)
 				: ({ text: `Refused (HTTP ${result.status})`, design: 'Negative' } as const);
@@ -166,13 +172,15 @@
 
 	async function sendToSap() {
 		const name = chosenSapSample?.name;
-		if (!name) return;
+		const to = target;
+		if (!name || !to) return;
 		await run(async () => {
-			const { result } = await sendIdocSampleToSap({ name });
+			const { result } = await sendIdocSampleToSap({ name, to: to.system });
 			const numbers = result.idocNumbers.join(', ');
+			const into = to.standIn ? `The stand-in for ${to.title}` : to.title;
 			notice = result.ok
-				? `SAP took the IDoc${numbers ? `: IDoc number ${numbers}` : ''}.`
-				: `SAP did not take the IDoc: ${result.reason ?? `HTTP ${result.status}`}`;
+				? `${into} took the IDoc${numbers ? `: IDoc number ${numbers}` : ''}.`
+				: `${into} did not take the IDoc: ${result.reason ?? `HTTP ${result.status}`}`;
 		});
 	}
 
@@ -208,8 +216,8 @@
 <p class="muted intro">
 	Stands in for the partner system SAP sends IDocs to. It keeps every IDoc SAP sends, so a test can
 	check what a business step produced, and it can refuse IDocs or answer late, to test how SAP
-	handles a partner that is down. It can also send IDocs into SAP, the way SAP Cloud Integration
-	does.
+	handles a partner that is down. It can also send IDocs into S/4HANA or EWM over HTTPS, the way SAP
+	Cloud Integration does.
 </p>
 
 {#if error}
@@ -427,33 +435,47 @@
 		<ui5-card-header
 			slot="header"
 			title-text="Send IDocs into SAP"
-			subtitle-text="In place of SAP Cloud Integration"
+			subtitle-text="Into S/4HANA or EWM, as SAP Cloud Integration would"
 		></ui5-card-header>
 		<div class="card-body">
-			{#if snap.sap}
-				<div class="line">
-					<span class="muted">To</span>
-					<span class="mono">{snap.sap.url}</span>
-					{#if snap.sap.client}<span class="muted">client {snap.sap.client}</span>{/if}
-					{#if snap.sap.standIn}
-						<ui5-tag design="Critical">Stand-in, not SAP</ui5-tag>
-					{/if}
-				</div>
-				{#if snap.sap.standIn}
-					<p class="muted">
-						A stand-in in the receiver takes the IDocs and numbers them, for trying this out. SAP
-						never sees them.
-					</p>
-				{/if}
-				{#if view.technical}
-					<div class="line">
-						<span class="muted mono">
-							{snap.sap.service === 'soap' ? '/sap/bc/srt/idoc (SOAP)' : '/sap/bc/idoc_xml'}
-							· login: {LOGIN_TO_SAP[snap.sap.login]}
-						</span>
-					</div>
-				{/if}
+			{#if target}
 				<div class="form">
+					<ui5-label for="sap-to" show-colon>To</ui5-label>
+					<ui5-select id="sap-to" onchange={select<IdocSapSystem>((v) => (sapTo = v))}>
+						{#each snap.sap as option (option.system)}
+							<ui5-option
+								data-value={option.system}
+								selected={option.system === target.system || undefined}
+							>
+								{option.title}{option.standIn ? ' (stand-in)' : ''}
+							</ui5-option>
+						{/each}
+					</ui5-select>
+					<span></span>
+					<div class="line">
+						{#if target.standIn}
+							<ui5-tag design="Critical">Stand-in, not SAP</ui5-tag>
+						{:else}
+							<span class="mono">{target.url}</span>
+							{#if target.client}<span class="muted">client {target.client}</span>{/if}
+						{/if}
+					</div>
+					{#if target.standIn}
+						<span></span>
+						<p class="muted">
+							No address is set for {target.title}, so a stand-in in the receiver takes the IDocs
+							and numbers them, for trying this out. SAP never sees them. To send into {target.title},
+							set it on the <a href={settingsHref()}>Settings page</a> and start the receiver again.
+						</p>
+					{/if}
+					{#if view.technical}
+						<span></span>
+						<span class="muted mono">
+							{target.standIn ? target.url : ''}
+							{target.service === 'soap' ? '/sap/bc/srt/idoc (SOAP)' : '/sap/bc/idoc_xml'}
+							· login: {LOGIN_TO_SAP[target.login]}
+						</span>
+					{/if}
 					<ui5-label for="sap-sample" show-colon>Sample</ui5-label>
 					<ui5-select id="sap-sample" onchange={select<string>((v) => (sapSample = v))}>
 						{#each samples.current ?? [] as option (option.name)}
@@ -477,7 +499,7 @@
 							disabled={busy || !chosenSapSample || undefined}
 							onclick={sendToSap}
 						>
-							Send to SAP
+							Send to {target.title}
 						</ui5-button>
 						{#if sent.length}
 							<ui5-button
@@ -496,6 +518,7 @@
 						{@const result = sentOutcome(entry)}
 						<div class="line">
 							<span class="muted mono">{time(entry.sentAt)}</span>
+							<span>{systemTitle(entry.to)}</span>
 							<span>{sentKind(entry)}</span>
 							<ui5-tag design={result.design}>{result.text}</ui5-tag>
 							{#if entry.result.idocNumbers.length}
@@ -512,14 +535,13 @@
 				</div>
 			{:else}
 				<p class="muted">
-					No SAP system is set for the receiver, so it only receives. Set one in the app's
-					environment and start the receiver again.
+					No SAP system is set for the receiver, so it only receives. Set S/4HANA or EWM on the
+					<a href={settingsHref()}>Settings page</a> and start the receiver again.
 				</p>
 				{#if view.technical}
 					<p class="muted mono">
-						IDOC_SAP_URL, IDOC_SAP_CLIENT, IDOC_SAP_USER and IDOC_SAP_PASSWORD (or IDOC_SAP_TLS_CERT
-						with IDOC_SAP_TLS_KEY), or IDOC_FAKE_SAP=1 to try it with a stand-in; see
-						sap-tests/idoc/README.md.
+						IDOC_S4_URL or IDOC_EWM_URL, with a client, user and password; IDOC_FAKE_SAP=0 turns the
+						stand-ins off. See sap-tests/idoc/README.md.
 					</p>
 				{/if}
 			{/if}

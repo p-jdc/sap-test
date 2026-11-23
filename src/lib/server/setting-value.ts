@@ -14,14 +14,17 @@ export function settingProblem(setting: SettingName, value: string): string | un
 	if (setting.endsWith('_URL') && !allowsCredentials(value)) {
 		return `${setting} must start with https://. Over http:// the password would cross the network unencrypted; only an address on this computer (localhost) may use http://.`;
 	}
-	if (setting === 'SAP_API_URL') {
-		// The OData clients append the service path themselves.
+	if (setting === 'SAP_API_URL' || /^IDOC_(S4|EWM)_URL$/.test(setting)) {
+		// The OData clients and the IDoc sender append the service path themselves.
 		const url = new URL(value);
 		if (url.pathname !== '/' || url.search || url.hash) {
 			return `${setting} must be the host only, without a path: ${url.origin}`;
 		}
 	}
-	if (setting === 'SAP_CLIENT' && !/^\d{3}$/.test(value)) {
+	if (
+		(setting === 'SAP_CLIENT' || /^IDOC_(S4|EWM)_CLIENT$/.test(setting)) &&
+		!/^\d{3}$/.test(value)
+	) {
 		return `${setting} must be the three digits of an SAP client, for example 100.`;
 	}
 	if (setting === SELF_SIGNED_SETTING) return selfSignedHostProblem(value);

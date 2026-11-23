@@ -19,6 +19,11 @@ export const SAP_PATHS: Record<SapService, string> = {
 	xml: '/sap/bc/idoc_xml'
 };
 
+/** The SAP systems IDocs can be sent into, each with its own settings (IDOC_S4_*, IDOC_EWM_*; server.mts). */
+export const SAP_SYSTEMS = ['s4', 'ewm'] as const;
+export type SapSystem = (typeof SAP_SYSTEMS)[number];
+export const SAP_SYSTEM_TITLES: Record<SapSystem, string> = { s4: 'S/4HANA', ewm: 'EWM' };
+
 export interface SapTarget {
 	/** The SAP system's address, for example https://s4dev.example.com:44300. Only the origin is used. */
 	url: string;

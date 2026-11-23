@@ -30,6 +30,16 @@ test('the SAP client is three digits', () => {
 	expect(settingProblem('SAP_CLIENT', 'abc')).toMatch(/three digits/);
 });
 
+test('an SAP system for IDocs is a host with https and a three-digit client, as the sender adds the path', () => {
+	expect(settingProblem('IDOC_EWM_URL', 'https://ewm.example.com:44300')).toBeUndefined();
+	expect(settingProblem('IDOC_S4_URL', 'https://s4.example.com/sap/bc/srt/idoc')).toMatch(
+		/host only/
+	);
+	expect(settingProblem('IDOC_S4_URL', 'http://s4.example.com')).toMatch(/https/);
+	expect(settingProblem('IDOC_EWM_CLIENT', '100')).toBeUndefined();
+	expect(settingProblem('IDOC_S4_CLIENT', '1000')).toMatch(/three digits/);
+});
+
 test('the self-signed host is a host name or IP address only', () => {
 	expect(settingProblem('SAP_SELF_SIGNED_HOST', '203.0.113.10')).toBeUndefined();
 	expect(settingProblem('SAP_SELF_SIGNED_HOST', 'S4H.Trial.Example.com')).toBeUndefined();

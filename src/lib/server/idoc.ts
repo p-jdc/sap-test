@@ -10,6 +10,7 @@ import {
 	IdocFailureSchema,
 	IdocInfoSchema,
 	IdocListSchema,
+	IDOC_SAP_SETTINGS,
 	IdocReplyInEffectSchema,
 	ReceivedIdocSchema,
 	SentIdocsSchema,
@@ -19,6 +20,7 @@ import {
 	type IdocSampleAnswer,
 	type IdocSnapshot,
 	type IdocStatus,
+	type IdocSapSystem,
 	type IdocSapTarget,
 	type ReceivedIdoc,
 	type SentIdocs
@@ -28,6 +30,7 @@ import { lineSplitter } from './lines.js';
 import { importedPackages, missingPackages } from './mfs.js';
 import { childEnv } from './node-cli.js';
 import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
+import { settingNames } from './systems.js';
 
 const IDOC_DIR = resolve(TESTS_ROOT, 'idoc');
 const SAMPLES_DIR = resolve(IDOC_DIR, 'samples');
@@ -44,35 +47,45 @@ export const PARTNER = /^[A-Za-z0-9_.-]{1,40}$/;
 export const SAMPLE_NAME = /^[a-z0-9][a-z0-9-]{0,62}\.xml$/;
 
 /** The settings of the receiver's IDoc endpoint (see sap-tests/idoc/server.mts). */
-type ReceiverSettings = {
-	IDOC_HOST: string;
-	IDOC_PORT: string;
-	IDOC_TLS_CERT: string;
-	IDOC_TLS_KEY: string;
-	IDOC_TLS_CA: string;
-	IDOC_TLS_CLIENT_FINGERPRINT: string;
-	IDOC_USER: string;
-	IDOC_PASSWORD: string;
-};
+const ENDPOINT_SETTINGS = [
+	'IDOC_HOST',
+	'IDOC_PORT',
+	'IDOC_TLS_CERT',
+	'IDOC_TLS_KEY',
+	'IDOC_TLS_CA',
+	'IDOC_TLS_CLIENT_FINGERPRINT',
+	'IDOC_USER',
+	'IDOC_PASSWORD'
+];
+/** The receiver's settings by name, an empty value for one not set. */
+type ReceiverSettings = Record<string, string>;
 
 /**
- * The receiver's settings, from the app's environment or else sap-tests/.env (the environment wins, as it does
- * for Bun). Read once per start and handed to the receiver as they are, so the page shows and uses the settings
- * the receiver really has.
+ * The receiver's settings. Those of the Settings page (each SAP system's address, client, user and password) as
+ * a run gets them: saved there, else the app's environment, else the test project's environment file, and without
+ * a login kept for another address. The others from the app's environment or else that file (the environment
+ * wins, as it does for Bun). Read once per start and handed to the receiver as they are, so the page shows and
+ * uses the settings the receiver really has.
  */
 async function receiverSettings(): Promise<ReceiverSettings> {
-	const file = await readTestEnv();
-	const value = (name: keyof ReceiverSettings) => process.env[name] ?? file[name] ?? '';
-	return {
-		IDOC_HOST: value('IDOC_HOST'),
-		IDOC_PORT: value('IDOC_PORT'),
-		IDOC_TLS_CERT: value('IDOC_TLS_CERT'),
-		IDOC_TLS_KEY: value('IDOC_TLS_KEY'),
-		IDOC_TLS_CA: value('IDOC_TLS_CA'),
-		IDOC_TLS_CLIENT_FINGERPRINT: value('IDOC_TLS_CLIENT_FINGERPRINT'),
-		IDOC_USER: value('IDOC_USER'),
-		IDOC_PASSWORD: value('IDOC_PASSWORD')
-	};
+	const resolved = await readTestEnv();
+	const onSettingsPage = new Set(settingNames());
+	const value = (name: string) =>
+		(onSettingsPage.has(name) ? resolved[name] : (process.env[name] ?? resolved[name])) ?? '';
+	// The app's own end-to-end tests: stand-ins only, whatever SAP systems this computer has set up.
+	const standInsOnly = process.env.TEST_APP_IDOC_STAND_INS === 'only';
+	const settings: ReceiverSettings = Object.fromEntries([
+		...ENDPOINT_SETTINGS.map((name): [string, string] => [name, value(name)]),
+		...IDOC_SAP_SETTINGS.map((name): [string, string] => [name, standInsOnly ? '' : value(name)])
+	]);
+	// A stand-in for each SAP system without an address, so sending can be tried without SAP. IDOC_FAKE_SAP=0
+	// turns that off.
+	settings.IDOC_FAKE_SAP = standInsOnly || value('IDOC_FAKE_SAP') !== '0' ? '1' : '';
+	// Settings from before S/4HANA and EWM had their own (IDOC_SAP_URL and so on), also from the environment file:
+	// passed on, so the receiver refuses to start and names what replaces them. The environment passes them anyway.
+	for (const [name, setting] of Object.entries(resolved))
+		if (name.startsWith('IDOC_SAP_') && setting) settings[name] = setting;
+	return settings;
 }
 
 type Running = {
@@ -327,16 +340,20 @@ export async function sendSample(name: string, partner: string): Promise<IdocSam
 }
 
 /**
- * Sends a sample IDoc into SAP through the receiver, in CPI's place: into the SAP system the receiver was started
- * with (IDOC_SAP_URL, or the stand-in of IDOC_FAKE_SAP). Returns the send with SAP's answer; it also appears in
- * the list of sends.
+ * Sends a sample IDoc into an SAP system through the receiver, in CPI's place: S/4HANA or EWM, as the receiver was
+ * started with them (IDOC_S4_URL, IDOC_EWM_URL, or a stand-in for one without an address). Returns the send with
+ * SAP's answer; it also appears in the list of sends.
  */
-export function sendSampleToSap(name: string): Promise<SentIdocs> {
+export function sendSampleToSap(name: string, to: IdocSapSystem): Promise<SentIdocs> {
 	if (!listSamples().some((sample) => sample.name === name))
 		return Promise.reject(new Error(`There is no sample "${name}".`));
 	return call('/send', SentIdocsSchema, {
 		method: 'POST',
-		body: JSON.stringify({ xml: readFileSync(resolve(SAMPLES_DIR, name), 'utf8'), by: 'person' })
+		body: JSON.stringify({
+			xml: readFileSync(resolve(SAMPLES_DIR, name), 'utf8'),
+			to,
+			by: 'person'
+		})
 	});
 }
 
@@ -374,7 +391,7 @@ const sleep = (ms: number) =>
 export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 	let instance: string | undefined;
 	let endpoint: IdocEndpoint | undefined;
-	let sap: IdocSapTarget | null = null;
+	let sap: IdocSapTarget[] = [];
 	let idocs: ReceivedIdoc[] = [];
 	let cursor = 0;
 	let last = '';
@@ -386,7 +403,7 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 			replies: {},
 			failures: [],
 			canSendSamples: false,
-			sap: null,
+			sap: [],
 			sent: []
 		};
 		if (status.running) {
@@ -407,7 +424,7 @@ export async function* watchIdoc(): AsyncGenerator<IdocSnapshot, void, void> {
 					call(`/idocs?after=${cursor}&limit=${KEEP}`, IdocListSchema),
 					call('/replies', z.record(z.string(), IdocReplyInEffectSchema)),
 					call('/failures', z.array(IdocFailureSchema)),
-					sap ? call('/sent', z.array(SentIdocsSchema)) : Promise.resolve([])
+					sap.length > 0 ? call('/sent', z.array(SentIdocsSchema)) : Promise.resolve([])
 				]);
 				// oxlint-disable-next-line no-await-in-loop
 				idocs = [...(await refreshPending(idocs)), ...list.idocs].slice(-KEEP);

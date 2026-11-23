@@ -10,7 +10,7 @@ import { isInsecureHttp } from './secure-url';
 // also loads the receiver (tests/_idoc) gets two copies of them, and the second has no named exports.
 import type { Idoc, Segment } from '../idoc/idoc.mts';
 import type { ReceivedIdoc, ReplyInput, SentIdocs } from '../idoc/inbox.mts';
-import type { SendResult } from '../idoc/sender.mts';
+import type { SapSystem, SendResult } from '../idoc/sender.mts';
 
 export type { ReceivedIdoc, ReplyInput, SentIdocs } from '../idoc/inbox.mts';
 export type { Idoc } from '../idoc/idoc.mts';
@@ -45,8 +45,12 @@ export interface IdocSender {
 	 * IDoc or several of one type. TABNAM and DIRECT 2 are filled in. Fails unless SAP took them; with
 	 * `{ expectOk: false }` it returns SAP's refusal instead, for negative tests.
 	 * `result.idocNumbers` holds the numbers SAP gave the IDocs, for checking them in WE02 or BD87.
+	 * `to` names the SAP system: `s4` (default) or `ewm`.
 	 */
-	send(idocs: string | Idoc | Idoc[], options?: { expectOk?: boolean }): Promise<SentIdocs>;
+	send(
+		idocs: string | Idoc | Idoc[],
+		options?: { to?: SapSystem; expectOk?: boolean }
+	): Promise<SentIdocs>;
 }
 
 export interface IdocFixtures {
@@ -54,7 +58,7 @@ export interface IdocFixtures {
 	 * Skips the test when IDOC_HUB_URL is not set. */
 	idocInbox: IdocInbox;
 	/** Sends IDocs into SAP through the same receiver, which holds the SAP system and its login
-	 * (IDOC_SAP_URL and the rest there). Skips the test when IDOC_HUB_URL is not set. */
+	 * (IDOC_S4_URL, IDOC_EWM_URL and the rest there). Skips the test when IDOC_HUB_URL is not set. */
 	idocSender: IdocSender;
 }
 
@@ -97,6 +101,8 @@ const SentSchema: z.ZodType<SentIdocs> = z.object({
 	seq: z.number().int(),
 	sentAt: z.string(),
 	by: z.enum(['test', 'person']),
+	to: z.enum(['s4', 'ewm']),
+	standIn: z.boolean(),
 	idocs: z.array(
 		z.object({ control: z.record(z.string(), z.string()), segments: z.array(SegmentSchema) })
 	),
@@ -175,16 +181,23 @@ export const test = base.extend<IdocFixtures>({
 		const client = hubClient(testInfo);
 		await use({
 			send: (idocs, options = {}) =>
-				base.step(`idocSender.send ${sentSummary(idocs)}`, async () => {
+				base.step(`idocSender.send ${sentSummary(idocs)} to ${options.to ?? 's4'}`, async () => {
+					const to = options.to ?? 's4';
 					const body =
 						typeof idocs === 'string'
-							? { xml: idocs, by: 'test' }
-							: { idocs: Array.isArray(idocs) ? idocs : [idocs], by: 'test' };
+							? { xml: idocs, to, by: 'test' }
+							: { idocs: Array.isArray(idocs) ? idocs : [idocs], to, by: 'test' };
 					const sent = SentSchema.parse(await client.call('POST', '/send', body));
+					const title = to === 's4' ? 'S/4HANA' : 'EWM';
+					// A stand-in numbers IDocs SAP never saw: only the run against the local receiver may use it.
+					if (sent.standIn && process.env.IDOC_HUB_MOCK !== '1')
+						throw new Error(
+							`The receiver has no ${title} system, only a stand-in, so the IDocs did not reach SAP. Set ${title} for the receiver (IDOC_${to.toUpperCase()}_URL, on the app's Settings page "IDocs into ${title}") and start it again.`
+						);
 					const { ok, status, reason, idocNumbers } = sent.result;
 					if ((options.expectOk ?? true) && !ok)
 						throw new Error(
-							`SAP did not take the IDocs (${status === 0 ? 'not reached' : `HTTP ${status}`}): ${reason ?? 'no reason given'}`
+							`${title} did not take the IDocs (${status === 0 ? 'not reached' : `HTTP ${status}`}): ${reason ?? 'no reason given'}`
 						);
 					if (ok && idocNumbers.length > 0)
 						await testInfo.attach('IDoc numbers', { body: idocNumbers.join('\n') });

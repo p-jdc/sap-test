@@ -55,8 +55,30 @@ export const IdocReplyInEffectSchema = z.intersection(
 	z.object({ setBy: z.enum(['test', 'person']) })
 );
 
-/** The SAP system the receiver sends IDocs into, in CPI's place: which login, never the login itself. */
+/** The SAP systems the receiver can send IDocs into, as sap-tests/idoc/sender.mts names them. */
+export const IDOC_SAP_SYSTEMS = ['s4', 'ewm'] as const;
+export type IdocSapSystem = (typeof IDOC_SAP_SYSTEMS)[number];
+/** Every setting of those systems (IDOC_S4_URL, IDOC_EWM_PASSWORD and so on; sap-tests/idoc/server.mts). Only the
+ * receiver gets them: tests send through it. */
+export const IDOC_SAP_SETTINGS = IDOC_SAP_SYSTEMS.flatMap((system) =>
+	[
+		'URL',
+		'CLIENT',
+		'SERVICE',
+		'USER',
+		'PASSWORD',
+		'TLS_CERT',
+		'TLS_KEY',
+		'TLS_CA',
+		'TIMEOUT_MS'
+	].map((name) => `IDOC_${system.toUpperCase()}_${name}`)
+);
+
+/** An SAP system the receiver sends IDocs into, in CPI's place: which login, never the login itself. */
 const SapTargetSchema = z.object({
+	system: z.enum(IDOC_SAP_SYSTEMS),
+	/** S/4HANA or EWM. */
+	title: z.string(),
 	url: z.string(),
 	client: z.string().optional(),
 	service: z.enum(['soap', 'xml']),
@@ -68,8 +90,12 @@ const SapTargetSchema = z.object({
 export const IdocInfoSchema = z.object({
 	idocUrl: z.string(),
 	instance: z.string(),
-	/** Null when no SAP system is set. A receiver from before sending existed doesn't say. */
-	sap: SapTargetSchema.nullable().default(null)
+	/** The SAP systems set, S/4HANA first; none when none is set. A receiver from before sending to S/4HANA
+	 * and EWM existed answers differently: then none either. */
+	sap: z.union([
+		z.array(SapTargetSchema),
+		z.unknown().transform((): z.infer<typeof SapTargetSchema>[] => [])
+	])
 });
 
 const IdocBodySchema = z.object({
@@ -82,6 +108,9 @@ export const SentIdocsSchema = z.object({
 	seq: z.number().int(),
 	sentAt: z.string(),
 	by: z.enum(['test', 'person']),
+	to: z.enum(IDOC_SAP_SYSTEMS),
+	/** A stand-in for that system took them, not SAP. */
+	standIn: z.boolean(),
 	idocs: z.array(IdocBodySchema),
 	result: z.object({
 		ok: z.boolean(),
@@ -130,8 +159,8 @@ export type IdocSnapshot = {
 	/** Whether the page may post a sample IDoc itself: only to a receiver it started, on this computer, without
 	 * TLS. */
 	canSendSamples: boolean;
-	/** The SAP system the receiver sends IDocs into; null when none is set. */
-	sap: IdocSapTarget | null;
+	/** The SAP systems the receiver sends IDocs into, S/4HANA first; none when none is set. */
+	sap: IdocSapTarget[];
 	/** The newest sends into SAP, newest last. */
 	sent: SentIdocs[];
 };

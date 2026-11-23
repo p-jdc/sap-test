@@ -99,7 +99,17 @@ export const FIXED_SETTINGS = [
 	'SAP_CLIENT',
 	'CHROMIUM_PATH',
 	// self-signed.ts
-	'SAP_SELF_SIGNED_HOST'
+	'SAP_SELF_SIGNED_HOST',
+	// The SAP systems the IDoc receiver sends IDocs into (idoc/server.mts). The receiver gets them, test runs
+	// don't: they send through the receiver.
+	'IDOC_S4_URL',
+	'IDOC_S4_CLIENT',
+	'IDOC_S4_USER',
+	'IDOC_S4_PASSWORD',
+	'IDOC_EWM_URL',
+	'IDOC_EWM_CLIENT',
+	'IDOC_EWM_USER',
+	'IDOC_EWM_PASSWORD'
 ] as const;
 
 // A value saved for a setting becomes an environment variable of every run. Names that the

@@ -31,6 +31,22 @@ if (odataMock)
 // receiver's process (IDOC_FAKE_SAP). That replaces any IDOC_HUB_URL from the environment file, and the workers
 // inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
+// The SAP systems the IDoc receiver sends into, and their logins, are the receiver's alone: tests send through it.
+// dotenv may have loaded them from the environment file; no test or worker keeps them.
+for (const name of Object.keys(process.env))
+	if (/^IDOC_(S4|EWM)_/.test(name)) delete process.env[name];
+/** The settings each SAP system IDocs are sent into has (IDOC_S4_URL and so on; idoc/server.mts). */
+const SAP_SETTINGS = [
+	'URL',
+	'CLIENT',
+	'SERVICE',
+	'USER',
+	'PASSWORD',
+	'TLS_CERT',
+	'TLS_KEY',
+	'TLS_CA',
+	'TIMEOUT_MS'
+];
 if (idocMock) process.env.IDOC_HUB_TOKEN = '';
 
 // MFS_MOCK=1 (`bun run test:mfs`): tests with the `mfs` fixture (sap-plugin/mfs.ts) run against a local
@@ -109,15 +125,12 @@ const webServers: WebServer[] = [
 						IDOC_TLS_CLIENT_FINGERPRINT: '',
 						IDOC_CONTROL_TOKEN: '',
 						IDOC_FAKE_SAP: '1',
-						IDOC_SAP_URL: '',
-						IDOC_SAP_CLIENT: '',
-						IDOC_SAP_SERVICE: '',
-						IDOC_SAP_USER: '',
-						IDOC_SAP_PASSWORD: '',
-						IDOC_SAP_TLS_CERT: '',
-						IDOC_SAP_TLS_KEY: '',
-						IDOC_SAP_TLS_CA: '',
-						IDOC_SAP_TIMEOUT_MS: ''
+						// No SAP system: every one goes to its own stand-in.
+						...Object.fromEntries(
+							['S4', 'EWM'].flatMap((system) =>
+								SAP_SETTINGS.map((name) => [`IDOC_${system}_${name}`, ''])
+							)
+						)
 					},
 					reuseExistingServer: false
 				}

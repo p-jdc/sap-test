@@ -43,6 +43,29 @@
 				{ name: 'SAP_CLIENT', label: 'Client', hint: 'Three digits, for example 100' }
 			]
 		},
+		...(
+			[
+				['S4', 'S/4HANA'],
+				['EWM', 'EWM']
+			] as const
+		).map(([id, title]): Group => ({
+			title: `IDocs into ${title}`,
+			subtitle: `Optional: where the Mock IDoc receiver sends IDocs into ${title}, over HTTPS as SAP Cloud Integration does. Start the receiver again after a change`,
+			fields: [
+				{
+					name: `IDOC_${id}_URL`,
+					label: 'Web address',
+					hint: 'https://your-dev-system.example.com:44300 (no path)'
+				},
+				{ name: `IDOC_${id}_CLIENT`, label: 'Client', hint: 'Three digits, for example 100' },
+				{
+					name: `IDOC_${id}_USER`,
+					label: 'User name',
+					hint: 'A user allowed to post IDocs (inbound)'
+				},
+				{ name: `IDOC_${id}_PASSWORD`, label: 'Password', secret: true }
+			]
+		})),
 		{
 			title: 'Browser',
 			subtitle: 'Optional',

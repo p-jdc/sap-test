@@ -6,7 +6,15 @@ import { PLAYWRIGHT_PACKAGE, playwrightNode, RECORDER_PACKAGE } from './node-cli
 import { sameOrigin } from './origin.js';
 import { TESTS_ROOT } from './paths.js';
 import { keychain, type SecretStore } from './secret-store.js';
-import { API_SYSTEM, readSystems, secretSettings, settingNames, signInSystems } from './systems.js';
+import {
+	API_SYSTEM,
+	IDOC_SYSTEMS,
+	readSystems,
+	secretSettings,
+	settingNames,
+	signInSystems
+} from './systems.js';
+import { IDOC_SAP_SETTINGS } from '#lib/shared/idoc.js';
 import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
 /**
@@ -30,10 +38,12 @@ type Resolved = {
 
 /** The URL setting of each system (systems.json and the OData system) and the credentials that belong to it. */
 function credentialGroups(): { url: SettingName; credentials: SettingName[] }[] {
-	return [...signInSystems().map((s) => s.env), API_SYSTEM].map(({ url, user, password }) => ({
-		url,
-		credentials: [user, password]
-	}));
+	return [...signInSystems().map((s) => s.env), API_SYSTEM, ...IDOC_SYSTEMS].map(
+		({ url, user, password }) => ({
+			url,
+			credentials: [user, password]
+		})
+	);
 }
 
 /**
@@ -158,6 +168,9 @@ function childVars({ values, withheld }: Resolved): Record<string, string> {
 	const vars: Record<string, string> = {};
 	for (const [name, { value, source }] of values) if (source === 'keychain') vars[name] = value;
 	for (const name of withheld.keys()) vars[name] = '';
+	// The IDoc receiver's SAP systems and logins: tests send through the receiver and never get them. childEnv
+	// empties them for every child process.
+	for (const name of IDOC_SAP_SETTINGS) delete vars[name];
 	return vars;
 }
 

@@ -317,6 +317,30 @@ describe('settings in the credential store', () => {
 	});
 });
 
+describe('the SAP systems the IDoc receiver sends into', () => {
+	test('reach the receiver, never a run, and their passwords are masked', async () => {
+		const env = await withEnvFile(null);
+		const { store } = fakeStore({
+			IDOC_EWM_URL: 'https://ewm.example.com',
+			IDOC_EWM_USER: 'IDOC_IN',
+			IDOC_EWM_PASSWORD: 'ewm-pw'
+		});
+		await env.changeSetting('IDOC_EWM_PASSWORD', 'ewm-pw', store);
+		expect(await env.readTestEnv(store)).toMatchObject({
+			IDOC_EWM_URL: 'https://ewm.example.com',
+			IDOC_EWM_USER: 'IDOC_IN',
+			IDOC_EWM_PASSWORD: 'ewm-pw'
+		});
+		expect(await env.runSettings(store)).toEqual({ env: {}, secrets: ['ewm-pw'] });
+
+		// Moving EWM to another host drops the login saved for the old one.
+		expect(await env.changeSetting('IDOC_EWM_URL', 'https://other.example.net', store)).toEqual({
+			cleared: ['IDOC_EWM_USER', 'IDOC_EWM_PASSWORD']
+		});
+		expect(await env.readTestEnv(store)).toEqual({ IDOC_EWM_URL: 'https://other.example.net' });
+	});
+});
+
 describe('systems from sap-tests/systems.json', () => {
 	const successFactors = JSON.stringify({
 		systems: [
@@ -354,7 +378,15 @@ describe('systems from sap-tests/systems.json', () => {
 			'SAP_API_PASSWORD',
 			'SAP_CLIENT',
 			'CHROMIUM_PATH',
-			'SAP_SELF_SIGNED_HOST'
+			'SAP_SELF_SIGNED_HOST',
+			'IDOC_S4_URL',
+			'IDOC_S4_CLIENT',
+			'IDOC_S4_USER',
+			'IDOC_S4_PASSWORD',
+			'IDOC_EWM_URL',
+			'IDOC_EWM_CLIENT',
+			'IDOC_EWM_USER',
+			'IDOC_EWM_PASSWORD'
 		]);
 		expect((await env.runSettings(NONE)).secrets).toEqual(['sf-pw']);
 

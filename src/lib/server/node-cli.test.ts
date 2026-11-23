@@ -21,6 +21,13 @@ describe('childEnv', () => {
 		expect(JSON.stringify(env)).not.toContain('secret of');
 	});
 
+	test("the IDoc receiver's SAP systems are empty unless given, so a run's dotenv can't fill them", () => {
+		const env = childEnv({}, { ...parent, IDOC_EWM_PASSWORD: 'ewm-pw', IDOC_S4_URL: 'https://s4' });
+		expect(env).toMatchObject({ IDOC_EWM_PASSWORD: '', IDOC_S4_URL: '', IDOC_S4_USER: '' });
+		// The receiver gets them as extras.
+		expect(childEnv({ IDOC_S4_URL: 'https://s4' }, parent).IDOC_S4_URL).toBe('https://s4');
+	});
+
 	test('everything else is passed on, without the node shim, plus the extras', () => {
 		const env = childEnv({ SYSTEM: 'sap' }, parent);
 		expect(env.SAP_URL).toBe('https://sap.example.com');
