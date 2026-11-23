@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { database, type AppDatabase } from './db/database.js';
 import { run, runTest } from './db/schema.js';
 import { RUNS_DIR, within } from './paths.js';
+import { healingRun } from './healing-run.js';
 import { decide, retentionFromEnv, type Retention } from './retention.js';
 import {
 	HISTORY_SHOWN,
@@ -390,6 +391,14 @@ function removeDetails(id: string, keep: Set<string>): boolean {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The results folders of the healer's test runs (healer.ts: `<test>-results`, `<test>-browser`). */
+function removeHealerResults(dir: string) {
+	if (!existsSync(dir)) return;
+	for (const name of readdirSync(dir))
+		if (name.endsWith('-results') || name.endsWith('-browser'))
+			rmSync(join(dir, name), { recursive: true, force: true });
+}
+
 /**
  * Applies the retention rules (retention.ts) to the finished runs: deletes reports, screenshots,
  * videos and traces, steps, error messages and logs that the rules no longer keep. What happened in
@@ -447,6 +456,8 @@ export function applyRetention(
 		const dir = within(RUNS_DIR, r.id);
 		const decision = decisions.get(r.id);
 		if (!dir || dir === RUNS_DIR || !decision) continue;
+		// The healer works on it: its files go on the next pass after the session.
+		if (r.id === healingRun()) continue;
 		let touched = false;
 		const set: Partial<RunRow> = {};
 		if (!decision.artifacts && !r.artifactsRemovedAt) {
@@ -455,9 +466,16 @@ export function applyRetention(
 			set.artifactsRemovedAt = new Date(now);
 			touched = true;
 		}
+		// The healer's test runs: traces, screenshots and videos like the run's own. On every pass:
+		// a healer may have been started after the run's own files went.
+		if (!decision.artifacts) removeHealerResults(join(dir, 'healer'));
 		if (decision.details !== 'all' && !r.detailsRemovedAt) {
 			if (removeDetails(r.id, decision.details)) touched = true;
-			if (!decision.log) rmSync(join(dir, 'output.log'), { force: true });
+			if (!decision.log) {
+				rmSync(join(dir, 'output.log'), { force: true });
+				// The healer's reports quote the error messages and the test code.
+				rmSync(join(dir, 'healer'), { recursive: true, force: true });
+			}
 			// Nothing left to remove later: the run is not read again.
 			if (decision.details.size === 0 && !decision.log) {
 				set.detailsRemovedAt = new Date(now);

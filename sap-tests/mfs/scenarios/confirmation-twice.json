@@ -1,0 +1,23 @@
+{
+	"title": "Transfer car confirms twice",
+	"description": "The PLC of the transfer car reports the same move twice, each time with its own sequence number. EWM must take the second confirmation for what it is: the HU is stored once, and the crane gets one task, not two.",
+	"setup": "sap-example",
+	"modes": ["demo"],
+	"steps": [
+		{ "enter": "A" },
+		{
+			"title": "CONS will report the transfer car's move of A twice",
+			"faults": "CONS",
+			"rules": [{ "type": "WTCO", "fields": { "hu": "{A}", "src": "IP" }, "action": "duplicate" }]
+		},
+		{ "wait": { "hu": "A", "at": "bin" } }
+	],
+	"expect": [
+		{ "hu": "A", "at": "bin", "ewm": "stored" },
+		{
+			"telegram": { "type": "WTCO", "from": "CONS", "fields": { "hu": "{A}", "src": "IP" } },
+			"count": 2
+		},
+		{ "telegram": { "type": "WT", "to": "SRM1", "fields": { "hu": "{A}" } }, "count": 1 }
+	]
+}

@@ -4,8 +4,20 @@
 import { readFileSync } from 'node:fs';
 import { connect, createServer, type Socket } from 'node:net';
 import { test as base, expect } from '../../sap-plugin';
-import { Channel, type LogEntry, type Unacknowledged } from '../../mfs/channel.mts';
-import { TelegramLayoutSchema, type Telegram, type TelegramLayout } from '../../mfs/telegram.mts';
+import {
+	Channel,
+	faultRuleProblems,
+	FaultRuleSchema,
+	type FaultRuleInput,
+	type LogEntry,
+	type Unacknowledged
+} from '../../mfs/channel.mts';
+import {
+	encode,
+	TelegramLayoutSchema,
+	type Telegram,
+	type TelegramLayout
+} from '../../mfs/telegram.mts';
 import { foreignLayout } from './foreign-layout.mts';
 
 const demoLayout = TelegramLayoutSchema.parse(
@@ -105,6 +117,155 @@ test('a telegram nobody acknowledged before the connection ended is handed back'
 });
 
 const order = (hu: string) => ({ SOURCE: 'GR', DEST: 'IP', HUIDENT: hu });
+
+const rules = (...list: FaultRuleInput[]) => ({
+	rules: list.map((rule) => FaultRuleSchema.parse(rule))
+});
+const confirmation = (tanum: string) => ({ ...task(tanum), result: 'OK' });
+const tanums = (receiver: Side) =>
+	receiver.received.map((telegram) => Number(telegram.fields.tanum));
+
+test('fault rules drop or change the next matching telegrams, then they are used up', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules(
+		{ type: 'WTCO', fields: { tanum: '1' }, action: 'drop' },
+		{ type: 'WTCO', action: 'change', set: { result: 'ERR' }, times: 2 }
+	);
+	for (const tanum of ['1', '2', '3', '4']) plc.channel.send('WTCO', confirmation(tanum));
+
+	await expect.poll(() => tanums(ewm)).toEqual([2, 3, 4]);
+	expect(ewm.received.map((telegram) => telegram.fields.result)).toEqual(['ERR', 'ERR', 'OK']);
+	// The dropped one never went out: no resend, and conditions on telegrams do not count it.
+	expect(plc.log.filter((entry) => entry.note?.startsWith('dropped'))).toMatchObject([
+		{ type: 'WTCO', notSent: true, fields: { tanum: '1' } }
+	]);
+	expect(plc.log.filter((entry) => entry.note?.startsWith('resent'))).toEqual([]);
+	expect(plc.channel.faults.rules).toEqual([]);
+});
+
+test('a duplicate rule sends the telegram twice: as a second report, or as a repeat', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules(
+		{ type: 'WTCO', fields: { tanum: '1' }, action: 'duplicate' },
+		{ type: 'WTCO', fields: { tanum: '2' }, action: 'duplicate', sameSeq: true }
+	);
+	plc.channel.send('WTCO', confirmation('1'));
+	plc.channel.send('WTCO', confirmation('2'));
+
+	// With a new sequence number EWM gets the confirmation twice; with the same one it sees a repeat.
+	await expect
+		.poll(() => ewm.log.some((entry) => entry.note?.startsWith('repeated sequence number')))
+		.toBe(true);
+	expect(tanums(ewm)).toEqual([1, 1, 2]);
+	const seqs = plc.log.filter((entry) => entry.type === 'WTCO').map((entry) => entry.seq);
+	expect(seqs[0]).not.toBe(seqs[1]);
+	expect(seqs[2]).toBe(seqs[3]);
+});
+
+test('a delayed telegram goes out late, and is handed back if the connection ends first', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules(
+		{ type: 'WTCO', fields: { tanum: '1' }, action: 'delay', delayMs: 300 },
+		{ type: 'WTCO', fields: { tanum: '2' }, action: 'delay', delayMs: 60_000 }
+	);
+	const sentAt = Date.now();
+	plc.channel.send('WTCO', confirmation('1'));
+	plc.channel.send('WTCO', confirmation('2'));
+
+	await expect.poll(() => tanums(ewm)).toEqual([1]);
+	const late = plc.log.find((entry) => entry.note === 'delayed 300 ms (fault rule)');
+	expect((late?.at ?? 0) - sentAt).toBeGreaterThanOrEqual(300);
+	plc.channel.close();
+	await expect.poll(() => plc.closedWith()).toBeDefined();
+	expect(plc.closedWith()?.map((telegram) => telegram.fields.tanum)).toEqual(['2']);
+});
+
+test('a delayed telegram that cannot be built fails at once, and held ones can be dropped', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules({ type: 'WTCO', action: 'delay', delayMs: 60_000, times: 2 });
+	expect(() => plc.channel.send('WTCO', { ...confirmation('1'), result: 'TOOLONG' })).toThrow(
+		'longer than 4 characters'
+	);
+	plc.channel.send('WTCO', confirmation('2'));
+	plc.channel.dropDelayed('the warehouse was reset');
+
+	expect(plc.log.filter((entry) => entry.notSent)).toMatchObject([
+		{ note: 'dropped while delayed: the warehouse was reset', fields: { tanum: '2' } }
+	]);
+	plc.channel.close();
+	await expect.poll(() => plc.closedWith()).toEqual([]);
+	expect(ewm.received).toEqual([]);
+});
+
+test('a rule on a numeric field matches the value however it is padded; a resend skips the rules', async ({
+	pair
+}) => {
+	const { ewm, plc } = pair;
+	plc.channel.faults = rules(
+		{ type: 'WTCO', fields: { tanum: '7' }, action: 'drop' },
+		{ type: 'WTCO', fields: { tanum: '000000000008' }, action: 'drop' },
+		{ type: 'WTCO', fields: { tanum: '9' }, action: 'drop' }
+	);
+	plc.channel.send('WTCO', confirmation('000000000007'));
+	plc.channel.send('WTCO', confirmation('8'));
+	plc.channel.send('WTCO', confirmation('9'), { rules: false });
+
+	await expect.poll(() => tanums(ewm)).toEqual([9]);
+	expect(plc.channel.faults.rules).toMatchObject([{ fields: { tanum: '9' }, times: 1 }]);
+});
+
+test('raw text is sent exactly as given, a broken telegram included', async ({ pair }) => {
+	const { ewm, plc } = pair;
+	const wellFormed = encode(
+		demoLayout,
+		'WTCO',
+		{ sender: 'CONS', receiver: 'EWM1', seq: '0042' },
+		confirmation('5')
+	);
+	plc.channel.sendRaw(wellFormed);
+	plc.channel.sendRaw('\u0002CONSEWM1XXXXWTCO\u0003');
+
+	await expect.poll(() => tanums(ewm)).toEqual([5]);
+	await expect
+		.poll(() => ewm.log.find((entry) => entry.note?.startsWith('decode error'))?.type)
+		.toBe('?');
+	// Logged as what it is: a telegram of the layout, or the text that went out.
+	expect(plc.log.filter((entry) => entry.note === 'raw, sent as written')).toMatchObject([
+		{ type: 'WTCO', seq: '0042', fields: { tanum: '000000000005' } },
+		{ type: '?' }
+	]);
+	// EWM acknowledged the well-formed one; nothing on the PLC side was waiting for it.
+	await expect.poll(() => plc.log.some((entry) => entry.type === 'ACK')).toBe(true);
+});
+
+test('a fault rule that does not fit the layout is reported', () => {
+	expect(faultRuleProblems(demoLayout, { type: 'WTCX', action: 'drop' })).toEqual([
+		'the telegram layout has no telegram "WTCX"'
+	]);
+	expect(
+		faultRuleProblems(demoLayout, {
+			type: 'WTCO',
+			action: 'change',
+			fields: { colour: 'red' },
+			set: { result: 'TOOLONG' }
+		})
+	).toEqual(['telegram WTCO has no field "colour"']);
+	expect(
+		faultRuleProblems(demoLayout, { type: 'WTCO', action: 'change', set: { result: 'TOOLONG' } })
+	).toEqual(['result: "TOOLONG" is longer than 4 characters']);
+	expect(FaultRuleSchema.safeParse({ type: 'WTCO', action: 'delay' }).success).toBe(false);
+	expect(FaultRuleSchema.safeParse({ type: 'WTCO', action: 'change', set: {} }).success).toBe(
+		false
+	);
+});
 
 test.describe('a layout that acknowledges by sending the telegram back', () => {
 	test.use({ layout: foreignLayout });

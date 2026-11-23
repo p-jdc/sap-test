@@ -1,6 +1,6 @@
 # SAP Test Lab
 
-A test app for the open-source SAP test automation described in *SAP-Testautomatisierung-Leitfaden*
+A test app for the open-source SAP test automation described in _SAP-Testautomatisierung-Leitfaden_
 (Playwright with SAP locators for Fiori/UI5, SAP WebGUI and SAP Ariba). It runs Playwright tests,
 shows them as step flows, streams runs live, and tracks the pilot's exit criteria.
 
@@ -58,22 +58,22 @@ trace and video off (also with `--trace on`), and saves the session in
 `sap-tests/.auth/<id>-session.json` (gitignored); `<id>` holds the system's tests, which start with
 that session.
 
-| Project | Tests | Signs in with |
-| --- | --- | --- |
-| `sap` | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `sapLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` |
-| `ariba` | `tests/ariba` | `form` with `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS` |
-| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`) | – |
+| Project    | Tests                                                             | Signs in with                                             |
+| ---------- | ----------------------------------------------------------------- | --------------------------------------------------------- |
+| `sap`      | `tests/fiori` (not `demokit`), `tests/webgui`, `tests/_reference` | `sapLogin` with `SAP_URL`, `SAP_USERNAME`, `SAP_PASSWORD` |
+| `ariba`    | `tests/ariba`                                                     | `form` with `ARIBA_URL`, `ARIBA_USER`, `ARIBA_PASS`       |
+| `chromium` | everything else (`_demo`, `_plugin`, `api`, `fiori/demokit`)      | –                                                         |
 
 `tests/_agents/seed-signed-in.spec.ts` belongs to every system's project (see the test agents
 below).
 
 The sign-in methods:
 
-| Method | For | How |
-| --- | --- | --- |
-| `sapLogin` | Fiori launchpad and WebGUI | `page.SAPLogin`: the NetWeaver or launchpad login page |
-| `ias` | SuccessFactors, IBP and other applications behind SAP Cloud Identity Services | The IAS login page, found by its field names (`j_username`, `j_password`), so its language and texts do not matter |
-| `form` | An application's own login page (Ariba, Concur) | Fields by their labels and the button by its name, given in the row |
+| Method     | For                                                                           | How                                                                                                                |
+| ---------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `sapLogin` | Fiori launchpad and WebGUI                                                    | `page.SAPLogin`: the NetWeaver or launchpad login page                                                             |
+| `ias`      | SuccessFactors, IBP and other applications behind SAP Cloud Identity Services | The IAS login page, found by its field names (`j_username`, `j_password`), so its language and texts do not matter |
+| `form`     | An application's own login page (Ariba, Concur)                               | Fields by their labels and the button by its name, given in the row                                                |
 
 `ias` and `form` also handle a login page that asks for the user first and for the password on a
 second page, and wait until an identity service has sent the browser back to the system. Sign-in
@@ -94,13 +94,13 @@ SuccessFactors behind IAS:
 
 ```json
 {
-	"id": "successfactors",
-	"title": "SuccessFactors",
-	"description": "Optional: only for SuccessFactors tests",
-	"optional": true,
-	"signIn": { "method": "ias" },
-	"env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
-	"tests": ["successfactors"]
+  "id": "successfactors",
+  "title": "SuccessFactors",
+  "description": "Optional: only for SuccessFactors tests",
+  "optional": true,
+  "signIn": { "method": "ias" },
+  "env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
+  "tests": ["successfactors"]
 }
 ```
 
@@ -116,11 +116,11 @@ table with an unknown method, a variable used twice, or a folder claimed by two 
 The Tests page groups the tests by system, and "Record a test" offers each folder of each system
 (except folders starting with `_`). Which recorder records it follows from the row:
 
-| System signs in with | Folder | Recorder | Signed in by |
-| --- | --- | --- | --- |
-| `sapLogin` | named `webgui` (e.g. `webgui`, `ewm/webgui`) | Playwright-SAP (`codegen --sap-login`) | the recorder, with the system's user and password |
-| `sapLogin` | any other | the UI5 recorder of `sap-plugin` | the recorder; the spec reads the system's own variables (`process.env.EWM_URL`, …) |
-| `ias` or `form` | any | Playwright-SAP (`codegen`) | you, in the recorder's window |
+| System signs in with | Folder                                       | Recorder                               | Signed in by                                                                                       |
+| -------------------- | -------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `sapLogin`           | named `webgui` (e.g. `webgui`, `ewm/webgui`) | Playwright-SAP (`codegen --sap-login`) | the recorder, with the system's user and password                                                  |
+| `sapLogin`           | any other                                    | the UI5 recorder of `sap-plugin`       | the recorder; the spec reads the system's own variables (`process.env.EWM_URL`, …)                 |
+| `ias` or `form`      | any                                          | stock Playwright (`codegen`)           | the session the last test run saved (`--load-storage`); without one, you, in the recorder's window |
 
 A UI5 recording "without login" goes to a folder the system excludes inside the chosen one (for
 SAP: `fiori/demokit`). A recorder gets only the chosen system's login; every other system's user
@@ -145,16 +145,16 @@ screen it stopped on, and the home page walks through the first steps. The **Tec
 switch in the top bar (remembered per browser) adds what test authors need: file names and lines,
 locators, source code, timelines, logs and the references to the guide. The table lists both.
 
-| Page | What it shows |
-| --- | --- |
-| Home | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per kind (Fiori, WebGUI, API, demo; other tests by the system they sign in to), latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values) |
-| Tests | Every spec under `sap-tests/tests`, grouped by the system of `sap-tests/systems.json` it starts signed in to (other tests, such as API and demo tests, in a group of their own), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests |
-| Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted |
-| Results | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log |
-| Record a test | Pick a system and its folder (from `sap-tests/systems.json`, see "Adding a system"); starts a recorder with that system's saved credentials and writes `tests/<folder>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line. Systems that do not sign in with SAP's login (Ariba): stock Playwright's `codegen`, without credentials; the person signs in |
-| Mock PLC | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode *Wait for EWM* opens the PLC ports for a real EWM; mode *Demo* adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements |
-| Mock IDoc | Stands in for the partner system SAP sends IDocs to (`sap-tests/idoc`, see its README): start and stop the receiver, the address SAP posts to (SM59 type G destination, WE21 XML HTTP port), the received IDocs newest first with their control record and segments, and the answers per partner: refuse with an HTTP error, answer late to test SAP's timeout, or accept. **Try it without SAP** sends a sample IDoc in SAP's place. Tests started from the app reach the receiver it started through the `idocInbox` fixture. Its settings (address, HTTPS, login; `IDOC_*`, listed in `sap-tests/.env.example`) come from the app's environment or else `sap-tests/.env`; with `IDOC_HUB_URL` the app controls one that runs elsewhere (its control token goes in `IDOC_HUB_TOKEN`). Technical details: the SAP setup steps, the whole control record, SOAP and the request as SAP sent it |
-| Settings | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path |
+| Page             | What it shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home             | Getting-started steps, whether the test tools and the SAP connection are ready, number of tests per kind (Fiori, WebGUI, API, demo; other tests by the system they sign in to), latest result, **reliability**: consecutive passes per test against the guide's 10-in-a-row criterion (§4.8). Technical details: Playwright, recorder and Node version, which `.env` values are set (never their values)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Tests            | Every spec under `sap-tests/tests`, grouped by the system of `sap-tests/systems.json` it starts signed in to (other tests, such as API and demo tests, in a group of their own), with the **quality check** from the guide's rules file (§5.2): CSS/XPath on SAP screens, `waitForTimeout`, missing assertion after a save, literal passwords, passwords typed with `fill` instead of `fillSecret`, unreviewed `KI-generiert` tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Results          | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Record a test    | Pick a system and its folder (from `sap-tests/systems.json`, see "Adding a system"); starts a recorder with that system's saved credentials and writes `tests/<folder>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line. Systems with a login page of their own (Ariba): stock Playwright's `codegen`, without credentials; it starts from the session the last test run saved for the system (`sap-tests/.auth`, `--load-storage`) when the start page is on the system's address, and otherwise the person signs in. The line codegen writes for that session (`test.use({ storageState: … })`) is removed from the saved spec, which gets the session from its project |
+| Mock PLC         | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode _Wait for EWM_ opens the PLC ports for a real EWM; mode _Demo_ adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements                                                                                                                                                                                                         |
+| Mock IDoc        | Stands in for the partner system SAP sends IDocs to (`sap-tests/idoc`, see its README): start and stop the receiver, the address SAP posts to (SM59 type G destination, WE21 XML HTTP port), the received IDocs newest first with their control record and segments, and the answers per partner: refuse with an HTTP error, answer late to test SAP's timeout, or accept. **Try it without SAP** sends a sample IDoc in SAP's place. Tests started from the app reach the receiver it started through the `idocInbox` fixture. Its settings (address, HTTPS, login; `IDOC_*`, listed in `sap-tests/.env.example`) come from the app's environment or else `sap-tests/.env`; with `IDOC_HUB_URL` the app controls one that runs elsewhere (its control token goes in `IDOC_HUB_TOKEN`). Technical details: the SAP setup steps, the whole control record, SOAP and the request as SAP sent it                                                                                                                                                            |
+| Settings         | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 The run history (each run and the result and steps of each test) is kept in the app's database,
 `.data/app.sqlite`, next to sign-in. The log, HTML report, screenshots, videos and traces of a
@@ -206,23 +206,23 @@ open, and HTTP/1.1 allows only six connections per host, so a few open tabs stal
 to `@sveltejs/adapter-bun`, `patches/`, the same approach as the reference app). Without it, or with
 `DEV_HTTP=1` (e2e tests, CI), they stay on plain HTTP.
 
-| Root script | Does |
-| --- | --- |
-| `dev`, `build`, `preview`, `start` | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `cert/` exists) |
-| `setup:cert` | Creates `cert/` with mkcert (trusted local certificate for localhost) |
-| `check` | svelte-check for the app, `tsc` for sap-tests |
-| `lint`, `lint:light`, `format` | oxlint/oxfmt/Prettier/knip/ESLint, one run for the app and sap-tests (oxlint takes `sap-tests/.oxlintrc.json` for the files there) |
-| `test`, `test:unit`, `test:e2e` | App tests (Vitest once / watch, Playwright e2e) |
-| `test:coverage` | Vitest with v8 coverage of `src/lib` (text summary + HTML in `coverage/`) |
-| `test:sap`, `test:sap:list` | Run the SAP suite directly / list its tests |
-| `test:plugin`, `test:mfs`, `test:idoc`, `test:api:mock`, `test:demokit` | The sap-tests suites that need no SAP system (plugin, Mock PLC, IDoc receiver, OData mock, UI5 demo kit) |
-| `codegen`, `report` | Playwright-SAP recorder (WebGUI) and HTML report of the last SAP run |
-| `odata:fetch`, `odata:generate`, `mfs:server`, `mfs:demo`, `idoc:server`, `idoc:certs` | sap-tests tools, see their sections |
-| `record` | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save |
-| `setup:recorder` | Installs the recorder and its browser (part of `setup`) |
-| `pregate` | Every mechanical check before a pull request, short of the e2e tests: types, lint and format side by side (all failures in one round), then the app's unit tests and the sap-tests suites that need no SAP system. About five minutes; `bun run pregate --only static` for the first part alone |
-| `ci` | Everything CI runs, in order |
-| `setup:mcp` | Installs the local Svelte MCP server for Claude Code |
+| Root script                                                                            | Does                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dev`, `build`, `preview`, `start`                                                     | The app (`start` serves the production build via adapter-bun; HTTPS + HTTP/2 when `cert/` exists)                                                                                                                                                                                               |
+| `setup:cert`                                                                           | Creates `cert/` with mkcert (trusted local certificate for localhost)                                                                                                                                                                                                                           |
+| `check`                                                                                | svelte-check for the app, `tsc` for sap-tests                                                                                                                                                                                                                                                   |
+| `lint`, `lint:light`, `format`                                                         | oxlint/oxfmt/Prettier/knip/ESLint, one run for the app and sap-tests (oxlint takes `sap-tests/.oxlintrc.json` for the files there)                                                                                                                                                              |
+| `test`, `test:unit`, `test:e2e`                                                        | App tests (Vitest once / watch, Playwright e2e)                                                                                                                                                                                                                                                 |
+| `test:coverage`                                                                        | Vitest with v8 coverage of `src/lib` (text summary + HTML in `coverage/`)                                                                                                                                                                                                                       |
+| `test:sap`, `test:sap:list`                                                            | Run the SAP suite directly / list its tests                                                                                                                                                                                                                                                     |
+| `test:plugin`, `test:mfs`, `test:idoc`, `test:api:mock`, `test:demokit`                | The sap-tests suites that need no SAP system (plugin, Mock PLC, IDoc receiver, OData mock, UI5 demo kit)                                                                                                                                                                                        |
+| `codegen`, `report`                                                                    | Playwright-SAP recorder (WebGUI) and HTML report of the last SAP run                                                                                                                                                                                                                            |
+| `odata:fetch`, `odata:generate`, `mfs:server`, `mfs:demo`, `idoc:server`, `idoc:certs` | sap-tests tools, see their sections                                                                                                                                                                                                                                                             |
+| `record`                                                                               | UI5 recorder on stock Playwright: `bun run record <url> [tests/<folder>/<name>.spec.ts] [--name <title>] [--login]`; close the window to save                                                                                                                                                   |
+| `setup:recorder`                                                                       | Installs the recorder and its browser (part of `setup`)                                                                                                                                                                                                                                         |
+| `pregate`                                                                              | Every mechanical check before a pull request, short of the e2e tests: types, lint and format side by side (all failures in one round), then the app's unit tests and the sap-tests suites that need no SAP system. About five minutes; `bun run pregate --only static` for the first part alone |
+| `ci`                                                                                   | Everything CI runs, in order                                                                                                                                                                                                                                                                    |
+| `setup:mcp`                                                                            | Installs the local Svelte MCP server for Claude Code                                                                                                                                                                                                                                            |
 
 The SAP scripts change into `sap-tests/` before they start Playwright, so its config, `.env` and
 `.auth` are found as before. Run every script from the root; `sap-tests/` has no `package.json`.
@@ -235,11 +235,11 @@ are generated from the service metadata in `sap-tests/odata/metadata` into `sap-
 after every `bun install`. They are not committed. Specs import `test` from `sap-plugin/odata`, which adds three fixtures
 to the SAP locators:
 
-| Fixture | What it is |
-| --- | --- |
-| `sapApi` | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
-| `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC` |
-| `cleanup` | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test |
+| Fixture    | What it is                                                                                                                                                                                                                                                                 |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sapApi`   | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
+| `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC`                                                                                                                                                                                                               |
+| `cleanup`  | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test                                                                                                            |
 
 Because the fixtures extend the SAP locators, one test can create data over the API, run the flow in
 the UI and check the result over the API. The bundled tests target `GWSAMPLE_BASIC`, the sample
@@ -295,29 +295,36 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 
 ### Settings (environment variables of the app)
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SAP_TESTS_DIR` | `./sap-tests` | Test project to drive. Inside this repository it shares the root install; a test project elsewhere needs its own `node_modules` |
-| `TEST_APP_PACKAGES_DIR` | the install of `SAP_TESTS_DIR` | Where the app finds Playwright, the recorders and the packages of the Mock PLC and the IDoc receiver, and the recorders load them from. Set by the app's own tests, which run stand-ins; not needed otherwise |
-| `TEST_APP_DATA_DIR` | `./.data` | The database (`app.sqlite`: run history and sign-in) and each run's files |
-| `TEST_APP_KEEP_RUNS` | unset (keep all) | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion |
-| `TEST_APP_KEEP_REPORT_DAYS` | `14` | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again |
-| `TEST_APP_KEEP_STEPS_DAYS` | `30` | Days a run keeps the steps of its tests and its log |
-| `TEST_APP_KEEP_FAILURE_DAYS` | `90` | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows |
-| `TEST_APP_RETENTION` | on | `off` never deletes anything from a run |
-| `PLAYWRIGHT_NODE` | first `node` on PATH | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version |
-| `DEV_PORT` | `5180` | Port of `bun run dev` (fails if taken instead of moving to another port) |
-| `PREVIEW_PORT` | `4180` | Port of `bun run preview` and of the e2e tests |
-| `PORT` | `3000` | Port of `bun run start` (adapter-bun) |
-| `HOST` | `127.0.0.1` | Address `bun run start` listens on. Another address (the network) needs `TEST_APP_AUTH=passkey`: without sign-in the app refuses to start there, since it can start runs and the recorder with the saved credentials |
-| `TEST_APP_AUTH` | `off` | `passkey`: everyone signs in with a passkey (see below) |
-| `BETTER_AUTH_URL` | unset | The app's https address, e.g. `https://lab.example.com`, with sign-in on. Passkeys belong to its host name, and cookies are Secure. Required when `HOST` is not this computer (the app refuses to start without it); on a laptop the address of each request is used |
-| `TEST_APP_CLIENT_IP_HEADER` | unset | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself |
-| `BETTER_AUTH_SECRET` | generated | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only) |
-| `TEST_APP_SETUP_TOKEN` | random | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered |
-| `TEST_APP_RECOVERY` | unset | `on`: logs a recovery link at start, for when no admin can sign in any more (see below). Unset it again afterwards |
-| `TEST_APP_RECOVERY_TOKEN` | random | The token of the recovery link (at least 24 characters). It works once, also across restarts. Unset, a random one is logged at each start with `TEST_APP_RECOVERY=on` |
-| `TEST_APP_ALLOWED_HOSTS` | unset | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy |
+| Variable                                                  | Default                        | Purpose                                                                                                                                                                                                                                                                          |
+| --------------------------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SAP_TESTS_DIR`                                           | `./sap-tests`                  | Test project to drive. Inside this repository it shares the root install; a test project elsewhere needs its own `node_modules`                                                                                                                                                  |
+| `TEST_APP_PACKAGES_DIR`                                   | the install of `SAP_TESTS_DIR` | Where the app finds Playwright, the recorders and the packages of the Mock PLC and the IDoc receiver, and the recorders load them from. Set by the app's own tests, which run stand-ins; not needed otherwise                                                                    |
+| `TEST_APP_DATA_DIR`                                       | `./.data`                      | The database (`app.sqlite`: run history and sign-in) and each run's files                                                                                                                                                                                                        |
+| `TEST_APP_KEEP_RUNS`                                      | unset (keep all)               | Keep only the newest N runs; older ones are deleted after each run. Off by default because the run history is the evidence for the pilot criterion                                                                                                                               |
+| `TEST_APP_KEEP_REPORT_DAYS`                               | `14`                           | Days a run keeps its Playwright report, screenshots, videos and traces. Also the days a failure stays in full after the test passed again                                                                                                                                        |
+| `TEST_APP_KEEP_STEPS_DAYS`                                | `30`                           | Days a run keeps the steps of its tests and its log                                                                                                                                                                                                                              |
+| `TEST_APP_KEEP_FAILURE_DAYS`                              | `90`                           | The longest a failure is kept in full, fixed or not. These files show SAP data, so set this to what your company allows                                                                                                                                                          |
+| `TEST_APP_RETENTION`                                      | on                             | `off` never deletes anything from a run                                                                                                                                                                                                                                          |
+| `TEST_APP_HEALER`                                         | off                            | `on` shows "Diagnose with healer" on failed tests (see "The healer in the app"). Sends the test, its error and what the screens show to the AI provider of `TEST_APP_AI`: turn it on once that is approved (guide §9)                                                            |
+| `TEST_APP_HEALER_BUDGET_USD`                              | `5`                            | The most one healer session may cost, as the Agent SDK estimates it; it stops there                                                                                                                                                                                              |
+| `PLAYWRIGHT_NODE`                                         | first `node` on PATH           | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version                                                                                                                   |
+| `DEV_PORT`                                                | `5180`                         | Port of `bun run dev` (fails if taken instead of moving to another port)                                                                                                                                                                                                         |
+| `PREVIEW_PORT`                                            | `4180`                         | Port of `bun run preview` and of the e2e tests                                                                                                                                                                                                                                   |
+| `PORT`                                                    | `3000`                         | Port of `bun run start` (adapter-bun)                                                                                                                                                                                                                                            |
+| `HOST`                                                    | `127.0.0.1`                    | Address `bun run start` listens on. Another address (the network) needs `TEST_APP_AUTH=passkey`: without sign-in the app refuses to start there, since it can start runs and the recorder with the saved credentials                                                             |
+| `TEST_APP_AUTH`                                           | `off`                          | `passkey`: everyone signs in with a passkey (see below)                                                                                                                                                                                                                          |
+| `BETTER_AUTH_URL`                                         | unset                          | The app's https address, e.g. `https://lab.example.com`, with sign-in on. Passkeys belong to its host name, and cookies are Secure. Required when `HOST` is not this computer (the app refuses to start without it); on a laptop the address of each request is used             |
+| `TEST_APP_CLIENT_IP_HEADER`                               | unset                          | The header the reverse proxy sets to the client's address (e.g. `x-real-ip`), for rate limiting per client. Unset, `X-Forwarded-For` is read, which a client can set itself                                                                                                      |
+| `BETTER_AUTH_SECRET`                                      | generated                      | Signs the session cookies. Unset, one is generated once into `<data dir>/auth-secret` (readable by this user only)                                                                                                                                                               |
+| `TEST_APP_SETUP_TOKEN`                                    | random                         | The token of the setup link for the first admin (at least 24 characters). Unset, a random one is logged at each start while nobody is registered                                                                                                                                 |
+| `TEST_APP_RECOVERY`                                       | unset                          | `on`: logs a recovery link at start, for when no admin can sign in any more (see below). Unset it again afterwards                                                                                                                                                               |
+| `TEST_APP_RECOVERY_TOKEN`                                 | random                         | The token of the recovery link (at least 24 characters). It works once, also across restarts. Unset, a random one is logged at each start with `TEST_APP_RECOVERY=on`                                                                                                            |
+| `TEST_APP_ALLOWED_HOSTS`                                  | unset                          | Extra host names the app answers to, comma-separated. By default it answers only to `localhost` and IP addresses, so a web page cannot reach it under its own name (DNS rebinding). Set this when you open the app under another name, for example behind a proxy                |
+| `TEST_APP_AI`                                             | `off`                          | `vertex` or `foundry`: the AI features use Claude through the company's Vertex AI or Microsoft Foundry (see "AI provider" below). `anthropic`: the direct Anthropic API, for local tests only (refused with sign-in on or `HOST` on the network). No other value is accepted     |
+| `TEST_APP_AI_MODEL`                                       | `claude-opus-5-5`              | The model. On Foundry, the name of its deployment                                                                                                                                                                                                                                |
+| `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`         | unset                          | With `TEST_APP_AI=vertex`: the Google Cloud project and its location, `eu` for the EU endpoint. Sign-in uses Google's credentials: `gcloud auth application-default login` on a laptop, a service account (`GOOGLE_APPLICATION_CREDENTIALS`) or workload identity on the cluster |
+| `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_FOUNDRY_API_KEY` | unset                          | With `TEST_APP_AI=foundry`: the name of the Foundry resource (the first part of `<resource>.services.ai.azure.com`) and its key                                                                                                                                                  |
+| `ANTHROPIC_API_KEY`                                       | unset                          | With `TEST_APP_AI=anthropic`: your Anthropic API key, for local tests                                                                                                                                                                                                            |
 
 ### Signing in to the app (passkeys)
 
@@ -401,17 +408,56 @@ It is a convention, written down in `CLAUDE.md`: nothing on GitHub prevents a me
 and a review by agents can miss defects or be wrong about one. It does not replace a person
 reading a change to sign-in or credentials.
 
+### AI provider
+
+With the company's systems, the AI features reach Claude only through the two platforms the
+company approved: Google's Vertex AI and Microsoft Foundry. Other models may only be used through
+these two as well. `TEST_APP_AI` chooses the platform and is `off` by default; the settings it
+needs are in the table above.
+
+For local tests before the company access, `TEST_APP_AI=anthropic` uses the direct Anthropic API
+with your own key. The app refuses it as soon as sign-in is on or `HOST` reaches the network, so
+it cannot be used on the cluster. Use it with the demo tests only (`_demo`, the UI5 demokit): what
+the AI sees is sent to Anthropic. Moving to the company platform changes only the settings.
+
+- **Where the code is:** only `src/lib/server/ai/` uses the AI SDK (`ai`, `@ai-sdk/anthropic`,
+  `@ai-sdk/google-vertex`, at exact versions, since these packages change often). A lint rule
+  (`no-restricted-imports` in `.oxlintrc.json`) refuses them anywhere else: a model named by a
+  plain string would go to Vercel's AI Gateway, and the Anthropic provider without an address and
+  a key would go to the direct API.
+- **Credentials** stay on the server, in its environment (a Kubernetes secret on the cluster).
+  They never reach the browser. Test runs, recordings and the mock servers start without them,
+  and without the app's sign-in secrets, so they are not handed to a test. That is no barrier: a
+  test runs as the same user in the same container, and can still read the app's environment
+  (`/proc/<pid>/environ` on Linux), a key file of that user, and on the cluster the pod's Google
+  identity. Before an AI key goes onto the cluster, test runs must move to pods of their own or
+  run as another user without the app's service account (decided in #15).
+- **Checking the connection:** Settings shows the platform, the model and any missing setting. An
+  admin can send one short test message ("Check connection"); its answer, time and tokens show
+  there, and the server log notes each check. Nothing from a test or a system goes into it.
+- **What will be sent:** so far only that test message. The planned features send the error, the
+  steps and the screenshot of a failed test, the test's code and the rules in
+  `sap-tests/CLAUDE.md` (#14), and the agents (#15) send what they see in the browser. Everything
+  on those screens counts as shared with the provider, so they may only use test systems with
+  synthetic or anonymised data. SAP credentials and the values of `sap-tests/.env` never go into
+  a request.
+- **Review:** the app saves what the AI writes for review and never commits or merges it. Such
+  tests carry `// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there.
+- **The agents' sandbox** (#15) is decided when that work starts. The agents edit files and run
+  tests, and must reach the RISE systems, so the likely place is one Kubernetes Job per agent run
+  on the company cluster.
+
 ### AI test agents (guide §5.4, §6.4)
 
 Playwright's own test agents are set up for Claude Code and adapted to the SAP rules in
 `sap-tests/CLAUDE.md`. They were generated with `playwright init-agents --loop=claude` in `sap-tests`
 and then moved to the repo root, where Claude Code sessions start:
 
-| File | Role |
-| --- | --- |
-| `.claude/agents/playwright-test-planner.md` | Explores the running application and writes a test plan to `sap-tests/specs/`. No code |
-| `.claude/agents/playwright-test-generator.md` | Turns a plan into a test under `sap-tests/tests/`, with SAP locators, and runs it |
-| `.claude/agents/playwright-test-healer.md` | Finds the cause of a failing test and repairs the test, or reports an application error. Never removes or loosens a check |
+| File                                          | Role                                                                                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `.claude/agents/playwright-test-planner.md`   | Explores the running application and writes a test plan to `sap-tests/specs/`. No code                                    |
+| `.claude/agents/playwright-test-generator.md` | Turns a plan into a test under `sap-tests/tests/`, with SAP locators, and runs it                                         |
+| `.claude/agents/playwright-test-healer.md`    | Finds the cause of a failing test and repairs the test, or reports an application error. Never removes or loosens a check |
 
 They work through the `playwright-test` server in `.mcp.json` (Playwright's `run-test-mcp-server`,
 started with `PLAYWRIGHT_NODE` or the first `node`), which opens a visible browser. Each run starts
@@ -426,10 +472,101 @@ Ask for a role by name in Claude Code, for example "use the planner agent to pla
 <address>". A person reviews every plan and every generated or repaired test; such tests carry
 `// KI-generiert, geprüft von: <Name>` until a reviewer puts their name there, and the app lists
 them as not reviewed. What the agents see on screen is sent to the AI provider, so use them on test
-systems with synthetic data only (guide §9).
+systems with synthetic data only (guide §9), and set Claude Code up to use Vertex AI or Microsoft
+Foundry, like the app (see "AI provider" above).
 
-After a Playwright upgrade, run `init-agents` again in a scratch folder and compare: the tool lists
-in the three files name tools of that Playwright version.
+#### In VS Code (GitHub Copilot) and Codex
+
+The same three agents exist for GitHub Copilot in VS Code and for Codex, in the formats of
+`init-agents --loop=vscode` and `--loop=codex`:
+
+| Tool                     | Files                                                                     | Start a role                                              |
+| ------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Claude Code              | `.claude/agents/playwright-test-*.md`, server in `.mcp.json`              | by name in the chat                                       |
+| GitHub Copilot (VS Code) | `.github/agents/playwright-test-*.agent.md`, server in `.vscode/mcp.json` | pick the agent in the chat's agent list                   |
+| Codex                    | `.codex/agents/playwright_test_*.toml`, each with its own server entry    | ask for the agent by name, e.g. `playwright_test_planner` |
+
+The Claude Code files are the ones to edit. `bun run agents` writes the others from them: the same
+prompt, the tools named as Copilot and Codex name them (Read, Grep and the like become Copilot's
+`search`, Edit and Write `edit`; in Codex the planner and generator run `read-only`, the healer
+`workspace-write`), and the Claude Code instructions for a missing server replaced by the other
+tool's. `bun run pregate` fails when a generated file is out of date. Copilot and Codex start the
+server with the first `node` on the path (`PLAYWRIGHT_NODE` is not read) and need the repository
+root as the folder they work in.
+
+Copilot and Codex do not read `.claude/settings.json`, so nothing there keeps their agents out of
+`sap-tests/.env` and saved sessions: the generated prompts tell them to stay out, which is weaker
+than a rule that is enforced. Codex agents also always have a shell, which the Claude Code agents
+do not: `read-only` stops them from writing, not from reading any file, and `workspace-write` lets
+the healer write anywhere in the repository, not only in `sap-tests/tests` and `sap-tests/helpers`.
+Their prompts limit the shell to reading and searching `sap-tests` and rule out git, installs and
+running Playwright outside the MCP server; Codex's approval settings (`/approvals`) can make every
+command wait for a person. The model is the one chosen in Copilot or Codex. Copilot's cloud
+agent on GitHub cannot reach the SAP systems, so no `copilot-setup-steps.yml` is set up. The
+healer button in the app uses the Claude Code file only.
+
+After a Playwright upgrade, run `init-agents` again in a scratch folder (with `--loop=claude`,
+`vscode` and `codex`) and compare: the tool lists in the agent files name tools of that Playwright
+version, and `scripts/agents.ts` follows the other two formats.
+
+#### The healer in the app
+
+With `TEST_APP_HEALER=on`, every failed test of a finished run has a button "Diagnose with healer".
+The app then starts the healer of `.claude/agents/playwright-test-healer.md` through the Claude Agent
+SDK (`src/lib/server/healer.ts`): the same instructions and tools as in Claude Code, with
+Playwright's `run-test-mcp-server` in a headless browser. It reaches Claude like the app's other AI
+features: through `TEST_APP_AI` (Vertex AI or Microsoft Foundry, with Claude Code's own switches
+for them, and the model of `TEST_APP_AI_MODEL`, on Foundry the deployment), or, on a local app
+with `TEST_APP_AI` off, through the Claude login of the computer. The run page shows what it does, its closing
+report (the cause, test or application, what it changed) and a diff of every file it changed.
+
+- Its changes stay in the working tree of the app's checkout. Nothing is committed: a person checks
+  that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
+  von:`, and commits, or presses "Discard the repair", which puts back the files as they were
+  before (a file someone changed since is left alone). "Diagnose again" on a repair that was not
+  discarded goes on from it: the diff and the discard still go back to before the first session.
+- With sign-in on, only an admin can start or stop the healer or discard its repair. Off (the
+  default), the run page shows no healer, only what it did before it was turned off.
+- The app, not only the instructions, limits the tools: it reads and searches only in
+  `sap-tests/tests`, `helpers`, `sap-plugin`, `specs` and `setup` and in `.playwright-mcp`, and it reads the files the tools name in the results of its own test runs,
+  but not Playwright's raw network, trace or video files (never a settings file or the saved
+  sessions in `.auth`), and
+  changes only `.ts` files in `sap-tests/tests` and `sap-tests/helpers`, outside `_demo`, `_plugin`,
+  `_reference` and `_agents`. It has no shell. `browser_run_code_unsafe` is refused (it runs code in
+  the MCP server's process) and so is any browser tool given a file to save to or read. No settings,
+  hooks or MCP servers of Claude Code's configuration apply, nor the claude.ai connectors of the
+  Claude login. Its task, which quotes the test's title and error, is given to Claude Code as it is:
+  an `@path` in it does not attach a file.
+- The MCP server runs the tests in `sap-tests`, so its config reads `sap-tests/.env` as a run's
+  does, with the saved settings and only the part of the app's environment the tests use (the
+  settings the app knows, variables starting with `SAP_`, `ARIBA_`, `ODATA_`, `IDOC_`, `MFS_`,
+  `PLAYWRIGHT_`, `PW_` or `NODE_`, and what the system needs, such as `PATH`, `HOME` and the
+  proxy). Not the app's sign-in secret, the AI provider's credentials or the model's key. The
+  passwords go to it only. They are not in the model
+  process's environment or on its command line (the SDK hands the server's settings over stdin).
+  Every answer of the server passes `src/lib/server/healer-mask.ts` before the model sees it, also
+  one that ends as an error: it masks the passwords as they are and URL- or form-encoded, login
+  headers (`Cookie`, `Set-Cookie`, `Authorization`, `X-CSRF-Token`) and SAP's session cookies
+  (`MYSAPSSO2`, `SAP_SESSIONID_…`). What the built-in tools return is masked the same way, and a
+  failure of that masking blocks the result. A request
+  of the browser's network list can be read only for its response, not for the headers and body
+  it sent. Other encodings of a password (Base64 in a hand-made header, for example) are not
+  caught.
+- **What the app cannot prevent:** the healer changes test code and runs it. That code runs as the
+  app's user on the computer or pod of the app, with the test users' passwords: it can read them
+  and send them anywhere, in a way that no masking catches, and it can read or change any file that
+  user can (the app's database and code included). The limits above apply to the healer's tools,
+  not to the code it writes. A misled model (for example by text on an SAP screen or in an error
+  message) could do that. So use the healer only with test users of test systems, and read every
+  repair before it is committed or run again.
+- One healer at a time, and not during a run (a run waits for the healer as well). The results of
+  its test runs (traces, screenshots and videos of the SAP screens) are kept with the run
+  (`healer/` in the run's folder) and removed with the run's own files
+  (`TEST_APP_KEEP_REPORT_DAYS`); its report and the record of the files before it are removed with
+  the run's log. The console logs and snapshots of its browser tools, which Playwright writes to
+  `.playwright-mcp` at the repository root, are moved there when the session ends (if the app
+  stops during a session, they stay at the root). Once a run's files are gone, the healer no
+  longer starts on it.
 
 ## Development
 

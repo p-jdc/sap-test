@@ -220,6 +220,38 @@ export interface RecordTarget {
 	noLoginFolder?: string;
 }
 
+/**
+ * Where the AI runs. The company approved Vertex AI and Microsoft Foundry: Claude and any other
+ * model only through these. `anthropic`, the direct API, is for local tests with the demo tests,
+ * refused with sign-in on or on the network.
+ */
+export type AiProvider = 'vertex' | 'foundry' | 'anthropic';
+
+/** How the app reaches the AI, from its settings (TEST_APP_AI and the provider's). No secrets. */
+export interface AiStatus {
+	provider: AiProvider | 'off';
+	model?: string;
+	/** Where the requests go, for example "Vertex AI, project lab, location eu". */
+	where?: string;
+	/** Names of the settings the provider still needs. */
+	missing: string[];
+	/** What is wrong with the settings; the AI is not used while this is set. */
+	problem?: string;
+}
+
+/** The answer of the AI to a short test request, or why there was none. */
+export type AiCheck =
+	| {
+			ok: true;
+			reply: string;
+			/** The model that answered, as the provider reports it. */
+			model: string;
+			inputTokens?: number;
+			outputTokens?: number;
+			ms: number;
+	  }
+	| { ok: false; error: string };
+
 /** Where a setting's value comes from: the system credential store, sap-tests/.env, or the app's environment. */
 export type SettingSource = 'keychain' | 'file' | 'process';
 
@@ -246,4 +278,38 @@ export interface EnvStatus {
 	recorderVersion?: string;
 	/** The Node that runs Playwright; `warning` is set when it is not the supported major. */
 	node: { path: string; version: string | null; warning: string | null };
+}
+
+/** A file the healer changed, as a unified diff against what it was before. */
+interface HealerChange {
+	/** Relative to the repository root, e.g. sap-tests/tests/fiori/a.spec.ts. */
+	file: string;
+	diff: string;
+}
+
+/**
+ * The healer (.claude/agents/playwright-test-healer.md) working on one failed test of a run, or
+ * what it found. Its changes stay in the working tree for a person to review.
+ */
+export interface HealerState {
+	runId: string;
+	testId: string;
+	title: string;
+	/** The test as Playwright locates it, relative to sap-tests/tests: `<file>:<line>`. */
+	location: string;
+	status: 'running' | 'finished' | 'failed' | 'stopped';
+	startedAt: string;
+	finishedAt?: string;
+	/** What it did, one line per tool call. */
+	activity: string[];
+	/** Its closing report: the cause, test or application, what it changed, the last result. */
+	report?: string;
+	error?: string;
+	changes: HealerChange[];
+	/** The changes were undone from this app. */
+	discarded?: boolean;
+	/** Files the undo left as they were, because someone changed them after the healer. */
+	discardKept?: string[];
+	/** The estimated cost of the model calls, in US dollars. */
+	costUsd?: number;
 }

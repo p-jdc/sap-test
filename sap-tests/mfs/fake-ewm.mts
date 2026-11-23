@@ -25,6 +25,8 @@ export interface EwmTask {
 	result?: string;
 	/** Sent with sendTask: not part of an HU's route, so its result doesn't change the HU. */
 	raw?: boolean;
+	/** Confirmations that came after the task was closed: ignored, as EWM does not confirm a task twice. */
+	lateConfirmations?: number;
 }
 
 export interface EwmHu {
@@ -287,6 +289,11 @@ export class FakeEwm {
 
 	#onConfirmation(task: EwmTask | undefined, code: string | undefined, result: string) {
 		if (!task) return;
+		// A PLC that reports twice must not move the HU on twice.
+		if (task.status !== 'open') {
+			task.lateConfirmations = (task.lateConfirmations ?? 0) + 1;
+			return;
+		}
 		const { tanum } = task;
 		task.result = result;
 		const record = task.raw ? undefined : this.hus.get(task.hu);

@@ -77,6 +77,8 @@ import '@ui5/webcomponents-icons/dist/navigation-right-arrow.js';
 import '@ui5/webcomponents-icons/dist/sys-help.js';
 import '@ui5/webcomponents-icons/dist/warning.js';
 import '@ui5/webcomponents-icons/dist/error.js';
+import '@ui5/webcomponents-icons/dist/stethoscope.js';
+import '@ui5/webcomponents-icons/dist/undo.js';
 
 // The theme follows the operating system. `color-scheme` is set alongside it so everything that is
 // not UI5 (scrollbars, the flow canvas, which styles itself with light-dark()) switches too.

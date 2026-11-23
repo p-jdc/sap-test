@@ -67,9 +67,14 @@ function runArgs(input: StartRunInput, files: string[], results: string): string
 	];
 }
 
-/** Starts `playwright test` in sap-tests with the live, list and html reporters. One run at a time. */
+/**
+ * Starts `playwright test` in sap-tests with the live, list and html reporters. One run at a time.
+ * `busy` says why another job (the healer) keeps the run from starting; it is asked after the last
+ * await, like the check for a run.
+ */
 export async function startRun(
-	input: StartRunInput
+	input: StartRunInput,
+	busy?: () => string | undefined
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
 	// Settings saved in the app live in the system credential store; the tests get them as
 	// environment variables. Read before the check below: nothing after it yields, so two requests
@@ -83,6 +88,8 @@ export async function startRun(
 	// reach the run state, the log or the UI that way.
 	const redact = redactor(settings.secrets);
 	if (activeRunId()) return { ok: false, error: `Run ${activeRunId()} is still running.` };
+	const other = busy?.();
+	if (other) return { ok: false, error: other };
 	if (!existsSync(PLAYWRIGHT_PACKAGE)) {
 		return {
 			ok: false,

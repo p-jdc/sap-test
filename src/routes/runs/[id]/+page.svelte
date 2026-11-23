@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import HealerPanel from '#lib/components/HealerPanel.svelte';
 	import StatusTag from '#lib/components/StatusTag.svelte';
 	import {
 		flowHref,
@@ -271,6 +272,9 @@
 						<summary>Show the error message</summary>
 						<pre class="log">{t.error.message}</pre>
 					</details>
+				{/if}
+				{#if !t.setup && (t.status === 'failed' || t.status === 'timedOut') && run.status !== 'running'}
+					<HealerPanel runId={id} testId={t.testId} runActive={!!runs.current?.active} />
 				{/if}
 				{#if b.length}
 					<div class="timeline" aria-label="Step timeline">

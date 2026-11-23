@@ -93,10 +93,45 @@ a real warehouse.
 | Bin occupied on the next putaway | `{ binOccupied: true }`                                                | same                                            |
 | Device down or up again          | `setDeviceStatus('SRM1', 'DOWN')`                                      | `POST /devices/SRM1/status {"status":"DOWN"}`   |
 | Protocol faults                  | `setFaults('CONS', { dropAcks: 1, stopLife: true, disconnect: true })` | `POST /plcs/CONS/faults`                        |
+| Fault rules (see below)          | `setFaults('CONS', { rules: [ … ] })`                                  | `POST /plcs/CONS/faults {"rules":[…]}`          |
+| A telegram no device reported    | `sendTelegram('CONS', { type: 'WTCO', fields })`, `{ raw: '…' }`       | `POST /plcs/CONS/send`                          |
 | Read state, telegrams, events    | `state()`, `log()`, `events()`                                         | `GET /state`, `/log?since=n`, `/events?since=n` |
 
 Result codes in confirmations: `OK`; `OCCU` (bin occupied); `NORT` (no physical connection); `WPLC` (task sent to
 the wrong PLC); `NOHU` (HU not at the source).
+
+### Fault rules
+
+A fault rule says what happens to the next telegram(s) of a type that a PLC sends to EWM. With them a test asks
+how EWM copes when a PLC misbehaves:
+
+```json
+{ "type": "WTCO", "fields": { "hu": "300001", "src": "IP" }, "action": "drop" }
+{ "type": "WTCO", "action": "delay", "delayMs": 5000 }
+{ "type": "WTCO", "action": "duplicate", "sameSeq": true }
+{ "type": "WTCO", "action": "change", "set": { "result": "ERR" }, "times": 3 }
+```
+
+| Action      | The telegram …                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `drop`      | is never sent, as if the PLC failed to report: EWM waits for something that does not come        |
+| `delay`     | goes out `delayMs` late (protocol time, not shortened by the speed)                              |
+| `duplicate` | goes out twice: the copy with a new sequence number (a second report) or, `sameSeq`, as a repeat |
+| `change`    | goes out with the field values in `set`: a wrong HU, bin or result                               |
+
+- `type` and the field names are the telegram layout's; `fields` narrows the rule to telegrams with these values.
+  A numeric field matches by value, so `"tanum": "7"` matches the task number sent as `000000000007`. A rule
+  that does not fit the layout is refused.
+- A rule acts on `times` telegrams (default 1), then it is used up. Several rules: the first that matches acts.
+  Setting `rules` replaces the PLC's rules; `[]` clears them, and so does a fresh demo run.
+- Rules only act on telegrams the PLC sends. What EWM sends is untouched; `dropAcks` withholds acknowledgements.
+- A dropped telegram appears in the log marked `notSent`, and telegram conditions do not count it. A delayed one
+  that was not sent when the connection ends goes out after the reconnect, without further delay. A fresh demo
+  run drops the delayed ones still held.
+- A telegram goes through the rules once. Sent again after a reconnect, it goes out as it was first sent.
+- `sendTelegram` makes a PLC send what no device reported: a telegram built from type and fields (it goes through
+  the rules and waits for its acknowledgement), or `raw` text exactly as given, start and end characters included,
+  broken on purpose if need be.
 
 ## Scenarios
 
@@ -106,24 +141,26 @@ serves the app (choose one on the start card, or run one on a running Mock PLC),
 
 ```json
 {
-	"title": "Bin occupied on putaway",
-	"description": "The stacker crane finds the destination bin full …",
-	"setup": "sap-example",
-	"modes": ["demo"],
-	"steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
-	"expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
+  "title": "Bin occupied on putaway",
+  "description": "The stacker crane finds the destination bin full …",
+  "setup": "sap-example",
+  "modes": ["demo"],
+  "steps": [{ "enter": "A", "binOccupied": true }, { "wait": { "hu": "A", "at": "bin" } }],
+  "expect": [{ "hu": "A", "at": "A1-*", "notAt": "A1-01-01", "ewm": "stored" }]
 }
 ```
 
-| Step                                                                             | Does                                             |
-| -------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `{ "enter": "A", "idPoint": "CONT", "binOccupied": true, "at": "GR-IN" }`        | HU A arrives (all but `enter` optional)          |
-| `{ "wait": <condition>, "timeout": "30s" }`                                      | waits until the condition holds                  |
-| `{ "check": <condition> }`                                                       | fails the run if the condition does not hold now |
-| `{ "device": "SRM1", "status": "DOWN" }`                                         | a device fails or runs again                     |
-| `{ "faults": "CONS", "dropAcks": 1, "stopLife": true, "disconnect": true }`      | protocol faults on a PLC                         |
-| `{ "ewm": "retrieve", "hu": "A", "to": "GI" }`, `{ "ewm": "picked", "hu": "A" }` | what a clerk does in EWM (demo only)             |
-| `{ "pause": "5s" }`                                                              | warehouse time, shortened by the speed           |
+| Step                                                                                    | Does                                             |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `{ "enter": "A", "idPoint": "CONT", "binOccupied": true, "at": "GR-IN" }`               | HU A arrives (all but `enter` optional)          |
+| `{ "wait": <condition>, "timeout": "30s", "since": "last-step" }`                       | waits until the condition holds                  |
+| `{ "check": <condition> }`                                                              | fails the run if the condition does not hold now |
+| `{ "device": "SRM1", "status": "DOWN" }`                                                | a device fails or runs again                     |
+| `{ "faults": "CONS", "dropAcks": 1, "stopLife": true, "disconnect": true }`             | protocol faults on a PLC                         |
+| `{ "faults": "CONS", "rules": [ … ] }`                                                  | fault rules on a PLC (`[]` clears them)          |
+| `{ "send": "CONS", "type": "WTCO", "fields": { … } }`, `{ "send": "CONS", "raw": "…" }` | the PLC sends a telegram no device reported      |
+| `{ "ewm": "retrieve", "hu": "A", "to": "GI" }`, `{ "ewm": "picked", "hu": "A" }`        | what a clerk does in EWM (demo only)             |
+| `{ "pause": "5s" }`                                                                     | warehouse time, shortened by the speed           |
 
 Conditions: `{ "hu": "A", "at": "bin" | "<point or bin>" | "A1-*", "notAt": …, "movingOn": "TCAR", "left": true,
 "ewm": "stored" }`, `{ "telegram": { "type": "WTCO", "from": "SRM1", "fields": { "hu": "{A}", "result": "OCCU" } },
@@ -158,6 +195,10 @@ would always pass. The event's own `count` (how many telegrams were kept or drop
   HU before it arrives, so the HU is created in EWM first.
 - Waits react to every event and telegram, not to a poll: "when A is on its way, the crane fails" happens at the same
   moment at any speed.
+- Telegram and event conditions count from the start of the scenario. A wait with `"since": "last-step"` counts only
+  from when the step before it began: after a disconnect step, the reconnect, not the connect before the run.
+- `{A}` also works in the field values of fault rules and sent telegrams. Set rules for an HU after it has entered,
+  or give the HU its number when starting the run.
 - Expectations get a short settling time after the last step: EWM learns from telegrams a moment after the warehouse
   acted.
 - `"modes": ["demo"]` scenarios start from an empty warehouse (`"fresh"`, default true). Against a real EWM
@@ -176,16 +217,16 @@ Control API: `GET /scenarios` (what this Mock PLC can run), `GET /scenario` (cur
 import { test, expect } from '../../sap-plugin/mfs';
 
 test('crane failure: the waiting HU is stored once the crane runs again', async ({ mfs, page }) => {
-	const result = await mfs.runScenario('crane-down');
-	// result.hus.A is the HU number the scenario used: check in EWM what became of it.
+  const result = await mfs.runScenario('crane-down');
+  // result.hus.A is the HU number the scenario used: check in EWM what became of it.
 });
 
 test('putaway against EWM Dev', async ({ mfs, page }) => {
-	// A real EWM takes its time: room for creating the HU, the run and the checks.
-	test.setTimeout(300_000);
-	const hu = '…'; // created in EWM first, in the test
-	await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
-	// then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
+  // A real EWM takes its time: room for creating the HU, the run and the checks.
+  test.setTimeout(300_000);
+  const hu = '…'; // created in EWM first, in the test
+  await mfs.runScenario('putaway-ewm', { hus: { A: hu }, timeout: 180_000 });
+  // then check in EWM: the tasks of this HU are confirmed, its stock is in the bin.
 });
 ```
 
