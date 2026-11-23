@@ -41,6 +41,10 @@ values it stands for: `.locator(ui5ChartPointSelector({ 'Item Category': 'Pop', 
 on the chart's locator. A date picked in a calendar is recorded as the value it put into the field
 (`.fill('12/2026')`, then leaving the field), not as clicks on a day, which only exists while its month is shown.
 A click on the icon of a button is recorded as a click on the button.
+The recorder's bar has a **Check** button: the click after it records a check of what it lands on
+instead of a click, and never reaches the app. A field becomes `toHaveValue`, a checkbox, radio
+button or switch `toBeChecked` (or `not.toBeChecked`), anything else with a text `toHaveText`, and
+the rest `toBeVisible`. A password field is only checked to be shown. Escape leaves the check mode.
 
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the

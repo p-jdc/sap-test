@@ -19,7 +19,14 @@ export type RecordedStep = {
 	 * by this.
 	 */
 	at?: number;
-	action: 'click' | 'fill' | 'press';
+	/** `expect`: a check the person asked for with the recorder's Check button. */
+	action: 'click' | 'fill' | 'press' | 'expect';
+	/**
+	 * What an `expect` step checks: the field's value, the text, whether it is ticked, or only
+	 * that it is shown. `value` holds the value or text, `checked` whether it is ticked.
+	 */
+	check?: 'value' | 'text' | 'checked' | 'visible';
+	checked?: boolean;
 	/** A UI5 control. Missing on WebGUI pages and when UI5 could not describe the element. */
 	selector?: UI5ControlSelector;
 	/** A WebGUI element: its full SID path. */
@@ -67,6 +74,12 @@ type RecorderState = {
 	steps: number;
 	/** Reports what was typed into the field that has the focus, as leaving the field would. */
 	flush?: () => void;
+	/**
+	 * Whether the next click records a check instead of a click. Set in every frame of the page:
+	 * the Check button is in the top frame, the control may be in an iframe.
+	 */
+	checking?: boolean;
+	setChecking?: (on: boolean) => void;
 };
 declare global {
 	interface Window {
@@ -109,7 +122,7 @@ function recorderScript(binding: string) {
 		action: string;
 		selector?: unknown;
 	};
-	type Report = (step: PageStep) => Promise<void>;
+	type Report = (step: PageStep | { action: 'mode' }) => Promise<unknown>;
 	type Editable = HTMLInputElement | HTMLTextAreaElement;
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion, anti-slop/no-chained-type-assertions -- the binding and UI5's loader are globals this file cannot declare: the name of the first is a parameter, and ui5.ts declares the second without the callback form
 	const win = window as unknown as {
@@ -127,21 +140,46 @@ function recorderScript(binding: string) {
 	let finder: Finder | undefined;
 	let elements: ElementModule | undefined;
 
-	// Shows that the recorder is on and counts the steps. It takes no clicks.
+	// Shows that the recorder is on, counts the steps and holds the Check button. In the top frame
+	// only, in a shadow root of its own, so the page's styles do not reach it. Built element by
+	// element: a page with Trusted Types refuses innerHTML.
 	const badge = document.createElement('div');
+	badge.dataset.sapRecorder = '';
 	badge.style.cssText =
-		'position:fixed;z-index:2147483647;top:8px;left:50%;transform:translateX(-50%);padding:6px 12px;' +
-		'border-radius:14px;background:#b00;color:#fff;font:12px/1.2 sans-serif;white-space:nowrap;' +
-		'pointer-events:none;opacity:.9';
+		'position:fixed;z-index:2147483647;top:8px;left:50%;transform:translateX(-50%);' +
+		// Only the button takes the mouse: the app under the bar stays usable.
+		'pointer-events:none';
+	const shadow = badge.attachShadow({ mode: 'open' });
+	const style = document.createElement('style');
+	style.textContent =
+		'.bar{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 12px;border-radius:14px;' +
+		'background:#b00;color:#fff;font:12px/1.2 sans-serif;white-space:nowrap;opacity:.92}' +
+		'.bar.checking{background:#0a6ed1}' +
+		'button{font:inherit;color:#b00;background:#fff;border:0;border-radius:10px;padding:3px 10px;cursor:pointer;pointer-events:auto}' +
+		'.checking button{color:#0a6ed1}';
+	const bar = document.createElement('div');
+	bar.className = 'bar';
+	const status = document.createElement('span');
+	const checkButton = document.createElement('button');
+	checkButton.type = 'button';
+	checkButton.title = 'Record a check: click a field, a text or a checkbox next';
+	bar.append(status, checkButton);
+	shadow.append(style, bar);
+	const recording = () => state.ready || state.steps > 0 || !!document.querySelector('[lsdata]');
 	const showBadge = () => {
-		badge.textContent =
-			state.ready || state.steps > 0 || document.querySelector('[lsdata]')
+		bar.classList.toggle('checking', !!state.checking);
+		if (state.checking) status.textContent = '✓ Click what to check · Esc cancels';
+		else
+			status.textContent = recording()
 				? `● Recording · ${state.steps} steps`
 				: '○ Recorder waiting for UI5';
+		checkButton.textContent = state.checking ? 'Cancel' : 'Check';
 		if (window.top === window && !badge.isConnected && document.documentElement)
 			document.documentElement.append(badge);
 	};
 	document.addEventListener('DOMContentLoaded', showBadge);
+	// An event on the recorder's own bar.
+	const ours = (event: Event) => event.composedPath().includes(badge);
 
 	// RecordReplay is loaded once the app has rendered, so the recorder does not change how UI5
 	// boots. Until then (and on pages without UI5) nothing is recorded.
@@ -387,7 +425,8 @@ function recorderScript(binding: string) {
 		'pointerdown',
 		(event) => {
 			if (event.button !== 0 || !(event.target instanceof Element)) return;
-			if (!watched(event.target)) return;
+			// The bar and a click that records a check (below) are no steps of the flow.
+			if (state.checking || ours(event) || !watched(event.target)) return;
 			if (!fresh(event.target, 2_000)?.settled) prepare(event.target);
 			armPicker(event.target);
 		},
@@ -398,6 +437,7 @@ function recorderScript(binding: string) {
 		(event) => {
 			const target = event.target;
 			if (!event.isTrusted || event.button !== 0) return;
+			if (state.checking || ours(event)) return;
 			if (!(target instanceof Element) || !watched(target)) return;
 			const entry = prepared.get(target) ?? prepare(target);
 			const force = target.closest('[aria-disabled="true"]') ? { force: true } : {};
@@ -421,7 +461,9 @@ function recorderScript(binding: string) {
 	// value themselves (sap.m.MaskInput) are covered too.
 	const isEditable = (target: EventTarget | null): target is Editable =>
 		target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
-	type Field = { described: Promise<Described>; value: string; secret: boolean };
+	// `typedAt`: the time of the last key, which is when the fill happened. The field is often left
+	// much later (or, in check mode, not at all before a check in another frame).
+	type Field = { described: Promise<Described>; value: string; secret: boolean; typedAt?: number };
 	const fields = new WeakMap<Element, Field>();
 	// A password must not end up in a spec file. A field that was a password field once stays one
 	// for the recorder: a "show password" button turns it into a text field.
@@ -497,8 +539,10 @@ function recorderScript(binding: string) {
 		if (!known || known.value === field.value) return;
 		known.secret ||= isSecret(field);
 		const typed = known.secret ? { secret: true } : { value: field.value };
-		const step = { ...next(), action: 'fill', ...typed, hint: hintFor(field) };
+		const typedAt = known.typedAt === undefined ? {} : { at: known.typedAt };
+		const step = { ...next(), ...typedAt, action: 'fill', ...typed, hint: hintFor(field) };
 		known.value = field.value;
+		known.typedAt = undefined;
 		// Typed by hand: the picker's change that follows is this value, already recorded.
 		const picker = pickerOf(field);
 		if (picker) armed.delete(picker);
@@ -523,11 +567,18 @@ function recorderScript(binding: string) {
 		'input',
 		(event) => {
 			const field = event.target;
-			if (!isEditable(field) || !watched(field) || fields.has(field)) return;
+			if (!isEditable(field) || !watched(field)) return;
+			const typedAt = performance.timeOrigin + performance.now();
+			const known = fields.get(field);
+			if (known) {
+				known.typedAt = typedAt;
+				return;
+			}
 			fields.set(field, {
 				described: describe(field),
 				value: field.value === '' ? ' ' : '',
-				secret: isSecret(field)
+				secret: isSecret(field),
+				typedAt
 			});
 		},
 		true
@@ -553,9 +604,177 @@ function recorderScript(binding: string) {
 		},
 		true
 	);
+
+	// Checks. The Check button turns the next click into a check of what was clicked: a field's
+	// value, whether a checkbox is ticked, a text, else that the control is shown. That click
+	// never reaches the app, so checking a button does not press it.
+	const overlay = document.createElement('div');
+	overlay.style.cssText =
+		'position:fixed;z-index:2147483646;pointer-events:none;outline:2px solid #0a6ed1;' +
+		'background:rgba(10,110,209,.08);border-radius:2px';
+	state.setChecking = (on) => {
+		// What was typed into the field that has the focus comes first: the check may be of that
+		// value. Neither the Check button nor the check click takes the focus out of the field.
+		if (on) state.flush?.();
+		state.checking = on;
+		if (!on) overlay.remove();
+		showBadge();
+	};
+	// The mode is the same in every frame of the page: the recorder outside passes it on, and a
+	// document that loads later (an iframe of a launchpad, a page after a round trip) asks for it.
+	const checkEverywhere = (on: boolean) => {
+		state.setChecking?.(on);
+		void win[binding]({ action: 'checking', checked: on });
+	};
+	void win[binding]({ action: 'mode' }).then((on) => {
+		if (on === true && !state.checking) state.setChecking?.(true);
+		return on;
+	});
+	const TICKABLE =
+		'input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]';
+	const isTickable = (element: Element) => element.matches(TICKABLE);
+	const tickedOf = (element: Element) =>
+		element instanceof HTMLInputElement
+			? element.checked
+			: element.getAttribute('aria-checked') === 'true';
+	// A field one types into: no checkbox, radio button or push button.
+	const isTextField = (element: Element | null): element is Editable =>
+		isEditable(element) &&
+		!element.matches(TICKABLE) &&
+		!['button', 'submit', 'reset', 'image'].includes(element.type);
+	// The input of the field an element is in (sap.m.Input, DatePicker, TextArea and the like).
+	const fieldAround = (target: Element): Editable | undefined => {
+		if (isTextField(target)) return target;
+		let control = state.ready ? controlOf(target) : undefined;
+		for (let level = 0; control && level < 3; level++, control = control.getParent() ?? undefined) {
+			if (!control.isA('sap.m.InputBase')) continue;
+			const field = control.getFocusDomRef();
+			return isTextField(field) ? field : undefined;
+		}
+		return undefined;
+	};
+	type Checked = { element: Element; check: 'value' | 'checked' | 'text' };
+	const checkedAt = (target: Element): Checked => {
+		const tickable = target.closest(TICKABLE);
+		if (tickable) return { element: tickable, check: 'checked' };
+		const field = fieldAround(target);
+		if (field) return { element: field, check: 'value' };
+		return { element: buttonAround(target) ?? target, check: 'text' };
+	};
+	// The element the written locator will find: what UI5 resolves the selector to, or for WebGUI
+	// the element whose lsdata holds the SID, as the sid engine finds it.
+	const resolvedBy = (described: Described): Element | undefined => {
+		const { sid } = described;
+		if (sid)
+			return [...document.querySelectorAll('[lsdata]')].find((holder) =>
+				(holder.getAttribute('lsdata') ?? '').includes(`"SID":"${sid}"`)
+			);
+		if (!described.selector || described.innerText || described.chartPoint) return undefined;
+		try {
+			// oxlint-disable-next-line no-underscore-dangle -- UI5's name
+			return finder?._findElements(JSON.parse(JSON.stringify(described.selector)))[0];
+		} catch {
+			return undefined;
+		}
+	};
+	// The text as toHaveText compares it: textContent with its white space collapsed.
+	const textOf = (element: Element) =>
+		(element.textContent ?? '').replaceAll('\u200b', '').replace(/\s+/g, ' ').trim();
+	const LONGEST_TEXT = 200;
+	const checkStep = (described: Described, at: Checked): PageStep => {
+		const located = described.chartPoint || described.innerText;
+		const element = resolvedBy(described) ?? at.element;
+		if (!located && at.check === 'value' && isTextField(element) && !isSecret(element))
+			return { action: 'expect', check: 'value', value: element.value };
+		if (!located && at.check === 'checked' && isTickable(element))
+			return { action: 'expect', check: 'checked', checked: tickedOf(element) };
+		const text = textOf(element);
+		if (!located && at.check === 'text' && text && text.length <= LONGEST_TEXT)
+			return { action: 'expect', check: 'text', value: text };
+		// A password is never written down, not even as a check of its value.
+		return { action: 'expect', check: 'visible' };
+	};
+	const BLOCKED = [
+		'pointerdown',
+		'mousedown',
+		'pointerup',
+		'mouseup',
+		'dblclick',
+		'touchstart',
+		'touchend'
+	];
+	const block = (event: Event) => {
+		event.preventDefault();
+		event.stopImmediatePropagation();
+	};
+	for (const type of BLOCKED)
+		window.addEventListener(
+			type,
+			(event) => {
+				// A press on the bar must not take the focus out of a field or close a popup.
+				if (ours(event) || state.checking) block(event);
+			},
+			{ capture: true, passive: false }
+		);
+	window.addEventListener(
+		'click',
+		(event) => {
+			if (ours(event)) {
+				block(event);
+				if (event.composedPath().includes(checkButton)) checkEverywhere(!state.checking);
+				return;
+			}
+			if (!state.checking || !(event.target instanceof Element)) return;
+			block(event);
+			// Typed while in the check mode: the keyboard is not blocked.
+			state.flush?.();
+			checkEverywhere(false);
+			if (!watched(event.target)) return;
+			const at = checkedAt(event.target);
+			const step = { ...next(), hint: hintFor(at.element) };
+			// Read once the click is over: a native checkbox ticks itself before the click event and
+			// only goes back when the event has been cancelled.
+			// Busy until then, so that the end of a recording waits for this step.
+			state.busy++;
+			const over = new Promise((done) => setTimeout(done));
+			void over
+				.then(() => describe(at.element))
+				.then((described) => report({ ...step, ...described, ...checkStep(described, at) }))
+				.finally(() => state.busy--);
+		},
+		true
+	);
+	window.addEventListener(
+		'mousemove',
+		(event) => {
+			if (!state.checking || !(event.target instanceof Element) || ours(event)) return;
+			const box = checkedAt(event.target).element.getBoundingClientRect();
+			overlay.style.left = `${box.left}px`;
+			overlay.style.top = `${box.top}px`;
+			overlay.style.width = `${box.width}px`;
+			overlay.style.height = `${box.height}px`;
+			if (!overlay.isConnected) document.documentElement.append(overlay);
+		},
+		true
+	);
+	window.addEventListener(
+		'keydown',
+		(event) => {
+			if (!state.checking || event.key !== 'Escape') return;
+			block(event);
+			checkEverywhere(false);
+		},
+		true
+	);
 }
 
 /* oxlint-enable unicorn/consistent-function-scoping */
+
+/**
+ * What a frame reports when the Check button turns the check mode on or off, and what a new
+ * document asks to learn the mode of its page.
+ */
+type CheckingMode = { action: 'checking'; checked: boolean } | { action: 'mode' };
 
 const isSelector = (value: unknown): value is UI5ControlSelector =>
 	typeof value === 'object' && value !== null && Object.keys(value).length > 0;
@@ -585,13 +804,26 @@ export async function installRecorder(
 ): Promise<() => Promise<RecordedStep[]>> {
 	const steps: RecordedStep[] = [];
 	const arriving: Promise<unknown>[] = [];
-	await context.exposeBinding(BINDING, ({ frame }, raw: RecordedStep) => {
+	const checking = new WeakMap<Page, boolean>();
+	await context.exposeBinding(BINDING, ({ frame }, raw: RecordedStep | CheckingMode) => {
+		if (raw.action === 'mode') return checking.get(frame.page()) ?? false;
+		if (raw.action === 'checking') {
+			// The Check button was pressed, or a check was recorded: the same mode in every frame.
+			checking.set(frame.page(), raw.checked);
+			for (const other of frame.page().frames())
+				if (other !== frame)
+					void other
+						.evaluate((on) => window.sapRecorderState?.setChecking?.(on), raw.checked)
+						.catch(() => undefined);
+			return raw.checked;
+		}
 		const step = { ...raw, selector: isSelector(raw.selector) ? raw.selector : undefined };
 		arriving.push(
 			framePath(frame)
 				.catch(() => [])
 				.then((frames) => steps.push(frames.length ? { ...step, frames } : step))
 		);
+		return false;
 	});
 	await context.addInitScript(recorderScript, BINDING);
 	return async () => {
@@ -696,6 +928,14 @@ function locatorCode(step: RecordedStep): string | undefined {
 	return step.innerText ? `${found}.getByText(${quote(step.innerText)}, { exact: true })` : found;
 }
 
+// The assertion of a recorded check, Playwright's own web-first matchers: they wait for the value.
+function matcher(step: RecordedStep): string {
+	if (step.check === 'value') return `.toHaveValue(${quote(step.value ?? '')})`;
+	if (step.check === 'text') return `.toHaveText(${quote(step.value ?? '')})`;
+	if (step.check === 'checked') return step.checked ? '.toBeChecked()' : '.not.toBeChecked()';
+	return '.toBeVisible()';
+}
+
 function stepLines(step: RecordedStep): string[] {
 	const lines: string[] = [];
 	// One line: a hint is text from the page and may hold line breaks.
@@ -720,6 +960,7 @@ function stepLines(step: RecordedStep): string[] {
 	// pressed is recorded as a step of its own.
 	if (step.action === 'fill' && step.picker) lines.push(`await ${locator}.blur();`);
 	if (step.action === 'press') lines.push(`await ${locator}.press(${quote(step.key ?? '')});`);
+	if (step.action === 'expect') lines.push(`await expect(${locator})${matcher(step)};`);
 	return lines;
 }
 
@@ -775,6 +1016,7 @@ export function renderSpec(
 	const body = [start, ...kept.flatMap(stepLines)].join('\n');
 	const names = [
 		'test',
+		'expect',
 		'fillSecret',
 		'ui5ControlSelector',
 		'ui5ChartPointSelector',

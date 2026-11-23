@@ -31,6 +31,14 @@ async function clickLikeAPerson(page: Page | Frame, target: Locator) {
 	await target.click();
 }
 
+// The recorder's Check button: the next click records a check of what it lands on.
+const checkButton = (page: Page) =>
+	page.locator('[data-sap-recorder]').getByRole('button', { name: 'Check' });
+async function checkLikeAPerson(page: Page, target: Locator) {
+	await checkButton(page).click();
+	await clickLikeAPerson(page, target);
+}
+
 type Flow = {
 	url: string;
 	/** Pages served by the test itself, e.g. a WebGUI stand-in. */
@@ -60,6 +68,14 @@ async function record(
 	return steps;
 }
 
+// A recorded check, as the written spec makes it.
+async function checkAgain(control: Locator, step: RecordedStep) {
+	if (step.check === 'value') await expect(control).toHaveValue(step.value!);
+	else if (step.check === 'text') await expect(control).toHaveText(step.value!);
+	else if (step.check === 'checked') await expect(control).toBeChecked({ checked: step.checked });
+	else await expect(control).toBeVisible();
+}
+
 async function replay(
 	browser: Browser,
 	flow: Flow,
@@ -76,6 +92,7 @@ async function replay(
 		if (step.action === 'fill') await control.fill(step.value!);
 		if (step.action === 'fill' && step.picker) await control.blur();
 		if (step.action === 'press') await control.press(step.key!);
+		if (step.action === 'expect') await checkAgain(control, step);
 	}
 	await verify(page);
 	await context.close();
@@ -269,6 +286,7 @@ const WEBGUI_STAND_IN = `<!doctype html><html><body>
 <label>Order <input lsdata='{"0":"x","SID":"wnd[0]/usr/ctxtVBAK-VBELN"}' /></label>
 <span lsdata='{"SID":"wnd[0]/tbar[1]/btn[8]"}'><button onclick="this.textContent='pressed'">Run</button></span>
 <p>No SID here</p>
+<label>Urgent <input type="checkbox" checked lsdata='{"SID":"wnd[0]/usr/chkURGENT"}' /></label>
 </body></html>`;
 const html = (body: string) => ({ contentType: 'text/html', body });
 const webgui: Flow = {
@@ -283,18 +301,39 @@ test('WebGUI stand-in: clicks and typing are recorded by SID and replay', async 
 	const steps = await record(browser, testInfo, webgui, async (page) => {
 		await page.getByLabel('Order').click();
 		await page.getByLabel('Order').pressSequentially('4711');
+		// A check of the field while the cursor is still in it: the typing comes first.
+		await checkButton(page).click();
+		await page.getByLabel('Order').click();
 		// The button sits inside the element that carries the SID.
 		await page.getByRole('button', { name: 'Run' }).click();
 		// Without a SID nothing is recorded.
 		await page.getByText('No SID here').click();
-		await expect(page.getByRole('button')).toHaveText('pressed');
+		await expect(page.getByRole('button', { name: 'pressed' })).toBeVisible();
+		// Checks of the button's text and of a native checkbox, which is not a field.
+		await checkButton(page).click();
+		await page.getByRole('button', { name: 'pressed' }).click();
+		await checkButton(page).click();
+		await page.getByLabel('Urgent').click();
+		await expect(page.getByLabel('Urgent')).toBeChecked();
 	});
 
 	expect(steps.map((step) => [step.action, step.sid, step.value])).toEqual([
 		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
 		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711'],
-		['click', 'wnd[0]/tbar[1]/btn[8]', undefined]
+		['expect', 'wnd[0]/usr/ctxtVBAK-VBELN', '4711'],
+		['click', 'wnd[0]/tbar[1]/btn[8]', undefined],
+		['expect', 'wnd[0]/tbar[1]/btn[8]', 'pressed'],
+		['expect', 'wnd[0]/usr/chkURGENT', undefined]
 	]);
+	expect(steps.map((step) => step.check)).toEqual([
+		undefined,
+		undefined,
+		'value',
+		undefined,
+		'text',
+		'checked'
+	]);
+	expect(steps[5]?.checked).toBe(true);
 
 	await replay(browser, webgui, steps, async (page) => {
 		await expect(page.getByLabel('Order')).toHaveValue('4711');
@@ -440,11 +479,21 @@ test('inside an iframe: WebGUI steps carry the frame and replay', async ({ brows
 		await app.getByLabel('Order').pressSequentially('4711');
 		await app.getByRole('button', { name: 'Run' }).click();
 		await expect(app.getByRole('button')).toHaveText('pressed');
+		// The Check button is in the top frame; the check is made in the iframe.
+		await checkButton(page).click();
+		// The mode reaches the iframe through the recorder outside the page; a person is slower.
+		await page
+			.frame({ name: 'application' })!
+			.waitForFunction(() => window.sapRecorderState?.checking);
+		await app.getByLabel('Order').click();
+		// Recording the check ends the check mode in the top frame as well.
+		await expect(checkButton(page)).toBeVisible();
 	});
 
 	expect(steps.map((step) => step.frames)).toEqual(
-		Array.from({ length: 3 }, () => ['iframe[name="application"]'])
+		Array.from({ length: 4 }, () => ['iframe[name="application"]'])
 	);
+	expect(steps[3]).toMatchObject({ action: 'expect', check: 'value', value: '4711' });
 	await replay(browser, framed, steps, async (page) => {
 		await expect(page.frameLocator('iframe').getByRole('button')).toHaveText('pressed');
 	});
@@ -611,6 +660,178 @@ test('every date picked is recorded: after the view is drawn again and after a c
 	await replay(browser, { url: DATE_PICKER }, written, async (page) => {
 		await expect(firstDateField(page)).toHaveValue(picked[1] ?? '');
 	});
+});
+
+const cartButton = (page: Page) => page.getByRole('button', { name: 'Show Shopping Cart' });
+const product = (page: Page) =>
+	page.getByRole('region', { name: 'First column' }).getByText('Screen clean', { exact: true });
+
+test('checks: a value, a text and a button are recorded without the clicks reaching the app', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, cartDemo, async (page) => {
+		await ui5Started(page);
+		await page.getByRole('searchbox').fill('Screen clean');
+		await page.getByRole('searchbox').press('Enter');
+		await page.waitForUI5();
+		const searched = page.url();
+		await checkLikeAPerson(page, page.getByRole('searchbox'));
+		await checkLikeAPerson(page, product(page));
+		// Checking the cart button does not open the cart, and checking the product does not open it:
+		// once UI5 has come to rest, the app is still where it was.
+		await checkLikeAPerson(page, cartButton(page));
+		await page.waitForUI5();
+		expect(page.url()).toBe(searched);
+		await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeHidden();
+		await expect(page.getByText('Your shopping cart is empty')).toBeHidden();
+		// Escape leaves the check mode without a step; the next click is a click again.
+		await checkButton(page).click();
+		await expect(page.locator('[data-sap-recorder]')).toContainText('Click what to check');
+		await page.keyboard.press('Escape');
+		await expect(checkButton(page)).toBeVisible();
+		await clickLikeAPerson(page, product(page));
+		await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeVisible();
+	});
+
+	expect(steps.map((step) => [step.action, step.check])).toEqual([
+		['fill', undefined],
+		['press', undefined],
+		['expect', 'value'],
+		['expect', 'text'],
+		['expect', 'text'],
+		['click', undefined]
+	]);
+	expect(needingALook(steps)).toEqual([]);
+	expect(steps[2]?.value).toBe('Screen clean');
+	expect(steps[3]?.value).toBe('Screen clean');
+	// An icon-only button: its text is the tooltip UI5 puts in for screen readers, as toHaveText reads it.
+	expect(steps[4]?.selector?.controlType).toBe('sap.m.ToggleButton');
+	expect(steps[4]?.value).toBe('Show Shopping Cart');
+	const spec = renderSpec(CART, steps, '../../sap-plugin');
+	expect(spec).toContain("import { test, expect } from '../../sap-plugin';");
+	expect(spec).toContain(".toHaveValue('Screen clean');");
+	expect(spec).toContain(".toHaveText('Screen clean');");
+
+	await replay(browser, cartDemo, steps, async (page) => {
+		await expect(page.getByRole('button', { name: 'Add to Cart' })).toBeVisible();
+	});
+});
+
+// A launchpad with a title of its own (a SID, so it is recorded) whose app frame comes later.
+const lateShell: Flow = {
+	url: 'https://shell.test/',
+	prepare: async (context) => {
+		await webgui.prepare?.(context);
+		await context.route('https://shell.test/', (route) =>
+			route.fulfill(
+				html(`<!doctype html><html><body>
+<h1 lsdata='{"SID":"wnd[0]/titl/txtTITLE"}'>Shell</h1></body></html>`)
+			)
+		);
+	}
+};
+const openApp = (page: Page) =>
+	page.evaluate(() => {
+		const frame = document.createElement('iframe');
+		frame.name = 'application';
+		frame.src = 'https://webgui.test/';
+		frame.style.cssText = 'width:1000px;height:400px';
+		document.body.append(frame);
+	});
+
+test('checks across frames: a frame loaded after Check, and typing in another frame', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, lateShell, async (page) => {
+		// Check is pressed before the app's frame exists.
+		await checkButton(page).click();
+		await openApp(page);
+		const app = page.frameLocator('iframe');
+		await app.getByRole('button', { name: 'Run' }).waitFor();
+		// The new document asked the recorder outside for the mode of its page.
+		await page
+			.frame({ name: 'application' })!
+			.waitForFunction(() => window.sapRecorderState?.checking);
+		await app.getByRole('button', { name: 'Run' }).click();
+		// That click was a check: the button was not pressed.
+		await expect(app.getByRole('button', { name: 'Run' })).toBeVisible();
+		await expect(checkButton(page)).toBeVisible();
+
+		// Typed in the frame, then a check in the top frame while the cursor is still in the field.
+		await app.getByLabel('Order').click();
+		await app.getByLabel('Order').pressSequentially('4711');
+		await checkButton(page).click();
+		await page.getByText('Shell').click();
+	});
+
+	expect(steps.map((step) => [step.action, step.sid, step.check])).toEqual([
+		['expect', 'wnd[0]/tbar[1]/btn[8]', 'text'],
+		['click', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['fill', 'wnd[0]/usr/ctxtVBAK-VBELN', undefined],
+		['expect', 'wnd[0]/titl/txtTITLE', 'text']
+	]);
+	expect(steps[0]?.value).toBe('Run');
+	expect(steps[2]?.value).toBe('4711');
+});
+
+const CHECK_BOX =
+	'https://ui5.sap.com/resources/sap/ui/documentation/sdk/index.html?sap-ui-xx-sample-id=sap.m.sample.CheckBox&sap-ui-xx-sample-lib=sap.m&sap-ui-xx-sample-origin=.&sap-ui-xx-dk-origin=https://ui5.sap.com';
+
+const box = (page: Page) => page.getByRole('checkbox', { name: 'Option b', exact: true });
+
+test('checks: whether a checkbox is ticked', async ({ browser }, testInfo) => {
+	const steps = await record(browser, testInfo, { url: CHECK_BOX }, async (page) => {
+		await ui5Started(page);
+		// "Option b" starts unticked. UI5 ticks it a moment after the click.
+		await expect(box(page)).not.toBeChecked();
+		await clickLikeAPerson(page, box(page));
+		await expect(box(page)).toBeChecked();
+		await checkLikeAPerson(page, box(page));
+		// The check did not untick it.
+		await recorderIdle(page);
+		await expect(box(page)).toBeChecked();
+	});
+
+	expect(steps.map((step) => [step.action, step.check, step.checked])).toEqual([
+		['click', undefined, undefined],
+		['expect', 'checked', true]
+	]);
+	expect(needingALook(steps)).toEqual([]);
+	await replay(browser, { url: CHECK_BOX }, steps, async (page) => {
+		await expect(box(page)).toBeChecked();
+	});
+});
+
+test('the written spec: checks become assertions', () => {
+	const field = { id: 'app--name', interaction: { idSuffix: 'inner' } };
+	const steps: RecordedStep[] = [
+		{ seq: 1, action: 'expect', check: 'value', value: "O'Brien", selector: field },
+		{ seq: 2, action: 'expect', check: 'text', value: 'Saved', selector: { id: 'app--msg' } },
+		{ seq: 3, action: 'expect', check: 'checked', checked: false, selector: { id: 'app--box' } },
+		{ seq: 4, action: 'expect', check: 'checked', checked: true, selector: { id: 'app--box' } },
+		{ seq: 5, action: 'expect', check: 'visible', sid: 'wnd[0]/sbar' }
+	];
+	const spec = renderSpec('https://sap.example.com', steps, '../../sap-plugin');
+	expect(spec).toContain("import { test, expect } from '../../sap-plugin';");
+	expect(spec).toContain(
+		`await expect(page.locateUI5Control({ id: 'app--name', interaction: { idSuffix: 'inner' } })).toHaveValue('O\\'Brien');`
+	);
+	expect(spec).toContain(
+		`await expect(page.locateUI5Control({ id: 'app--msg' })).toHaveText('Saved');`
+	);
+	expect(spec).toContain(
+		`await expect(page.locateUI5Control({ id: 'app--box' })).not.toBeChecked();`
+	);
+	expect(spec).toContain(`await expect(page.locateUI5Control({ id: 'app--box' })).toBeChecked();`);
+	expect(spec).toContain(`await expect(page.locateSID('wnd[0]/sbar')).toBeVisible();`);
+	// Without checks, the import stays as it was.
+	expect(
+		renderSpec(
+			'https://sap.example.com',
+			[{ seq: 1, action: 'click', selector: field }],
+			'../../sap-plugin'
+		)
+	).toContain("import { test } from '../../sap-plugin';");
 });
 
 const freePort = () =>
