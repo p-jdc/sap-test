@@ -15,14 +15,24 @@ export interface NewSalesOrder {
 	quantity: number;
 }
 
+/**
+ * The order type the tests copy and create: the standard order's key (OR, shown as TA in German).
+ * Types that deliver on saving (rush order, cash sale) would break the delivery test.
+ */
+const ORDER_TYPE = 'OR';
+
+/** HigherLevelItem of a main item: S/4HANA sends the empty number as "0" (or "000000"). */
+const isMainItem = (higherLevelItem: string | null | undefined) =>
+	/^0*$/.test(higherLevelItem ?? '');
+
 /** A customer reference nobody else uses, to find the test's own documents. */
 export const newReference = () => `PW-${Date.now().toString(36).toUpperCase()}`;
 
 /**
  * Creates a sales order with one item (header and item in one request) and registers its deletion.
- * Organization, customer and material come from the newest order without delivery or billing block
- * that is not rejected, and its first main item with a material, so the test does not depend on how
- * the system's customizing and master data are named.
+ * Organization, customer and material come from the newest standard order without delivery or
+ * billing block that is not rejected, and its first main item with a material, so the test does not
+ * depend on how the system's customizing and master data are named.
  */
 export async function createSalesOrder(
 	client: SalesOrderClient,
@@ -48,6 +58,7 @@ export async function createSalesOrder(
 			)
 		)
 		.filter(
+			orders.schema.SALES_ORDER_TYPE.equals(ORDER_TYPE),
 			orders.schema.DELIVERY_BLOCK_REASON.equals(''),
 			orders.schema.HEADER_BILLING_BLOCK_REASON.equals(''),
 			orders.schema.OVERALL_SD_DOCUMENT_REJECTION_STS.notEquals('C')
@@ -60,7 +71,9 @@ export async function createSalesOrder(
 		template,
 		'the service returned no unblocked sales order to copy codes from'
 	).toBeDefined();
-	const templateItem = template.toItem.find((item) => !item.higherLevelItem && item.material);
+	const templateItem = template.toItem.find(
+		(item) => isMainItem(item.higherLevelItem) && item.material
+	);
 	expect(templateItem, 'the template order has no main item with a material').toBeDefined();
 	const soldToParty = template.soldToParty ?? '';
 	const material = templateItem?.material ?? '';

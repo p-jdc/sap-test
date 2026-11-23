@@ -432,3 +432,12 @@ test('deliveries: refused as S/4HANA refuses them, and the order follows the del
 	expect(Number(await (await call(DELIVERY_BASE, '/A_OutbDeliveryItem/$count')).text())).toBe(1);
 	expect((await status("/A_SalesOrder('1000001')")).OverallDeliveryStatus).toBe('A');
 });
+
+test('a write without a body is answered, not crashed, and logged as it was sent', async () => {
+	const m = await mock();
+	const response = await odata(m, '/ProductSet', { method: 'POST' });
+	expect(response.status).toBeLessThan(500);
+	const [entry] = (await logged(m)).requests;
+	expect(entry).toMatchObject({ method: 'POST', status: response.status });
+	expect(entry).not.toHaveProperty('requestType');
+});

@@ -2,6 +2,7 @@
 	{
 		"SalesOrder": "1000001",
 		"SalesOrderItem": "10",
+		"HigherLevelItem": "0",
 		"SalesOrderItemCategory": "TAN",
 		"SalesOrderItemText": "Trading good 11",
 		"Material": "TG11",
@@ -20,6 +21,7 @@
 	{
 		"SalesOrder": "1000001",
 		"SalesOrderItem": "20",
+		"HigherLevelItem": "0",
 		"SalesOrderItemCategory": "TAN",
 		"SalesOrderItemText": "Trading good 12",
 		"Material": "TG12",
@@ -38,6 +40,7 @@
 	{
 		"SalesOrder": "1000002",
 		"SalesOrderItem": "10",
+		"HigherLevelItem": "0",
 		"SalesOrderItemCategory": "TAN",
 		"SalesOrderItemText": "Trading good 11",
 		"Material": "TG11",

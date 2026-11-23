@@ -77,6 +77,8 @@ async function storeParts(base, parent, keys, parts, odataRequest) {
 			if (entitySet === 'A_SalesOrderScheduleLine' && !entry.ScheduleLine)
 				entry.ScheduleLine = String(index + 1);
 			if (entitySet === 'A_SalesOrderItem') {
+				// A main item: S/4HANA sends the empty item number as "0".
+				entry.HigherLevelItem ||= '0';
 				await storeParts(
 					base,
 					entry,
