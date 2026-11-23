@@ -127,19 +127,16 @@ const FAKE_RECORDER = String.raw`
 const { writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 writeFileSync('argv.json', JSON.stringify(args));
+const mode = process.env.FAKE_RECORDER;
+// Before the first line: the tests stop the recorder as soon as they see it, and a SIGTERM that
+// came before the handler would end the process at once.
+if (mode === 'stuck') process.on('SIGTERM', () => {});
+if (mode === 'hang') process.on('SIGTERM', () => process.exit(0));
 console.log('logging in with ' + args.at(-1));
 process.stderr.write('a warning without newline');
-const mode = process.env.FAKE_RECORDER;
 if (mode === 'save')
 	writeFileSync(args[args.indexOf('-o') + 1], "import { test } from '@playwright/test';\n");
-if (mode === 'stuck') {
-	process.on('SIGTERM', () => {});
-	setInterval(() => {}, 1000);
-}
-if (mode === 'hang') {
-	process.on('SIGTERM', () => process.exit(0));
-	setInterval(() => {}, 1000);
-}
+if (mode === 'stuck' || mode === 'hang') setInterval(() => {}, 1000);
 `;
 
 // A stand-in for the UI5 recorder (sap-plugin/record.mjs): it notes its arguments and whether it
