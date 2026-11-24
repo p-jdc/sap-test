@@ -4,32 +4,41 @@ import { z } from 'zod';
 import { recordActivity, requireAdmin } from '#lib/server/auth/access.js';
 import {
 	activeHealing,
+	approveRepair,
 	discardRepair,
 	healerOn,
 	healerProblem,
 	healingState,
+	runBlocker,
 	startHealing,
 	stopHealing
 } from '#lib/server/healer.js';
+import { reviewBlock } from '#lib/server/healer-review.js';
+import { startRun } from '#lib/server/runner.js';
+import { getRuns } from './runs.remote.js';
 
 const target = z.object({
 	id: z.string().regex(/^[0-9]{8}-[0-9]{6}-[a-z0-9]{4}$/),
 	testId: z.string().regex(/^[\w-]{1,200}$/)
 });
 
-/** Whether the healer can be started here, and the test it is working on. */
+/**
+ * Whether the healer can be started here, the test it is working on, and why nothing may run
+ * while a repair has not been read.
+ */
 export const getHealer = query(() => ({
 	on: healerOn(),
 	problem: healerProblem() ?? null,
-	active: activeHealing()
+	active: activeHealing(),
+	unread: reviewBlock() ?? null
 }));
 
 /** What the healer did or is doing for one test of a run. */
 export const getHealing = query(target, ({ id, testId }) => healingState(id, testId));
 
 /**
- * Admins only, with sign-in on: the healer changes test code and runs it with the test users'
- * passwords, and sends what it sees to the AI provider.
+ * Admins only, with sign-in on: the healer runs the test with the test users' passwords, changes
+ * test code, and sends what it sees to the AI provider.
  */
 export const startHealer = command(target, async ({ id, testId }) => {
 	requireAdmin();
@@ -44,6 +53,26 @@ export const stopHealer = command(target, async ({ id, testId }) => {
 	const stopped = stopHealing(id, testId);
 	if (stopped) await recordActivity('Stopped the healer', `${id} ${testId}`);
 	return { stopped };
+});
+
+/**
+ * A person has read the repair: it counts as their review, and the repaired test runs like any
+ * run. Until then the app runs no test code (healer-review.ts).
+ */
+export const runRepairedTest = command(target, async ({ id, testId }) => {
+	requireAdmin();
+	const approved = approveRepair(id, testId);
+	if (!approved.ok) error(409, approved.error);
+	await recordActivity('Read and ran a repair of the healer', `${id} ${testId}`);
+	const result = await startRun(
+		{ files: [approved.file], grep: approved.title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+		runBlocker
+	);
+	await getHealing({ id, testId }).refresh();
+	if (!result.ok) error(409, result.error);
+	// As startTestRun does: the run page watches the run live once the list names it as running.
+	await Promise.all([getRuns().refresh(), getHealer().refresh()]);
+	return { id: result.id };
 });
 
 export const discardHealerRepair = command(target, async ({ id, testId }) => {

@@ -20,6 +20,7 @@ import { runSettings } from './env-file.js';
 import {
 	describeTool,
 	parseAgentFile,
+	TEST_CODE_TOOLS,
 	type AgentFile,
 	toolDecision,
 	toolInput,
@@ -29,6 +30,13 @@ import { aiReady } from '#lib/shared/ai.js';
 import { aiStatus } from './ai/settings.js';
 import { authMode, listensLocally } from './auth/policy.js';
 import { masker } from './healer-mask.js';
+import {
+	afterChange,
+	beforeChange,
+	reviewBlock,
+	settleRepair,
+	unreviewed
+} from './healer-review.js';
 import { setHealingRun } from './healing-run.js';
 import { settingNames } from './systems.js';
 import { idocTestEnv } from './idoc.js';
@@ -205,6 +213,24 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** What the healer did or is doing for one test of a run, or null if it was never asked. */
 export function healingState(runId: string, testId: string): HealerState | null {
+	const state = storedState(runId, testId);
+	return state && withReview(state);
+}
+
+/** With the files of its repair that nobody has read yet (healer-review.ts). */
+function withReview(state: HealerState): HealerState {
+	let open;
+	try {
+		open = unreviewed();
+	} catch {
+		open = null;
+	}
+	return open?.runId === state.runId && open.testId === state.testId
+		? { ...state, unreviewed: open.files }
+		: state;
+}
+
+function storedState(runId: string, testId: string): HealerState | null {
 	if (active && active.state.runId === runId && active.state.testId === testId) return active.state;
 	const files = healerFiles(runId, testId);
 	if (!files) return null;
@@ -266,7 +292,8 @@ function healerTask(test: RunTest, runId: string): string {
 		`Repair the failing test "${test.title}" at ${location}. It failed in the Test Lab run ${runId}.`,
 		error,
 		`Run only this test (\`${runLocation}\` as the location; if the file changed since the run and no test starts there, find it by its title with test_list). You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews your change.`,
-		'In this app `browser_run_code_unsafe` is not available: try a locator on the paused page with `browser_evaluate` or `browser_generate_locator` instead. Do not save tool results to files.'
+		'In this app `browser_run_code_unsafe` is not available: try a locator on the paused page with `browser_evaluate` or `browser_generate_locator` instead. Do not save tool results to files.',
+		'In this app, test code you change runs only after a person has read it: once you have changed a file, `test_run`, `test_debug` and `test_list` are refused. So run and debug the test as it is first, find the cause and try the repair on the paused page; then change the files and finish with your report. Say in it that the repair has not been run yet, and what the person should look at when they run it.'
 	].join('\n\n');
 }
 
@@ -467,6 +494,9 @@ export async function startHealing(
 		return { ok: false, error: `The healer is working on "${activeHealing()?.title}".` };
 	if (activeRunId())
 		return { ok: false, error: 'A run is going; start the healer when it has finished.' };
+	// Its test tools would run code nobody has read; it could not run a test at all.
+	const unread = reviewBlock();
+	if (unread) return { ok: false, error: unread };
 
 	const redact = redactor(settings.secrets);
 	const allowed = new Set(agent.tools);
@@ -500,7 +530,15 @@ export async function startHealing(
 	const gate: HookCallback = (input) => {
 		if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
 		const args = toolInput(input.tool_input);
-		const decision = toolDecision(input.tool_name, args, APP_ROOT, allowed, files.output);
+		// Code the healer changed runs only after a person has read it (healer-review.ts).
+		const decision = toolDecision(
+			input.tool_name,
+			args,
+			APP_ROOT,
+			allowed,
+			files.output,
+			TEST_CODE_TOOLS.has(input.tool_name) && reviewBlock() !== undefined
+		);
 		if (!decision.allow) {
 			note(`Not allowed: ${describeTool(input.tool_name, args, APP_ROOT)} (${decision.reason})`);
 			return Promise.resolve({
@@ -519,6 +557,8 @@ export async function startHealing(
 			if (known) delete known.after;
 			else originals.set(decision.writes, { before: readText(decision.writes) });
 			save(state, originals);
+			// From now on no test code runs until a person has read the change.
+			beforeChange({ runId, testId, title: test.title }, decision.writes);
 		}
 		return Promise.resolve({
 			hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' }
@@ -533,6 +573,7 @@ export async function startHealing(
 		if (input.hook_event_name !== 'PostToolUse') return Promise.resolve({});
 		if (CHANGING_TOOLS.has(input.tool_name)) {
 			try {
+				afterChange();
 				state.changes = redact(changesOf(originals));
 				save(state, originals);
 			} catch (e) {
@@ -678,6 +719,31 @@ export function discardRepair(
 			writeFileSync(abs, original.before);
 		}
 	}
-	save({ ...state, discarded: true, discardKept: kept });
+	save({ ...state, unreviewed: undefined, discarded: true, discardKept: kept });
+	settleRepair(runId, testId);
 	return { ok: true, kept };
+}
+
+/**
+ * A person read the repair and runs it: from now on its code may run. Returns the test to run,
+ * which the caller starts like any run.
+ */
+export function approveRepair(
+	runId: string,
+	testId: string
+): { ok: true; file: string; title: string } | { ok: false; error: string } {
+	const state = healingState(runId, testId);
+	if (!state) return { ok: false, error: 'The healer did not work on this test.' };
+	if (state.status === 'running') return { ok: false, error: 'The healer is still working.' };
+	if (state.discarded) return { ok: false, error: 'The repair was discarded.' };
+	const [file = ''] = state.location.split(':');
+	settleRepair(runId, testId);
+	return { ok: true, file, title: state.title };
+}
+
+/** Why no run may start now: the healer is working, or its repair has not been read. */
+export function runBlocker(): string | undefined {
+	const healing = activeHealing();
+	if (healing) return `The healer is working on "${healing.title}". Wait or stop it first.`;
+	return reviewBlock();
 }

@@ -528,12 +528,24 @@ for them, and the model of `TEST_APP_AI_MODEL`, on Foundry the deployment), or, 
 with `TEST_APP_AI` off, through the Claude login of the computer. The run page shows what it does, its closing
 report (the cause, test or application, what it changed) and a diff of every file it changed.
 
+- **Nothing the healer writes runs before a person has read it.** It runs and debugs the test as it
+  is, and tries its repair on the paused page. Once it has changed a file, its tools that run test
+  code (`test_run`, `test_debug`, `test_list`, which loads every test file) are refused, and it ends
+  with its report. Until a person presses "Run the repaired test" on the run page, which counts as
+  their review and starts the test like any run, or discards the repair, the app starts no run and
+  no healer session. The record of what the healer wrote is kept as hashes in
+  `healer-unreviewed.json` in the app's data folder, apart from the runs: a file someone changed
+  since, or put back as it was, no longer counts. If that record cannot be read, nothing runs until
+  a person removes it. The run of an unread repair is left alone by `TEST_APP_KEEP_RUNS` and the
+  retention rules. This holds for the app only: a run from the command line or the editor runs
+  whatever is in the files.
 - Its changes stay in the working tree of the app's checkout. Nothing is committed: a person checks
   that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
   von:`, and commits, or presses "Discard the repair", which puts back the files as they were
-  before (a file someone changed since is left alone). "Diagnose again" on a repair that was not
-  discarded goes on from it: the diff and the discard still go back to before the first session.
-- With sign-in on, only an admin can start or stop the healer or discard its repair. Off (the
+  before (a file someone changed since is left alone). "Diagnose again" on a repair that was run
+  and not discarded goes on from it: the diff and the discard still go back to before the first
+  session.
+- With sign-in on, only an admin can start or stop the healer, or run or discard its repair. Off (the
   default), the run page shows no healer, only what it did before it was turned off.
 - The app, not only the instructions, limits the tools: it reads and searches only in
   `sap-tests/tests`, `helpers`, `sap-plugin`, `specs` and `setup` and in `.playwright-mcp`, and it reads the files the tools name in the results of its own test runs,
@@ -560,13 +572,16 @@ report (the cause, test or application, what it changed) and a diff of every fil
   of the browser's network list can be read only for its response, not for the headers and body
   it sent. Other encodings of a password (Base64 in a hand-made header, for example) are not
   caught.
-- **What the app cannot prevent:** the healer changes test code and runs it. That code runs as the
-  app's user on the computer or pod of the app, with the test users' passwords: it can read them
-  and send them anywhere, in a way that no masking catches, and it can read or change any file that
-  user can (the app's database and code included). The limits above apply to the healer's tools,
-  not to the code it writes. A misled model (for example by text on an SAP screen or in an error
-  message) could do that. So use the healer only with test users of test systems, and read every
-  repair before it is committed or run again.
+- **What the app cannot prevent:** the healer's code runs once a person has passed it. It runs as
+  the app's user on the computer or pod of the app, with the test users' passwords: it could read
+  them and send them anywhere, in a way that no masking catches, and read or change any file that
+  user can (the app's database and code included). A misled model (for example by text on an SAP
+  screen or in an error message) could write such code, so the review is what stops it: read the
+  whole diff, not only the line that was meant to change. The browser tools still run JavaScript
+  in the page of the paused test, which holds the test user's SAP session (not the passwords), and
+  the page can send it to another host. Only a healer in a pod of its own, with nothing but the
+  test code and network access only to the SAP systems, would contain both. Until then use the
+  healer only with test users of test systems.
 - One healer at a time, and not during a run (a run waits for the healer as well). The results of
   its test runs (traces, screenshots and videos of the SAP screens) are kept with the run
   (`healer/` in the run's folder) and removed with the run's own files

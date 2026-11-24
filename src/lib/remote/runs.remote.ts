@@ -2,7 +2,7 @@ import { command, query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import { recordActivity } from '#lib/server/auth/access.js';
-import { activeHealing } from '#lib/server/healer.js';
+import { runBlocker } from '#lib/server/healer.js';
 import {
 	activeRunId,
 	getLiveState,
@@ -55,13 +55,9 @@ export const startTestRun = command(
 	}),
 	async (input) => {
 		// The healer runs the test it repairs itself; a run beside it would share the browser's
-		// session and the test results folder.
-		const result = await startRun(input, () => {
-			const healing = activeHealing();
-			return healing
-				? `The healer is working on "${healing.title}". Wait or stop it first.`
-				: undefined;
-		});
+		// session and the test results folder. And code the healer wrote runs only after a person
+		// has read it.
+		const result = await startRun(input, runBlocker);
 		if (!result.ok) error(409, result.error);
 		await recordActivity(
 			'Started a run',

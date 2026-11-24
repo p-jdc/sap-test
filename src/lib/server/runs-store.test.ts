@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -332,6 +332,33 @@ describe('applyRetention', () => {
 		setHealingRun(null);
 		expect(store.applyRetention(DAYS_LATER(40))).toEqual([old]);
 		expect(existsSync(join(dir, 'output.log'))).toBe(false);
+	});
+
+	test('the run of a repair nobody has read stays, also when runs are pruned', async () => {
+		const tests = mkdtempSync(join(tmpdir(), 'runs-store-tests-'));
+		mkdirSync(join(tests, 'tests'));
+		writeFileSync(join(tests, 'tests/a.spec.ts'), 'what the healer wrote');
+		vi.stubEnv('SAP_TESTS_DIR', tests);
+		const store = await freshStore();
+		const old = writeRun({ flow: 'failed' }, 'failed');
+		writeRun({ flow: 'passed' });
+		const dir = withArtifacts(old);
+		const record = join(dataDir, 'healer-unreviewed.json');
+		writeFileSync(
+			record,
+			JSON.stringify({
+				runId: old,
+				testId: 't1',
+				title: 'flow',
+				files: { [join(tests, 'tests/a.spec.ts')]: { before: null } }
+			})
+		);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([]);
+		expect(store.pruneRuns(1)).toEqual([]);
+		expect(existsSync(join(dir, 'output.log'))).toBe(true);
+		rmSync(record);
+		expect(store.applyRetention(DAYS_LATER(40))).toEqual([old]);
+		expect(store.pruneRuns(1)).toEqual([old]);
 	});
 
 	test('recent runs are left alone, and so is everything when the rules are off', async () => {

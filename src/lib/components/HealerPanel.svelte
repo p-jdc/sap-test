@@ -1,10 +1,13 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { runHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { duration } from '#lib/shared/format.js';
 	import {
 		discardHealerRepair,
 		getHealer,
 		getHealing,
+		runRepairedTest,
 		startHealer,
 		stopHealer
 	} from '#lib/remote/healer.remote.js';
@@ -26,6 +29,10 @@
 			(!!healer.current?.active &&
 				(healer.current.active.runId !== runId || healer.current.active.testId !== testId))
 	);
+	/** Files of this repair that nobody has read: nothing runs until it is run or discarded. */
+	const unread = $derived(heal?.unreviewed ?? []);
+	/** Why the healer cannot start: off or not set up, or a repair elsewhere is not read yet. */
+	const startProblem = $derived(healer.current?.problem ?? healer.current?.unread ?? null);
 	let error = $state<string | null>(null);
 	/** The healer works on another test: asked again until it is done, so the button frees up. */
 	const elsewhere = $derived(!!healer.current?.active && !working && busy && !runActive);
@@ -69,8 +76,19 @@
 	async function discard() {
 		try {
 			await discardHealerRepair({ id: runId, testId });
+			void healer.refresh();
 		} catch (e) {
 			error = errorMessage(e);
+		}
+	}
+	async function runRepaired() {
+		error = null;
+		try {
+			const { id } = await runRepairedTest({ id: runId, testId });
+			await goto(runHref(id));
+		} catch (e) {
+			error = errorMessage(e);
+			void healer.refresh();
 		}
 	}
 
@@ -88,16 +106,16 @@
 					design="Transparent"
 					icon="stethoscope"
 					onclick={start}
-					disabled={!!healer.current?.problem || busy || undefined}
-					title={healer.current?.problem ??
+					disabled={!!startProblem || busy || undefined}
+					title={startProblem ??
 						(busy
 							? 'Another test or a run is using the browser; wait until it has finished.'
 							: 'The AI healer runs this test, names the cause and repairs the test if the cause lies in it')}
 				>
 					Diagnose with healer
 				</ui5-button>
-				{#if healer.current?.problem}
-					<span class="muted">{healer.current.problem}</span>
+				{#if startProblem}
+					<span class="muted">{startProblem}</span>
 				{/if}
 			</div>
 		{/if}
@@ -147,6 +165,14 @@
 							These changes were discarded: the files are as they were before the healer.
 						{/if}
 					</ui5-message-strip>
+				{:else if !working && unread.length}
+					<ui5-message-strip design="Critical" hide-close-button>
+						Not run yet. Code the healer writes runs only after a person has read it, because it
+						would run with the test users' passwords: until this repair is run or discarded, no test
+						runs in this app. Read the whole diff: no assertion removed or loosened, and nothing
+						that reaches beyond the test (other hosts, files, the environment). “Run the repaired
+						test” counts as your review.
+					</ui5-message-strip>
 				{:else if !working}
 					<ui5-message-strip design="Critical" hide-close-button>
 						The healer changed {heal.changes.length === 1 ? 'this file' : 'these files'} in the working
@@ -165,6 +191,11 @@
 				{/each}
 				{#if !working && !heal.discarded}
 					<div class="row">
+						{#if unread.length}
+							<ui5-button design="Emphasized" icon="media-play" onclick={runRepaired}>
+								Run the repaired test
+							</ui5-button>
+						{/if}
 						<ui5-button design="Transparent" icon="undo" onclick={discard}>
 							Discard the repair
 						</ui5-button>
@@ -187,7 +218,10 @@
 						design="Transparent"
 						icon="stethoscope"
 						onclick={start}
-						disabled={!!healer.current?.problem || busy || undefined}
+						disabled={!!startProblem || busy || undefined}
+						title={unread.length
+							? 'Run or discard this repair first: nothing runs before it has been read.'
+							: undefined}
 					>
 						Diagnose again
 					</ui5-button>

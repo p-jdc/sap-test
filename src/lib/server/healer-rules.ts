@@ -65,6 +65,15 @@ const RESPONSE_PARTS = new Set(['response-headers', 'response-body']);
 /** Playwright's raw recordings of a test: the network with its cookies, the trace, the video. */
 const RAW_RECORDING = /(^|\/)\.playwright-artifacts|\.(network|trace|zip|webm|stacks)$/;
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
+/**
+ * The tools that load and run test code in the MCP server's process (test_list imports every
+ * test file). The browser tools act only on a test these paused, and run nothing new.
+ */
+export const TEST_CODE_TOOLS = new Set([
+	'mcp__playwright-test__test_run',
+	'mcp__playwright-test__test_debug',
+	'mcp__playwright-test__test_list'
+]);
 
 export type ToolDecision = { allow: true; writes?: string } | { allow: false; reason: string };
 
@@ -138,10 +147,18 @@ export function toolDecision(
 	input: ToolInput,
 	root: string,
 	allowed: ReadonlySet<string>,
-	outputDir?: string
+	outputDir?: string,
+	/** Test code may not run now: code the healer wrote has not been read (healer-review.ts). */
+	testCodeBlocked = false
 ): ToolDecision {
 	if (!allowed.has(tool) || DENIED_MCP_TOOLS.has(tool))
 		return { allow: false, reason: `${tool} is not one of the healer's tools.` };
+	if (testCodeBlocked && TEST_CODE_TOOLS.has(tool))
+		return {
+			allow: false,
+			reason:
+				'In this app, test code you changed runs only after a person has read it. Do not run tests any more: finish with your report and say that the repair has not been run.'
+		};
 	if (tool.startsWith('mcp__playwright-test__')) {
 		// Saving to or reading from a file through the browser tools passes no check of the paths.
 		if (input.filename !== undefined)
