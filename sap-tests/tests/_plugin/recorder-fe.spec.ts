@@ -1,3 +1,4 @@
+// KI-generiert, geprüft von: <Name>
 // Records tasks in SAP's Fiori elements demo "Manage Products" (list report, object page, smart
 // filter bar, value help) with the recorder in sap-plugin/recorder.ts, writes the spec the recorder
 // would save, and runs that spec with Playwright as it is. The "user" is Playwright with stock

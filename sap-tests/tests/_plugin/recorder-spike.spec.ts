@@ -828,15 +828,26 @@ test('the written spec: a comment names the control where the selector does not'
 			shown: { name: 'Products (3)', kind: 'title' }
 		},
 		// Text from the page: one line, whatever it holds.
-		{ seq: 5, action: 'click', sid: 'wnd[0]/usr/btnX', shown: { name: 'Save\n// and go' } }
+		{ seq: 5, action: 'click', sid: 'wnd[0]/usr/btnX', shown: { name: 'Save\n// and go' } },
+		// Below the step's own FIXME, right above the statement.
+		{
+			seq: 6,
+			action: 'fill',
+			secret: true,
+			selector: { id: 'app--pw', interaction: { idSuffix: 'inner' } },
+			shown: { name: 'Password', kind: 'field' }
+		}
 	];
 	const spec = renderSpec('https://sap.example.com', steps, '../../sap-plugin');
 	const lines = spec.split('\n').map((line) => line.trim());
 	expect(lines.filter((line) => line.startsWith('//'))).toEqual([
 		'// the "Go" button',
 		'// the "Show Value Help" icon of the "Supplier" field',
-		'// the "Save // and go"'
+		'// the "Save // and go"',
+		expect.stringMatching(/^\/\/ FIXME: a password was typed here/),
+		'// the "Password" field'
 	]);
+	expect(lines[lines.indexOf('// the "Password" field') + 1]).toMatch(/^await fillSecret\(/);
 	expect(lines[lines.indexOf('// the "Go" button') + 1]).toBe(
 		`await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' }).click();`
 	);

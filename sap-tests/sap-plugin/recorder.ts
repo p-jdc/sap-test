@@ -441,7 +441,8 @@ function recorderScript(binding: string) {
 		const control = state.ready ? controlOf(target) : undefined;
 		const root = control?.getDomRef() ?? target;
 		const field = isEditable(target) ? target : (control?.getFocusDomRef() ?? null);
-		const typed = isEditable(field) ? field : undefined;
+		// Only a field one types into; a native checkbox or button input is named as what it is.
+		const typed = isTextField(field) ? field : undefined;
 		const around = typed ? undefined : fieldControlOf(control?.getParent() ?? undefined);
 		const aroundRef = around?.getFocusDomRef();
 		const of = aroundRef && shownOf(aroundRef);
@@ -450,19 +451,20 @@ function recorderScript(binding: string) {
 			typed && labelOf(typed),
 			typed?.getAttribute('aria-label'),
 			typed?.placeholder,
-			text.length <= LONGEST_NAME ? text : '',
+			text,
 			labelOf(root),
 			root.getAttribute('aria-label'),
 			root.getAttribute('title')
 		]
 			.map(oneLine)
-			.find(Boolean);
+			// A long text is no name; cut short it would not match the code that holds it whole.
+			.find((candidate) => candidate && candidate.length <= LONGEST_NAME);
 		if (!name) return undefined;
 		// Whatever kind of input it is, a person sees a field.
 		const type = control?.getMetadata?.().getName();
 		const kind = typed ? 'field' : type ? kindOf(type) : root.getAttribute('role');
 		return {
-			name: name.slice(0, LONGEST_NAME),
+			name,
 			...(kind ? { kind } : {}),
 			...(of ? { of: { name: of.name, ...(of.kind ? { kind: of.kind } : {}) } } : {})
 		};
@@ -1039,8 +1041,12 @@ function stepLines(step: RecordedStep): string[] {
 	}
 	const said = stepCode(step, locator);
 	const shown = shownComment(step.shown);
-	// Named only where the code does not say it already (an ID-only selector, a SID).
-	if (shown && !said.some((line) => line.includes(quote(step.shown!.name)))) lines.push(shown);
+	// Named only where the code does not say it already (an ID-only selector, a SID), on the line
+	// right above the statement, below a FIXME of its own: the Tests page reads it from there.
+	if (shown && !said.some((line) => line.includes(quote(step.shown!.name)))) {
+		const statement = said.findIndex((line) => !line.startsWith('//'));
+		said.splice(statement === -1 ? said.length : statement, 0, shown);
+	}
 	lines.push(...said);
 	return lines;
 }
