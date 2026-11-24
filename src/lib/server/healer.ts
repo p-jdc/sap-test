@@ -553,12 +553,24 @@ export async function startHealing(
 			// On disk before the change: if the app stops during it, the change can still be undone.
 			// `after` is unknown until the change is done (afterTool), so a stop in between does not
 			// make the healer's change look like a person's.
-			const known = originals.get(decision.writes);
-			if (known) delete known.after;
-			else originals.set(decision.writes, { before: readText(decision.writes) });
-			save(state, originals);
-			// From now on no test code runs until a person has read the change.
-			beforeChange({ runId, testId, title: test.title }, decision.writes);
+			// The record that keeps the change from running unread comes first: no change without it.
+			try {
+				beforeChange({ runId, testId, title: test.title }, decision.writes);
+				const known = originals.get(decision.writes);
+				if (known) delete known.after;
+				else originals.set(decision.writes, { before: readText(decision.writes) });
+				save(state, originals);
+			} catch (e) {
+				const reason = `The change could not be recorded, so it is not made: ${errorText(e)}`;
+				note(`Not allowed: ${describeTool(input.tool_name, args, APP_ROOT)} (${reason})`);
+				return Promise.resolve({
+					hookSpecificOutput: {
+						hookEventName: 'PreToolUse',
+						permissionDecision: 'deny',
+						permissionDecisionReason: reason
+					}
+				});
+			}
 		}
 		return Promise.resolve({
 			hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' }
@@ -725,10 +737,11 @@ export function discardRepair(
 }
 
 /**
- * A person read the repair and runs it: from now on its code may run. Returns the test to run,
- * which the caller starts like any run.
+ * A person has read the repair and runs it. Returns the test to run, which the caller starts with
+ * `runBlocker` for this repair and settles with `settleRepair` once the run was accepted: a run
+ * that is refused leaves the repair unread.
  */
-export function approveRepair(
+export function repairToRun(
 	runId: string,
 	testId: string
 ): { ok: true; file: string; title: string } | { ok: false; error: string } {
@@ -737,13 +750,15 @@ export function approveRepair(
 	if (state.status === 'running') return { ok: false, error: 'The healer is still working.' };
 	if (state.discarded) return { ok: false, error: 'The repair was discarded.' };
 	const [file = ''] = state.location.split(':');
-	settleRepair(runId, testId);
 	return { ok: true, file, title: state.title };
 }
 
-/** Why no run may start now: the healer is working, or its repair has not been read. */
-export function runBlocker(): string | undefined {
+/**
+ * Why no run may start now: the healer is working, or its repair has not been read. `reading` is
+ * the repair a person has just read, whose run is starting.
+ */
+export function runBlocker(reading?: { runId: string; testId: string }): string | undefined {
 	const healing = activeHealing();
 	if (healing) return `The healer is working on "${healing.title}". Wait or stop it first.`;
-	return reviewBlock();
+	return reviewBlock(reading);
 }

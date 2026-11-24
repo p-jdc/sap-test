@@ -151,11 +151,12 @@ describe('a repair nobody has read', () => {
 		const review = await unreadRepair();
 		expect(healer.healingState(RUN, TEST)?.unreviewed).toEqual([expect.stringMatching(/a\.ts$/)]);
 		expect(healer.runBlocker()).toMatch(/has not been read yet/);
-		expect(healer.approveRepair(RUN, TEST)).toEqual({
-			ok: true,
-			file: 'a.spec.ts',
-			title: 'a test'
-		});
+		expect(healer.repairToRun(RUN, TEST)).toEqual({ ok: true, file: 'a.spec.ts', title: 'a test' });
+		// Its own run may start; until it has, the repair stays unread for everything else.
+		expect(healer.runBlocker({ runId: RUN, testId: TEST })).toBeUndefined();
+		expect(healer.runBlocker({ runId: RUN, testId: 'another' })).toMatch(/has not been read/);
+		expect(healer.runBlocker()).toMatch(/has not been read yet/);
+		review.settleRepair(RUN, TEST);
 		expect(healer.runBlocker()).toBeUndefined();
 		expect(review.unreviewed()).toBeNull();
 		expect(healer.healingState(RUN, TEST)?.unreviewed).toBeUndefined();
@@ -174,7 +175,7 @@ describe('a repair nobody has read', () => {
 	test('a discarded repair cannot be run', async () => {
 		await unreadRepair();
 		healer.discardRepair(RUN, TEST);
-		expect(healer.approveRepair(RUN, TEST)).toEqual({
+		expect(healer.repairToRun(RUN, TEST)).toEqual({
 			ok: false,
 			error: 'The repair was discarded.'
 		});

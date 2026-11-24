@@ -1,8 +1,16 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync
+} from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { z } from 'zod';
-import { APP_ROOT, DATA_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
+import { APP_ROOT, DATA_DIR, toPosix } from './paths.js';
 
 /**
  * The test code the healer wrote that no person has read yet. Until a person runs the repair from
@@ -49,11 +57,13 @@ function write(record: ReviewRecord) {
 	renameSync(temp, RECORD);
 }
 
-/** The files of the record that still hold what the healer wrote. */
+/**
+ * The files of the record that still hold what the healer wrote. Every entry counts, wherever its
+ * path points: the record is the app's own, and one left out would let code run unread.
+ */
 function pendingFiles(record: ReviewRecord): string[] {
 	return Object.entries(record.files)
 		.filter(([abs, entry]) => {
-			if (!within(TESTS_ROOT, relative(TESTS_ROOT, abs))) return false;
 			const now = hash(abs);
 			return now !== entry.before && (entry.healer === undefined || now === entry.healer);
 		})
@@ -74,14 +84,15 @@ export function unreviewed(): Unreviewed | null {
  * Why test code may not run now, or undefined when it may: a repair nobody has read, or a record
  * that cannot be read.
  */
-export function reviewBlock(): string | undefined {
+export function reviewBlock(except?: { runId: string; testId: string }): string | undefined {
 	let open: Unreviewed | null;
 	try {
 		open = unreviewed();
 	} catch (e) {
 		return `The record of the healer's unread repairs (${RECORD}) cannot be read, so no test code runs: ${e instanceof Error ? e.message : String(e)}`;
 	}
-	if (!open) return undefined;
+	// The repair a person has just read, while its run starts.
+	if (!open || (open.runId === except?.runId && open.testId === except.testId)) return undefined;
 	return `The healer's repair of "${open.title}" (${open.files.join(', ')}) has not been read yet. Open its run (${open.runId}), read the diff and press "Run the repaired test", or discard the repair; until then no test runs.`;
 }
 
@@ -91,10 +102,24 @@ export function beforeChange(owner: RepairOwner, abs: string) {
 	// A new session starts only when nothing is left unread, so an older record is settled.
 	if (!record || record.runId !== owner.runId || record.testId !== owner.testId)
 		record = { ...owner, files: {} };
-	const known = record.files[abs];
+	// The same file under another spelling of its path (letter case on macOS, a symbolic link)
+	// goes on its first entry, so that its `before` stays what the file held before the healer.
+	const key = Object.keys(record.files).find((k) => sameFile(k, abs)) ?? abs;
+	const known = record.files[key];
 	if (known) delete known.healer;
-	else record.files[abs] = { before: hash(abs) };
+	else record.files[key] = { before: hash(abs) };
 	write(record);
+}
+
+/** Whether two paths name one existing file. */
+function sameFile(a: string, b: string): boolean {
+	if (a === b) return true;
+	try {
+		const [x, y] = [statSync(a), statSync(b)];
+		return x.dev === y.dev && x.ino === y.ino;
+	} catch {
+		return false;
+	}
 }
 
 /** After the healer's change: what the files hold now is what it wrote. */

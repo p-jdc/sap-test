@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -81,13 +81,26 @@ describe('the record of unread repairs', () => {
 		expect(() => review.unreviewed()).toThrow(SyntaxError);
 	});
 
-	test('ignores entries outside the test project', () => {
+	test('counts an entry wherever its path points, so that none is left out', () => {
+		// The same folder by another path: a symbolic link, or /tmp and /private/tmp on macOS.
 		const outside = join(mkdtempSync(join(tmpdir(), 'review-outside-')), 'x.ts');
 		writeFileSync(
 			join(data, 'healer-unreviewed.json'),
 			JSON.stringify({ ...OWNER, files: { [outside]: { before: null } } })
 		);
 		writeFileSync(outside, 'x');
-		expect(review.unreviewed()).toBeNull();
+		expect(review.unreviewed()?.files).toHaveLength(1);
+	});
+
+	test('a change through another spelling of the path keeps the first entry', () => {
+		writeFileSync(file('a.spec.ts'), 'B0');
+		symlinkSync(file('a.spec.ts'), file('alias.spec.ts'));
+		// Through both spellings in turn, ending on what the file held after the first change.
+		healerWrites(file('a.spec.ts'), 'F');
+		healerWrites(file('alias.spec.ts'), 'G');
+		healerWrites(file('a.spec.ts'), 'H');
+		healerWrites(file('alias.spec.ts'), 'F');
+		expect(review.unreviewed()?.files).toEqual([expect.stringMatching(/a\.spec\.ts$/)]);
+		expect(review.reviewBlock()).toMatch(/has not been read/);
 	});
 });

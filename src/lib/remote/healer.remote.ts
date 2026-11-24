@@ -4,16 +4,16 @@ import { z } from 'zod';
 import { recordActivity, requireAdmin } from '#lib/server/auth/access.js';
 import {
 	activeHealing,
-	approveRepair,
 	discardRepair,
 	healerOn,
 	healerProblem,
 	healingState,
+	repairToRun,
 	runBlocker,
 	startHealing,
 	stopHealing
 } from '#lib/server/healer.js';
-import { reviewBlock } from '#lib/server/healer-review.js';
+import { reviewBlock, settleRepair } from '#lib/server/healer-review.js';
 import { startRun } from '#lib/server/runner.js';
 import { getRuns } from './runs.remote.js';
 
@@ -61,15 +61,17 @@ export const stopHealer = command(target, async ({ id, testId }) => {
  */
 export const runRepairedTest = command(target, async ({ id, testId }) => {
 	requireAdmin();
-	const approved = approveRepair(id, testId);
-	if (!approved.ok) error(409, approved.error);
-	await recordActivity('Read and ran a repair of the healer', `${id} ${testId}`);
+	const repair = repairToRun(id, testId);
+	if (!repair.ok) error(409, repair.error);
 	const result = await startRun(
-		{ files: [approved.file], grep: approved.title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&') },
-		runBlocker
+		{ files: [repair.file], grep: repair.title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+		() => runBlocker({ runId: id, testId })
 	);
-	await getHealing({ id, testId }).refresh();
+	// Only a run that starts settles the review: a refused one leaves the repair unread.
 	if (!result.ok) error(409, result.error);
+	settleRepair(id, testId);
+	await recordActivity('Read and ran a repair of the healer', `${id} ${testId}`);
+	await getHealing({ id, testId }).refresh();
 	// As startTestRun does: the run page watches the run live once the list names it as running.
 	await Promise.all([getRuns().refresh(), getHealer().refresh()]);
 	return { id: result.id };
