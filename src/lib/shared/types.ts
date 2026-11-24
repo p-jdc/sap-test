@@ -35,6 +35,11 @@ export interface LocatorInfo {
 	display: string;
 	/** Set when the locator comes from a helpers/ function. */
 	helper?: string;
+	/**
+	 * The control as the recorder's comment above the step names it, e.g. `the "Search" field`,
+	 * for selectors that do not say it themselves (a Fiori elements ID).
+	 */
+	shown?: string;
 }
 
 export interface FlowStep {

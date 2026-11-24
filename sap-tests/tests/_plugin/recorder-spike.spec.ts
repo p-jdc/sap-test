@@ -802,6 +802,46 @@ test('checks: whether a checkbox is ticked', async ({ browser }, testInfo) => {
 	});
 });
 
+test('the written spec: a comment names the control where the selector does not', () => {
+	const go = { id: 'app::ListReport--listReportFilter-btnGo' };
+	const steps: RecordedStep[] = [
+		{ seq: 1, action: 'click', selector: go, shown: { name: 'Go', kind: 'button' } },
+		{
+			seq: 2,
+			action: 'click',
+			selector: { id: 'app::ListReport--Supplier-multiinput-vhi' },
+			shown: { name: 'Show Value Help', kind: 'icon', of: { name: 'Supplier', kind: 'field' } }
+		},
+		// The selector or the check says it already.
+		{
+			seq: 3,
+			action: 'click',
+			selector: { controlType: 'sap.m.Button', properties: { text: 'Select' } },
+			shown: { name: 'Select', kind: 'button' }
+		},
+		{
+			seq: 4,
+			action: 'expect',
+			check: 'text',
+			value: 'Products (3)',
+			selector: { id: 'app::ListReport--listReport-header' },
+			shown: { name: 'Products (3)', kind: 'title' }
+		},
+		// Text from the page: one line, whatever it holds.
+		{ seq: 5, action: 'click', sid: 'wnd[0]/usr/btnX', shown: { name: 'Save\n// and go' } }
+	];
+	const spec = renderSpec('https://sap.example.com', steps, '../../sap-plugin');
+	const lines = spec.split('\n').map((line) => line.trim());
+	expect(lines.filter((line) => line.startsWith('//'))).toEqual([
+		'// the "Go" button',
+		'// the "Show Value Help" icon of the "Supplier" field',
+		'// the "Save // and go"'
+	]);
+	expect(lines[lines.indexOf('// the "Go" button') + 1]).toBe(
+		`await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' }).click();`
+	);
+});
+
 test('the written spec: checks become assertions', () => {
 	const field = { id: 'app--name', interaction: { idSuffix: 'inner' } };
 	const steps: RecordedStep[] = [

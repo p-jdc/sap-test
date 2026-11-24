@@ -45,6 +45,10 @@ The recorder's bar has a **Check** button: the click after it records a check of
 instead of a click, and never reaches the app. A field becomes `toHaveValue`, a checkbox, radio
 button or switch `toBeChecked` (or `not.toBeChecked`), anything else with a text `toHaveText`, and
 the rest `toBeVisible`. A password field is only checked to be shown. Escape leaves the check mode.
+Where the locator does not say what it finds (Fiori elements apps give their controls long IDs
+such as `…ListReport::SEPMRA_C_PD_Product--listReportFilter-btnGo`, WebGUI elements have a SID), a
+comment above the step names the control as it was on screen: `// the "Go" button`,
+`// the "Show Value Help" icon of the "Supplier" field`. The Tests page shows the step by that name.
 
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the

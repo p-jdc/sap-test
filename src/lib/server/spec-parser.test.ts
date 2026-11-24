@@ -92,6 +92,34 @@ test('recorded', async ({ page }) => {
 		expect(t.issues.map((i) => i.rule).toSorted()).toEqual(['has-assertion', 'prefer-sap-locator']);
 	});
 
+	test("takes the recorder's comment above a step as the name of its control", () => {
+		const spec = parseSpec(
+			'fiori/recorded.spec.ts',
+			`import { test } from '../../sap-plugin';
+test('recorded', async ({ page }) => {
+	// the "Search" field
+	await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnBasicSearch' }).fill('HT-1030');
+	// the "Show Value Help" icon of the "Supplier" field
+	await page.locateUI5Control({ id: 'app::ListReport--Supplier-multiinput-vhi' }).click();
+	await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' }).click();
+	// the "Go" button
+
+	await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' }).click();
+	// opens the object page
+	await page.locateUI5Control({ id: 'app::ListReport--listReport' }).click();
+});`,
+			helpers
+		);
+		expect(must(spec.tests[0]).steps.map((s) => s.locator?.shown)).toEqual([
+			'the "Search" field',
+			'the "Show Value Help" icon of the "Supplier" field',
+			undefined,
+			// Only the line right above the step, and only the recorder's form.
+			undefined,
+			undefined
+		]);
+	});
+
 	test('reads the methods the SAP plugin adds: UI5 wait, model reads and locateUI5', () => {
 		const spec = parseSpec(
 			'fiori/model.spec.ts',

@@ -63,6 +63,18 @@ export type RecordedStep = {
 	problem?: string;
 	/** What was clicked, for the comment on steps that need a look. */
 	hint?: string;
+	/**
+	 * The control as a person sees it: its text or label, and what kind of control it is. The
+	 * written spec names it in a comment where the selector does not (a Fiori elements ID).
+	 */
+	shown?: Shown;
+};
+
+export type Shown = {
+	name: string;
+	kind?: string;
+	/** The field a part belongs to: the value help icon of the "Supplier" field. */
+	of?: { name: string; kind?: string };
 };
 
 const BINDING = 'sapRecorderReport';
@@ -97,6 +109,7 @@ function recorderScript(binding: string) {
 		innerText?: string;
 		chartPoint?: Record<string, string>;
 		problem?: string;
+		shown?: Shown;
 	};
 	type RecordReplay = {
 		findControlSelectorByDOMElement(options: { domElement: Element }): Promise<unknown>;
@@ -110,6 +123,7 @@ function recorderScript(binding: string) {
 		hasListeners(event: string): boolean;
 		getDomRef(): Element | null;
 		getFocusDomRef(): Element | null;
+		getMetadata?(): { getName(): string };
 		attachChange?(handler: () => void): void;
 	};
 	type ElementModule = {
@@ -314,13 +328,13 @@ function recorderScript(binding: string) {
 		return undefined;
 	};
 
-	const describe = async (target: Element): Promise<Described> => {
+	const describeControl = async (target: Element): Promise<Described> => {
 		if (!state.ready) {
 			const sid = sidFor(target);
 			return sid ? { sid } : { problem: 'neither UI5 nor a WebGUI SID describes this element' };
 		}
 		const button = buttonAround(target);
-		if (button) return describe(button);
+		if (button) return describeControl(button);
 		state.busy++;
 		try {
 			const selector = await selectorFor(target);
@@ -394,6 +408,70 @@ function recorderScript(binding: string) {
 		} finally {
 			state.busy--;
 		}
+	};
+
+	// What a person sees of the control: for a field its label (the element that labels it, as
+	// UI5 links a sap.m.Label to its field) or its placeholder, else its text or its tooltip.
+	// Screen reader texts that UI5 adds (sapUiInvisibleText) are no name.
+	const LONGEST_NAME = 60;
+	const oneLine = (text: string | null | undefined) =>
+		(text ?? '').replaceAll('\u200b', '').replace(/\s+/g, ' ').trim();
+	const labelOf = (element: Element) =>
+		(element.getAttribute('aria-labelledby') ?? '')
+			.split(/\s+/)
+			.map((id) => (id ? document.getElementById(id) : null))
+			.filter((label) => !!label && !label.classList.contains('sapUiInvisibleText'))
+			.map((label) => oneLine(label?.textContent))
+			.find(Boolean);
+	// `sap.m.IconTabFilter` → `icon tab filter`, `SFBSearchField` → `SFB search field`.
+	const kindOf = (type: string) =>
+		(type.split('.').pop() ?? type)
+			.replace(/([a-z])([A-Z])/g, '$1 $2')
+			.replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+			.split(' ')
+			.map((word) => (/[a-z]/.test(word) ? word.toLowerCase() : word))
+			.join(' ');
+	// The field (sap.m.Input, a filter bar's field) a part such as its value help icon sits in.
+	const fieldControlOf = (control: Control | undefined) => {
+		for (let level = 0; control && level < 3; level++, control = control.getParent() ?? undefined)
+			if (control.isA('sap.m.InputBase') && isEditable(control.getFocusDomRef())) return control;
+		return undefined;
+	};
+	const shownOf = (target: Element): Shown | undefined => {
+		const control = state.ready ? controlOf(target) : undefined;
+		const root = control?.getDomRef() ?? target;
+		const field = isEditable(target) ? target : (control?.getFocusDomRef() ?? null);
+		const typed = isEditable(field) ? field : undefined;
+		const around = typed ? undefined : fieldControlOf(control?.getParent() ?? undefined);
+		const aroundRef = around?.getFocusDomRef();
+		const of = aroundRef && shownOf(aroundRef);
+		const text = typed ? '' : oneLine(root.textContent);
+		const name = [
+			typed && labelOf(typed),
+			typed?.getAttribute('aria-label'),
+			typed?.placeholder,
+			text.length <= LONGEST_NAME ? text : '',
+			labelOf(root),
+			root.getAttribute('aria-label'),
+			root.getAttribute('title')
+		]
+			.map(oneLine)
+			.find(Boolean);
+		if (!name) return undefined;
+		// Whatever kind of input it is, a person sees a field.
+		const type = control?.getMetadata?.().getName();
+		const kind = typed ? 'field' : type ? kindOf(type) : root.getAttribute('role');
+		return {
+			name: name.slice(0, LONGEST_NAME),
+			...(kind ? { kind } : {}),
+			...(of ? { of: { name: of.name, ...(of.kind ? { kind: of.kind } : {}) } } : {})
+		};
+	};
+	const describe = async (target: Element): Promise<Described> => {
+		const described = await describeControl(target);
+		if (!described.selector && !described.sid) return described;
+		const shown = shownOf(buttonAround(target) ?? target);
+		return shown ? { ...described, shown } : described;
 	};
 
 	// Described ahead of the click. Once the click is on its way the page may already be changing,
@@ -779,6 +857,15 @@ type CheckingMode = { action: 'checking'; checked: boolean } | { action: 'mode' 
 const isSelector = (value: unknown): value is UI5ControlSelector =>
 	typeof value === 'object' && value !== null && Object.keys(value).length > 0;
 
+// The page reports what it likes; only a name that is text is written into the spec.
+const isShown = (value: unknown): value is Shown =>
+	typeof value === 'object' &&
+	value !== null &&
+	'name' in value &&
+	typeof value.name === 'string' &&
+	(!('kind' in value) || typeof value.kind === 'string') &&
+	(!('of' in value) || isShown(value.of));
+
 // A CSS selector for the iframe element of each frame around `frame`, outermost first.
 async function framePath(frame: Frame): Promise<string[]> {
 	const path: string[] = [];
@@ -817,7 +904,11 @@ export async function installRecorder(
 						.catch(() => undefined);
 			return raw.checked;
 		}
-		const step = { ...raw, selector: isSelector(raw.selector) ? raw.selector : undefined };
+		const step = {
+			...raw,
+			selector: isSelector(raw.selector) ? raw.selector : undefined,
+			shown: isShown(raw.shown) ? raw.shown : undefined
+		};
 		arriving.push(
 			framePath(frame)
 				.catch(() => [])
@@ -946,6 +1037,34 @@ function stepLines(step: RecordedStep): string[] {
 		lines.push(`// ${step.action} was not recorded`);
 		return lines;
 	}
+	const said = stepCode(step, locator);
+	const shown = shownComment(step.shown);
+	// Named only where the code does not say it already (an ID-only selector, a SID).
+	if (shown && !said.some((line) => line.includes(quote(step.shown!.name)))) lines.push(shown);
+	lines.push(...said);
+	return lines;
+}
+
+// One part of the comment: `the "Supplier" field`.
+function phrase(part: { name: string; kind?: string } | undefined): string | undefined {
+	const name = part?.name.replace(/\s+/g, ' ').trim();
+	const kind = part?.kind?.replace(/\s+/g, ' ').trim();
+	return name ? `the "${name}"${kind ? ` ${kind}` : ''}` : undefined;
+}
+
+/**
+ * `// the "Supplier Information" button`, `// the "Show Value Help" icon of the "Supplier" field`:
+ * the control as the recording person saw it.
+ */
+function shownComment(shown: Shown | undefined): string | undefined {
+	const own = phrase(shown);
+	if (!own) return undefined;
+	const of = phrase(shown?.of);
+	return `// ${own}${of ? ` of ${of}` : ''}`;
+}
+
+function stepCode(step: RecordedStep, locator: string): string[] {
+	const lines: string[] = [];
 	if (step.action === 'click')
 		lines.push(`await ${locator}.click(${step.force ? '{ force: true }' : ''});`);
 	if (step.action === 'fill' && step.secret)

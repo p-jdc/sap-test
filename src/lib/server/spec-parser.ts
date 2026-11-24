@@ -248,6 +248,19 @@ function describeLocator(
 	return info;
 }
 
+// The comment the recorder writes above a step whose selector does not name the control:
+// `// the "Search" field`, `// the "Show Value Help" icon of the "Supplier" field`.
+const PART = String.raw`the "[^"]+"(?: [\w ]+?)?`;
+const SHOWN_COMMENT = new RegExp(String.raw`^//\s*(${PART}(?: of ${PART})?)\s*$`);
+
+/** The recorder's comment on the line right above the statement, if there is one. */
+function shownAbove(ctx: Ctx, stmt: ts.Node): string | undefined {
+	const comment = ts.getLeadingCommentRanges(ctx.sf.text, stmt.getFullStart())?.at(-1);
+	if (!comment || comment.kind !== ts.SyntaxKind.SingleLineCommentTrivia) return undefined;
+	if (lineOf(ctx, comment.pos) !== lineOf(ctx, stmt.getStart(ctx.sf)) - 1) return undefined;
+	return SHOWN_COMMENT.exec(ctx.sf.text.slice(comment.pos, comment.end))?.[1];
+}
+
 function makeStep(
 	ctx: Ctx,
 	stmt: ts.Node,
@@ -263,13 +276,15 @@ function makeStep(
 		inner: facts.inner ?? [],
 		nth: !container && callsNth(stmt)
 	});
+	const shown = partial.locator && shownAbove(ctx, stmt);
 	return {
 		id,
 		line: lineOf(ctx, stmt.getStart(ctx.sf)),
 		endLine: lineOf(ctx, stmt.getEnd()),
 		code: stmt.getText(ctx.sf).replaceAll(/\s+/g, ' ').trim(),
 		issues: [],
-		...partial
+		...partial,
+		...(shown && partial.locator ? { locator: { ...partial.locator, shown } } : {})
 	};
 }
 
