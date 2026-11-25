@@ -641,7 +641,8 @@
 		</dl>
 		{#if entries.some(([, value]) => value.endsWith('(removed)'))}
 			<p class="muted">
-				Logins, cookies and tokens show as "(removed)": the mock does not keep them.
+				The mock keeps the values only of headers it knows to be harmless. The others, logins,
+				cookies and tokens among them, show as "(removed)".
 			</p>
 		{/if}
 	{/if}

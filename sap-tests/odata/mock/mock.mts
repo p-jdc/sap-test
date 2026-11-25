@@ -3,9 +3,9 @@
 // Writes are kept in memory until the data is reset or the mock stops.
 //
 // Two listeners, like the IDoc receiver and the Mock PLC:
-// - the OData endpoint, which tests and apps call in SAP's place. It keeps a log of the requests it answered (headers
-//   without logins, cookies or tokens), and can be told to fail a service's requests, all or a share of them, or to
-//   answer them late;
+// - the OData endpoint, which tests and apps call in SAP's place. It keeps a log of the requests it answered (of the
+//   headers, only the values of known harmless ones), and can be told to fail a service's requests, all or a share
+//   of them, or to answer them late;
 // - the control API, for the app's Mock OData page and for tests: the log, the answers, the data, a reset.
 // Both only listen on this computer: the OData endpoint has no login (any user and password get in).
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -129,7 +129,7 @@ export const LoggedRequestSchema = z.object({
 	answer: z.enum(['normal', 'fail', 'slow']),
 	requestType: z.string().optional(),
 	responseType: z.string().optional(),
-	/** The headers as sent and answered, those with logins, sessions or tokens without their values. */
+	/** The headers as sent and answered: values only of known harmless ones (loggedHeaders). */
 	requestHeaders: z.record(z.string(), z.string()),
 	responseHeaders: z.record(z.string(), z.string()),
 	requestBody: z.string().optional(),
@@ -149,23 +149,55 @@ export const RequestSummarySchema = LoggedRequestSchema.omit({
 });
 
 /**
- * Headers that carry logins, sessions or tokens. The log keeps their names, so it shows that one was sent, but
- * never their values: the log goes to the page, and a request from a real app carries a real user's login.
+ * Headers whose values the log keeps: what HTTP and OData need, none of which carries a login. Every other header
+ * keeps its name only, so the log shows that it was sent. The log goes to the page, and a request from a real app
+ * carries a real user's login, under names no list of secret headers can foresee (x-approuter-authorization,
+ * sap-connectivity-authentication, an API gateway's subscription key, …): so the values kept are the known ones.
  */
-const SECRET_HEADER =
-	/^(?:authorization|proxy-authorization|cookie|set-cookie)$|token|secret|passw|session|api-?key|credential|mysapsso/i;
-const LOGIN_HEADER = /^(?:proxy-)?authorization$/i;
+const KEPT_HEADERS = new Set([
+	'host',
+	'user-agent',
+	'connection',
+	'keep-alive',
+	'transfer-encoding',
+	'cache-control',
+	'pragma',
+	'expect',
+	'date',
+	'etag',
+	'if-match',
+	'if-none-match',
+	'if-modified-since',
+	'last-modified',
+	'location',
+	'vary',
+	'retry-after',
+	'prefer',
+	'preference-applied',
+	'x-http-method',
+	'x-requested-with',
+	'dataserviceversion',
+	'maxdataserviceversion',
+	'mindataserviceversion',
+	'sap-client',
+	'sap-language',
+	'sap-contextid-accept',
+	'sap-message'
+]);
+const KEPT_PREFIX = /^(?:content-|accept|odata-)/i;
+/** The values of SAP's CSRF header that are no token: a request asking for one, an answer saying one is needed. */
+const CSRF_WORDS = new Set(['fetch', 'required']);
 
-/** A secret header's value as the log keeps it. */
-function withoutSecret(name: string, value: string): string {
-	// A CSRF token request asks with "Fetch", which is no token: it tells what the request was for.
-	if (/csrf/i.test(name) && value.trim().toLowerCase() === 'fetch') return value;
+/** A header's value as the log keeps it: whole, its login scheme only, or nothing. */
+function keptValue(name: string, value: string): string {
+	if (KEPT_HEADERS.has(name) || KEPT_PREFIX.test(name)) return value;
+	if (name === 'x-csrf-token' && CSRF_WORDS.has(value.trim().toLowerCase())) return value;
 	// The scheme (Basic, Bearer) tells which kind of login came, without the login itself.
-	const scheme = LOGIN_HEADER.test(name) ? /^([A-Za-z][\w-]*) +\S/.exec(value)?.[1] : undefined;
+	const scheme = /auth/i.test(name) ? /^([A-Za-z][\w-]*) +\S/.exec(value)?.[1] : undefined;
 	return scheme ? `${scheme} (removed)` : '(removed)';
 }
 
-/** Headers for the log: one text per header, names in lower case, secret values removed. */
+/** Headers for the log: one text per header, names in lower case, values only of the known harmless ones. */
 export function loggedHeaders(
 	headers: IncomingHttpHeaders | OutgoingHttpHeaders
 ): Record<string, string> {
@@ -173,7 +205,8 @@ export function loggedHeaders(
 	for (const [name, value] of Object.entries(headers)) {
 		if (value === undefined) continue;
 		const text = Array.isArray(value) ? value.join(', ') : String(value);
-		logged[name.toLowerCase()] = SECRET_HEADER.test(name) ? withoutSecret(name, text) : text;
+		const lower = name.toLowerCase();
+		logged[lower] = keptValue(lower, text);
 	}
 	return logged;
 }

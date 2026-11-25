@@ -262,26 +262,53 @@ test('keeps the headers sent and answered, without logins, cookies or tokens', a
 	for (const secret of [...secrets, 'mock-token']) expect(held).not.toContain(secret);
 });
 
-test('loggedHeaders keeps the names of secret headers, never their values', () => {
+// A made-up login for the header tests: "Bearer" and a word, never a real token.
+const bearer = (word: string) => `Bearer ${word}-login`;
+
+test('loggedHeaders keeps the values only of known harmless headers', () => {
 	expect(
 		loggedHeaders({
 			'set-cookie': ['SAP_SESSIONID=abc; HttpOnly', 'sap-usercontext=sap-client=100'],
-			Authorization: 'Bearer eyJhbGciOi',
+			Authorization: bearer('test'),
 			'proxy-authorization': 'Negotiate YIIG',
+			// Logins under other names: a list of secret headers would have to foresee each one.
+			'x-approuter-authorization': bearer('approuter'),
+			'sap-connectivity-authentication': bearer('connectivity'),
+			'x-forwarded-authorization': bearer('proxy'),
+			'ocp-apim-subscription-key': 'apim-key-1',
+			'x-jwt-assertion': 'assertion-login',
 			'x-api-key': 'k-1',
 			'x-sap-security-session': 'create',
+			'x-some-gateway-header': 'unknown-value',
+			// What HTTP and OData need keeps its value.
 			'content-length': 12,
-			accept: 'application/json'
+			accept: 'application/json',
+			'sap-client': '100',
+			dataserviceversion: '2.0',
+			'if-match': 'W/"etag-1"',
+			'user-agent': 'test'
 		})
 	).toEqual({
 		'set-cookie': '(removed)',
 		authorization: 'Bearer (removed)',
 		'proxy-authorization': 'Negotiate (removed)',
+		'x-approuter-authorization': 'Bearer (removed)',
+		'sap-connectivity-authentication': 'Bearer (removed)',
+		'x-forwarded-authorization': 'Bearer (removed)',
+		'ocp-apim-subscription-key': '(removed)',
+		'x-jwt-assertion': '(removed)',
 		'x-api-key': '(removed)',
 		'x-sap-security-session': '(removed)',
+		'x-some-gateway-header': '(removed)',
 		'content-length': '12',
-		accept: 'application/json'
+		accept: 'application/json',
+		'sap-client': '100',
+		dataserviceversion: '2.0',
+		'if-match': 'W/"etag-1"',
+		'user-agent': 'test'
 	});
+	// SAP's CSRF header keeps "Fetch" and "Required", which are no tokens.
+	expect(loggedHeaders({ 'x-csrf-token': 'Required' })).toEqual({ 'x-csrf-token': 'Required' });
 	// A login without a scheme keeps nothing.
 	expect(loggedHeaders({ authorization: 'opaque-secret' })).toEqual({ authorization: '(removed)' });
 });

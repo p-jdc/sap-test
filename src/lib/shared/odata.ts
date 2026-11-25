@@ -71,7 +71,7 @@ export const OdataRequestListSchema = z.object({
 });
 
 export const OdataRequestSchema = RequestSummarySchema.extend({
-	/** As sent and answered; the mock leaves out the values of logins, cookies and tokens. */
+	/** As sent and answered; the mock keeps the values only of headers it knows to be harmless. */
 	requestHeaders: z.record(z.string(), z.string()),
 	responseHeaders: z.record(z.string(), z.string()),
 	requestBody: z.string().optional(),
