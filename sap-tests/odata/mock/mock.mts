@@ -3,13 +3,21 @@
 // Writes are kept in memory until the data is reset or the mock stops.
 //
 // Two listeners, like the IDoc receiver and the Mock PLC:
-// - the OData endpoint, which tests and apps call in SAP's place. It keeps a log of the requests it answered, and
-//   can be told to fail a service's requests or answer them late;
+// - the OData endpoint, which tests and apps call in SAP's place. It keeps a log of the requests it answered (of the
+//   headers, only the values of known harmless ones), and can be told to fail a service's requests, all or a share
+//   of them, or to answer them late;
 // - the control API, for the app's Mock OData page and for tests: the log, the answers, the data, a reset.
 // Both only listen on this computer: the OData endpoint has no login (any user and password get in).
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+	createServer,
+	type IncomingHttpHeaders,
+	type IncomingMessage,
+	type OutgoingHttpHeaders,
+	type Server,
+	type ServerResponse
+} from 'node:http';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -87,9 +95,23 @@ export const AnswerSchema = z.discriminatedUnion('mode', [
 	z.object({
 		mode: z.literal('fail'),
 		status: z.number().int().min(400).max(599),
-		message: z.string().trim().min(1).max(500)
+		message: z.string().trim().min(1).max(500),
+		/** Share of the service's requests that fail, in percent (default 100); the others are answered normally. */
+		rate: z.number().int().min(1).max(100).optional(),
+		/** Sent as Retry-After: the seconds a client should wait before it tries again (with 429 or 503). */
+		retryAfterSeconds: z.number().int().min(0).max(86_400).optional()
 	}),
-	z.object({ mode: z.literal('slow'), delayMs: z.number().int().min(1).max(300_000) })
+	z
+		.object({
+			mode: z.literal('slow'),
+			delayMs: z.number().int().min(1).max(300_000),
+			/** With it, each request waits a random time from delayMs to maxDelayMs. */
+			maxDelayMs: z.number().int().min(1).max(300_000).optional()
+		})
+		.refine((answer) => answer.maxDelayMs === undefined || answer.maxDelayMs >= answer.delayMs, {
+			message: 'the longest delay must not be shorter than the shortest',
+			path: ['maxDelayMs']
+		})
 ]);
 /** How the mock answers a service's requests, instead of normally. */
 export type Answer = z.infer<typeof AnswerSchema>;
@@ -109,19 +131,87 @@ export const LoggedRequestSchema = z.object({
 	answer: z.enum(['normal', 'fail', 'slow']),
 	requestType: z.string().optional(),
 	responseType: z.string().optional(),
+	/** The headers as sent and answered: values only of known harmless ones (loggedHeaders). */
+	requestHeaders: z.record(z.string(), z.string()),
+	responseHeaders: z.record(z.string(), z.string()),
 	requestBody: z.string().optional(),
 	requestBodyCut: z.boolean().optional(),
 	responseBody: z.string().optional(),
 	responseBodyCut: z.boolean().optional()
 });
 export type LoggedRequest = z.infer<typeof LoggedRequestSchema>;
-/** A logged request without its bodies, as the list gives it: zod drops the fields it doesn't name. */
+/** A logged request without its headers and bodies, as the list gives it: zod drops the fields it doesn't name. */
 export const RequestSummarySchema = LoggedRequestSchema.omit({
+	requestHeaders: true,
+	responseHeaders: true,
 	requestBody: true,
 	requestBodyCut: true,
 	responseBody: true,
 	responseBodyCut: true
 });
+
+/**
+ * Headers whose values the log keeps: what HTTP and OData need, none of which carries a login. Every other header
+ * keeps its name only, so the log shows that it was sent. The log goes to the page, and a request from a real app
+ * carries a real user's login, under names no list of secret headers can foresee (x-approuter-authorization,
+ * sap-connectivity-authentication, an API gateway's subscription key, …): so the values kept are the known ones.
+ */
+const KEPT_HEADERS = new Set([
+	'host',
+	'user-agent',
+	'connection',
+	'keep-alive',
+	'transfer-encoding',
+	'cache-control',
+	'pragma',
+	'expect',
+	'date',
+	'etag',
+	'if-match',
+	'if-none-match',
+	'if-modified-since',
+	'last-modified',
+	'location',
+	'vary',
+	'retry-after',
+	'prefer',
+	'preference-applied',
+	'x-http-method',
+	'x-requested-with',
+	'dataserviceversion',
+	'maxdataserviceversion',
+	'mindataserviceversion',
+	'sap-client',
+	'sap-language',
+	'sap-contextid-accept',
+	'sap-message'
+]);
+const KEPT_PREFIX = /^(?:content-|accept|odata-)/i;
+/** The values of SAP's CSRF header that are no token: a request asking for one, an answer saying one is needed. */
+const CSRF_WORDS = new Set(['fetch', 'required']);
+
+/** A header's value as the log keeps it: whole, its login scheme only, or nothing. */
+function keptValue(name: string, value: string): string {
+	if (KEPT_HEADERS.has(name) || KEPT_PREFIX.test(name)) return value;
+	if (name === 'x-csrf-token' && CSRF_WORDS.has(value.trim().toLowerCase())) return value;
+	// The scheme (Basic, Bearer) tells which kind of login came, without the login itself.
+	const scheme = /auth/i.test(name) ? /^([A-Za-z][\w-]*) +\S/.exec(value)?.[1] : undefined;
+	return scheme ? `${scheme} (removed)` : '(removed)';
+}
+
+/** Headers for the log: one text per header, names in lower case, values only of the known harmless ones. */
+export function loggedHeaders(
+	headers: IncomingHttpHeaders | OutgoingHttpHeaders
+): Record<string, string> {
+	const logged: Record<string, string> = {};
+	for (const [name, value] of Object.entries(headers)) {
+		if (value === undefined) continue;
+		const text = Array.isArray(value) ? value.join(', ') : String(value);
+		const lower = name.toLowerCase();
+		logged[lower] = keptValue(lower, text);
+	}
+	return logged;
+}
 
 export type OdataMockOptions = {
 	/** Address of the OData endpoint (default 127.0.0.1). Only this computer: it has no login. */
@@ -136,6 +226,8 @@ export type OdataMockOptions = {
 	controlToken?: string;
 	/** The services to serve (default: those of options-per-service.json). */
 	services?: MockService[];
+	/** Numbers from 0 to below 1 for the error rate and the random delays (default Math.random); for tests. */
+	random?: () => number;
 };
 
 export type RunningOdataMock = {
@@ -239,6 +331,7 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 			);
 	const services = options.services ?? configuredServices();
 	const controlToken = options.controlToken;
+	const random = options.random ?? Math.random;
 	/** New at every start, so a reader of the log notices that its numbering began anew. */
 	const instance = randomUUID();
 	/** Marks the control API's own reads of the data, which stay out of the log and ignore the answers. */
@@ -291,7 +384,9 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 		}
 		const own = request.headers['x-odata-mock-internal'] === internal;
 		const service = serviceOf(pathname);
-		const answer = own || !service ? undefined : answers.get(service.name);
+		const set = own || !service ? undefined : answers.get(service.name);
+		// With a rate, only that share fails: the others are answered normally, and logged so.
+		const answer = set?.mode === 'fail' && random() * 100 >= (set.rate ?? 100) ? undefined : set;
 		const started = performance.now();
 		const at = new Date().toISOString();
 
@@ -351,6 +446,8 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 					answer: answer?.mode ?? 'normal',
 					requestType,
 					responseType: typeof responseType === 'string' ? responseType : undefined,
+					requestHeaders: loggedHeaders(request.headers),
+					responseHeaders: loggedHeaders(response.getHeaders()),
 					requestBody: requestBody?.text,
 					requestBodyCut: requestBody?.cut || undefined,
 					responseBody: responseBody?.text,
@@ -360,11 +457,14 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 		}
 
 		if (answer?.mode === 'fail') {
+			if (answer.retryAfterSeconds !== undefined)
+				response.setHeader('retry-after', String(answer.retryAfterSeconds));
 			json(response, answer.status, gatewayError(answer.message));
 			return;
 		}
 		if (answer?.mode === 'slow') {
-			await sleep(answer.delayMs);
+			const { delayMs, maxDelayMs = delayMs } = answer;
+			await sleep(delayMs + Math.floor(random() * (maxDelayMs - delayMs + 1)));
 			// The caller gave up meanwhile: nothing to answer.
 			if (response.destroyed) return;
 		}

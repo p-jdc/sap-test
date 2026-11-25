@@ -3,8 +3,41 @@
 import { z } from 'zod';
 
 export const OdataAnswerSchema = z.discriminatedUnion('mode', [
-	z.object({ mode: z.literal('fail'), status: z.number().int(), message: z.string() }),
-	z.object({ mode: z.literal('slow'), delayMs: z.number().int() })
+	z.object({
+		mode: z.literal('fail'),
+		status: z.number().int(),
+		message: z.string(),
+		/** Percent of the requests that fail; without it, all. */
+		rate: z.number().int().optional(),
+		retryAfterSeconds: z.number().int().optional()
+	}),
+	z.object({
+		mode: z.literal('slow'),
+		delayMs: z.number().int(),
+		/** With it, a random delay from delayMs to this. */
+		maxDelayMs: z.number().int().optional()
+	})
+]);
+
+/** An answer as the page may set it: the limits the mock checks too. */
+export const OdataAnswerInputSchema = z.discriminatedUnion('mode', [
+	z.object({
+		mode: z.literal('fail'),
+		status: z.number().int().min(400).max(599),
+		message: z.string().trim().min(1).max(500),
+		rate: z.number().int().min(1).max(100).optional(),
+		retryAfterSeconds: z.number().int().min(0).max(86_400).optional()
+	}),
+	z
+		.object({
+			mode: z.literal('slow'),
+			delayMs: z.number().int().min(1).max(300_000),
+			maxDelayMs: z.number().int().min(1).max(300_000).optional()
+		})
+		.refine((answer) => answer.maxDelayMs === undefined || answer.maxDelayMs >= answer.delayMs, {
+			message: 'The longest delay must not be shorter than the shortest.',
+			path: ['maxDelayMs']
+		})
 ]);
 
 const OdataServiceSchema = z.object({ name: z.string(), basePath: z.string() });
@@ -38,6 +71,9 @@ export const OdataRequestListSchema = z.object({
 });
 
 export const OdataRequestSchema = RequestSummarySchema.extend({
+	/** As sent and answered; the mock keeps the values only of headers it knows to be harmless. */
+	requestHeaders: z.record(z.string(), z.string()),
+	responseHeaders: z.record(z.string(), z.string()),
 	requestBody: z.string().optional(),
 	requestBodyCut: z.boolean().optional(),
 	responseBody: z.string().optional(),
