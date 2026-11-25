@@ -22,6 +22,13 @@ Auf SAP-Bildschirmen nie CSS-Selektoren, XPath oder generierte IDs. .nth() nur, 
 - Keine festen Wartezeiten (waitForTimeout). Auf ein Control oder eine Statusmeldung warten.
 - `await page.waitForUI5()` nur vor Abfragen, die nicht selbst warten (Modell lesen, count(), Screenshot). Vor Klicks und `expect` auf Locators ist es unnötig.
 
+## WebGUI
+
+- Transaktionen mit `runTransaction(page, tcode)` aus helpers/webgui.ts starten, Tasten, die das Bild an SAP senden (Enter, F8, Strg+S), mit `pressKey(page, taste)`. Beide warten, bis SAP geantwortet und WebGUI das neue Bild gezeichnet hat. Für einen Klick, der das Bild sendet: `roundTrip(page, () => locator.click())`, wenn danach eine Abfrage folgt, die nicht selbst wartet (count(), Screenshot, `readStatusBar`).
+- Meldungen der Statusleiste mit `expectStatusBar(page, typ, text?)` prüfen (S, W, E, A, I). Der Typ kommt aus den Daten der Statusleiste und gilt in jeder Anmeldesprache; den Text nur mit einem festen Teil prüfen. Die Belegnummer aus einer Erfolgsmeldung mit `(await readStatusBar(page)).text` lesen.
+- Popups (modale Fenster) mit `popup(page)` (wnd[1]) bzw. `popup(page, 2)`: `toHaveAccessibleName(titel)` prüft den Titel, `toBeHidden()` das Schließen. Buttons und Felder im Popup mit `getByRoleSID(role, { name, wnd: 1 })`.
+- Schlägt ein Test auf einem WebGUI-Bild fehl, hängt sap-plugin `webgui-state` an den Bericht: die Meldung der Statusleiste und die offenen Popups am Ende des Tests.
+
 ## UI5-Modell lesen (Fiori)
 
 - `page.ui5BoundData(locator)`: die Einträge, die eine Liste oder Tabelle geladen hat ('rows' als zweites Argument für sap.ui.table).
@@ -74,7 +81,7 @@ Die meisten SAP-Belege lassen sich nicht löschen, nur stornieren. `undo` in `cl
 
 ## Beim Reparieren eines fehlgeschlagenen Tests
 
-- Zuerst den Trace öffnen und die Ursache nennen, dann Code ändern.
+- Zuerst den Trace öffnen und die Ursache nennen, dann Code ändern. Bei WebGUI-Tests zuerst die Anlage `webgui-state` lesen: Eine Fehlermeldung oder ein offenes Popup erklärt den Abbruch oft schon.
 - Liegt der Fehler in der Anwendung: melden, den Test nicht ändern.
 - SAP-Locators beibehalten. Nicht auf Standard-Locators ausweichen.
 

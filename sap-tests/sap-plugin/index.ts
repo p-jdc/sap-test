@@ -23,6 +23,7 @@ import type { UI5ControlSelector } from './ui5control';
 import { ui5BoundData, ui5HasPendingChanges, ui5ModelProperty, waitForUI5 } from './ui5';
 import type { WaitForUI5Options } from './ui5';
 import { sidPrefixMapping } from './vendor/playwright-sap/isomorphic/sidPrefixMapping';
+import { attachWebGUIState } from './webgui';
 
 export type ByRoleUI5Properties = Record<string, string>;
 export type ByRoleUI5Options = { exact?: boolean };
@@ -149,6 +150,12 @@ export const test = base.extend<SapOptions, { sapSelectorEngines: void }>({
 		},
 		{ scope: 'worker', auto: true }
 	],
+	// A failed test that ends on a WebGUI screen gets the status bar and open popups attached
+	// (webgui.ts). Only tests that use a page pay for it, and only when they fail.
+	page: async ({ page }, use, testInfo) => {
+		await use(page);
+		if (testInfo.status !== testInfo.expectedStatus) await attachWebGUIState(page, testInfo);
+	},
 	// Every page of every context of this worker's browser gets the methods: the test's own page,
 	// popups, new tabs, and the pages of contexts a test opens itself (browser.newContext()).
 	browser: [
