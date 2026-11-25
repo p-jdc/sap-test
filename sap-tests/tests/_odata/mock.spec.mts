@@ -5,6 +5,7 @@
 import { test, expect } from '../../sap-plugin';
 import { z } from 'zod';
 import {
+	loggedHeaders,
 	LoggedRequestSchema,
 	RequestSummarySchema,
 	startOdataMock,
@@ -185,12 +186,117 @@ test('answers late as set', async () => {
 	expect(entry?.durationMs).toBeGreaterThanOrEqual(400);
 });
 
+test('fails only the share of requests set, and says when to try again', async () => {
+	// The mock draws one number per request: below 0.5 fails at a rate of 50 %, from 0.5 on it doesn't.
+	let draws = 0;
+	const m = await mock({ random: () => (draws++ % 2 === 0 ? 0.1 : 0.7) });
+	await control(m, 'PUT', `/answers/${SERVICE}`, {
+		mode: 'fail',
+		status: 429,
+		message: 'Too many requests',
+		rate: 50,
+		retryAfterSeconds: 30
+	});
+
+	const first = await odata(m, '/ProductSet/$count');
+	expect(first.status).toBe(429);
+	expect(first.headers.get('retry-after')).toBe('30');
+	const second = await odata(m, '/ProductSet/$count');
+	expect(second.status).toBe(200);
+	expect(second.headers.get('retry-after')).toBeNull();
+
+	const { requests } = await logged(m);
+	expect(requests.map((r) => [r.status, r.answer])).toEqual([
+		[429, 'fail'],
+		[200, 'normal']
+	]);
+	const { body } = await control(m, 'GET', `/requests/${requests[0]?.seq}`);
+	expect(LoggedRequestSchema.parse(body).responseHeaders).toMatchObject({ 'retry-after': '30' });
+});
+
+test('answers late at random, within the range set', async () => {
+	// The highest draw gives the longest delay: 100 ms plus all of the 400 ms range.
+	const m = await mock({ random: () => 0.999 });
+	await control(m, 'PUT', `/answers/${SERVICE}`, { mode: 'slow', delayMs: 100, maxDelayMs: 500 });
+	expect((await control(m, 'GET', '/answers')).body).toEqual({
+		[SERVICE]: { mode: 'slow', delayMs: 100, maxDelayMs: 500 }
+	});
+	const started = Date.now();
+	expect((await odata(m, '/ProductSet/$count')).status).toBe(200);
+	expect(Date.now() - started).toBeGreaterThanOrEqual(500);
+});
+
+test('keeps the headers sent and answered, without logins, cookies or tokens', async () => {
+	const m = await mock();
+	const secrets = ['c2VjcmV0OnBhc3M=', 's3cr3t-session', 'tok-123', 'sso-ticket'];
+	await odata(m, '/ProductSet/$count', {
+		headers: {
+			authorization: `Basic ${secrets[0]}`,
+			cookie: `SAP_SESSIONID_X=${secrets[1]}`,
+			'x-csrf-token': secrets[2] ?? '',
+			MYSAPSSO2: secrets[3] ?? '',
+			'sap-client': '100'
+		}
+	});
+	// A CSRF token request asks with "Fetch", and the mock answers with a token.
+	await odata(m, '/', { method: 'HEAD', headers: { 'x-csrf-token': 'Fetch' } });
+
+	const { requests } = await logged(m);
+	const [read, fetchToken] = await Promise.all(
+		requests.map(async (r) =>
+			LoggedRequestSchema.parse((await control(m, 'GET', `/requests/${r.seq}`)).body)
+		)
+	);
+	expect(read?.requestHeaders).toMatchObject({
+		authorization: 'Basic (removed)',
+		cookie: '(removed)',
+		'x-csrf-token': '(removed)',
+		mysapsso2: '(removed)',
+		'sap-client': '100'
+	});
+	expect(read?.responseHeaders['content-type']).toBeTruthy();
+	expect(fetchToken?.requestHeaders['x-csrf-token']).toBe('Fetch');
+	expect(fetchToken?.responseHeaders['x-csrf-token']).toBe('(removed)');
+	// Nowhere in what the log holds, nor in the list.
+	const held = JSON.stringify([read, fetchToken, await logged(m)]);
+	for (const secret of [...secrets, 'mock-token']) expect(held).not.toContain(secret);
+});
+
+test('loggedHeaders keeps the names of secret headers, never their values', () => {
+	expect(
+		loggedHeaders({
+			'set-cookie': ['SAP_SESSIONID=abc; HttpOnly', 'sap-usercontext=sap-client=100'],
+			Authorization: 'Bearer eyJhbGciOi',
+			'proxy-authorization': 'Negotiate YIIG',
+			'x-api-key': 'k-1',
+			'x-sap-security-session': 'create',
+			'content-length': 12,
+			accept: 'application/json'
+		})
+	).toEqual({
+		'set-cookie': '(removed)',
+		authorization: 'Bearer (removed)',
+		'proxy-authorization': 'Negotiate (removed)',
+		'x-api-key': '(removed)',
+		'x-sap-security-session': '(removed)',
+		'content-length': '12',
+		accept: 'application/json'
+	});
+	// A login without a scheme keeps nothing.
+	expect(loggedHeaders({ authorization: 'opaque-secret' })).toEqual({ authorization: '(removed)' });
+});
+
 test('refuses answers it cannot give, and services it does not serve', async () => {
 	const m = await mock();
-	expect(
-		(await control(m, 'PUT', `/answers/${SERVICE}`, { mode: 'fail', status: 200, message: 'x' }))
-			.status
-	).toBe(400);
+	for (const answer of [
+		{ mode: 'fail', status: 200, message: 'x' },
+		{ mode: 'fail', status: 503, message: 'x', rate: 0 },
+		{ mode: 'fail', status: 503, message: 'x', rate: 101 },
+		{ mode: 'fail', status: 429, message: 'x', retryAfterSeconds: -1 },
+		{ mode: 'slow', delayMs: 500, maxDelayMs: 100 }
+	])
+		expect((await control(m, 'PUT', `/answers/${SERVICE}`, answer)).status).toBe(400);
+	expect((await control(m, 'GET', '/answers')).body).toEqual({});
 	expect(
 		(await control(m, 'PUT', '/answers/NO_SUCH_SRV', { mode: 'slow', delayMs: 10 })).status
 	).toBe(404);

@@ -269,9 +269,11 @@ this computer and shows:
 - where each service is served, and a switch that points the API tests started in the app at the
   mock instead of the system in the settings (off at every start);
 - every request it answered, with what was sent and what came back (bodies up to 16 KB, `$batch`
-  included);
-- answers per service: fail with an HTTP status and message, in the form SAP Gateway sends errors,
-  or answer late, for negative tests;
+  included; the headers with technical details on). Logins, cookies and tokens show as "(removed)":
+  the mock never keeps their values;
+- answers per service, for negative tests and retries: fail all requests or a share of them with an
+  HTTP status and message, in the form SAP Gateway sends errors, optionally with `Retry-After` (for
+  429 or 503); or answer late, after a fixed delay or a random one within a range;
 - the data it holds now, writes included, and a reset to the data files. The mock keeps the data
   of each `sap-client` apart; the page shows that of requests without one, which is how the API
   tests started in the app call it.

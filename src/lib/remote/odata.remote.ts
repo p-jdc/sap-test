@@ -14,6 +14,7 @@ import {
 	useOdataMockForTests,
 	watchOdata
 } from '#lib/server/odata.js';
+import { OdataAnswerInputSchema } from '#lib/shared/odata.js';
 
 const name = z.string().regex(ODATA_NAME, 'Not a service or entity set name');
 
@@ -58,18 +59,6 @@ export const setOdataForTests = command(z.boolean(), (use) =>
 
 /** How the mock answers a service's requests, for everyone using it, until it is set back. */
 export const setOdataServiceAnswer = command(
-	z.object({
-		service: name,
-		answer: z
-			.discriminatedUnion('mode', [
-				z.object({
-					mode: z.literal('fail'),
-					status: z.number().int().min(400).max(599),
-					message: z.string().trim().min(1).max(500)
-				}),
-				z.object({ mode: z.literal('slow'), delayMs: z.number().int().min(1).max(300_000) })
-			])
-			.nullable()
-	}),
+	z.object({ service: name, answer: OdataAnswerInputSchema.nullable() }),
 	({ service, answer }) => act(() => setOdataAnswer(service, answer))
 );

@@ -44,6 +44,10 @@ const stopped = (s: OdataSnapshot) => !s.status.running;
 const failing = (s: OdataSnapshot) => s.answers[SERVICE]?.mode === 'fail';
 const loggedAsFailed = (s: OdataSnapshot) =>
 	s.requests.some((r) => r.answer === 'fail' && r.status === 503);
+const limiting = (s: OdataSnapshot) => {
+	const answer = s.answers[SERVICE];
+	return answer?.mode === 'fail' && answer.status === 429;
+};
 
 afterEach(async () => {
 	if (stopOdataMock()) await waitFor(stopped);
@@ -72,7 +76,9 @@ describe('OData mock', () => {
 		expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 		await expect(startOdataMock()).rejects.toThrow('already running');
 
-		const response = await fetch(`${url}${BASE}/ProductSet?$format=json`);
+		const response = await fetch(`${url}${BASE}/ProductSet?$format=json`, {
+			headers: { authorization: 'Basic bW9jazpzZWNyZXQ=' }
+		});
 		expect(response.status).toBe(200);
 		const snapshot = await waitFor((s) => s.requests.length === 1);
 		expect(snapshot.services).toEqual([{ name: SERVICE, basePath: BASE }]);
@@ -83,7 +89,11 @@ describe('OData mock', () => {
 			status: 200,
 			answer: 'normal'
 		});
-		expect((await odataRequest(request.seq)).responseBody).toContain('MK-1000');
+		const full = await odataRequest(request.seq);
+		expect(full.responseBody).toContain('MK-1000');
+		// The headers reach the page, the login without its value.
+		expect(full.requestHeaders.authorization).toBe('Basic (removed)');
+		expect(full.responseHeaders['content-type']).toContain('json');
 
 		await clearOdataRequests();
 		await waitFor((s) => s.requests.length === 0);
@@ -143,6 +153,22 @@ describe('OData mock', () => {
 		await waitFor(failing);
 		expect((await fetch(`${url}${BASE}/ProductSet`)).status).toBe(503);
 		await waitFor(loggedAsFailed);
+
+		// With Retry-After, and the share and random delay as the page shows them back.
+		await setOdataAnswer(SERVICE, {
+			mode: 'fail',
+			status: 429,
+			message: 'Slow down',
+			rate: 100,
+			retryAfterSeconds: 5
+		});
+		await waitFor(limiting);
+		const limited = await fetch(`${url}${BASE}/ProductSet`);
+		expect(limited.status).toBe(429);
+		expect(limited.headers.get('retry-after')).toBe('5');
+		await setOdataAnswer(SERVICE, { mode: 'slow', delayMs: 1, maxDelayMs: 20 });
+		const slow = await waitFor((s) => s.answers[SERVICE]?.mode === 'slow');
+		expect(slow.answers[SERVICE]).toEqual({ mode: 'slow', delayMs: 1, maxDelayMs: 20 });
 
 		await setOdataAnswer(SERVICE, null);
 		await waitFor((s) => Object.keys(s.answers).length === 0);

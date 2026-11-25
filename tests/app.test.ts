@@ -285,6 +285,15 @@ test('Mock OData: shows the data, logs a request, fails a service as set, and st
 	await expect(page.getByRole('button', { name: /^ProductSet\s+3$/ })).toBeVisible();
 	await expect(table.getByRole('cell', { name: 'MKE2E' })).toBeHidden();
 
+	// A share the mock can't use is refused on the page, saying which field, and nothing is set.
+	await page.locator('#fail-rate').locator('input').fill('0');
+	await page.getByText('Set', { exact: true }).click();
+	await expect(
+		page.getByText('The share of requests must be a whole number from 1 to 100.')
+	).toBeVisible();
+	await expect(page.getByText('Every service answers normally.')).toBeVisible();
+	await page.locator('#fail-rate').locator('input').fill('100');
+
 	// Fail the service: the next request gets the error, marked in the log.
 	await page.locator('#fail-status').locator('input').fill('503');
 	await page.getByText('Set', { exact: true }).click();

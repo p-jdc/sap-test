@@ -30,7 +30,12 @@
 	let answerMode = $state<OdataAnswer['mode']>('fail');
 	let failStatus = $state(503);
 	let failMessage = $state('Service unavailable (OData mock)');
+	let failRate = $state(100);
+	/** Empty: no Retry-After. */
+	let retryAfter = $state('');
 	let slowSeconds = $state(10);
+	/** Empty: every request waits the same. */
+	let slowUpTo = $state('');
 
 	let dataService = $state('');
 	let dataSet = $state('');
@@ -100,19 +105,87 @@
 		return { text: String(request.status), design: 'Positive' } as const;
 	};
 
-	const describeAnswer = (answer: OdataAnswer) =>
-		answer.mode === 'fail'
-			? `Fails with HTTP ${answer.status}: ${answer.message}`
-			: `Answers after ${answer.delayMs / 1000} s`;
+	function describeAnswer(answer: OdataAnswer): string {
+		if (answer.mode === 'fail') {
+			const share =
+				answer.rate === undefined || answer.rate === 100
+					? 'Fails'
+					: `Fails ${answer.rate} % of the requests`;
+			const retry =
+				answer.retryAfterSeconds === undefined
+					? ''
+					: ` · Retry-After ${answer.retryAfterSeconds} s`;
+			return `${share} with HTTP ${answer.status}: ${answer.message}${retry}`;
+		}
+		const { delayMs, maxDelayMs = delayMs } = answer;
+		return maxDelayMs === delayMs
+			? `Answers after ${delayMs / 1000} s`
+			: `Answers after ${delayMs / 1000} to ${maxDelayMs / 1000} s, at random`;
+	}
 
 	const MODE_HELP = {
-		fail: 'Every request to the service gets this HTTP error, in the form SAP Gateway sends.',
-		slow: 'Every request gets its normal answer, after the delay: to see how an app or test handles a slow system.'
+		fail: 'Requests to the service get this HTTP error, in the form SAP Gateway sends: all of them, or the share set. Retry-After tells a client how many seconds to wait before it tries again (with 429 or 503).',
+		slow: 'Every request gets its normal answer, after the delay: to see how an app or test handles a slow system. With "Up to seconds", each request waits a random time in between.'
 	} as const;
 
+	const whole = (n: number, min: number, max: number) =>
+		Number.isInteger(n) && n >= min && n <= max;
+
+	/**
+	 * Why the answer can't be set as typed, in the words of the form; undefined when it can. The mock checks the same
+	 * limits, but its refusal reaches the page only as "Bad Request".
+	 */
+	function answerProblem(answer: OdataAnswer): string | undefined {
+		if (answer.mode === 'fail') {
+			if (!whole(answer.status, 400, 599))
+				return 'The HTTP status must be an error status, from 400 to 599.';
+			if (!answer.message.trim()) return 'The message must not be empty.';
+			if (answer.rate !== undefined && !whole(answer.rate, 1, 100))
+				return 'The share of requests must be a whole number from 1 to 100.';
+			if (answer.retryAfterSeconds !== undefined && !whole(answer.retryAfterSeconds, 0, 86_400))
+				return 'Retry-After must be empty or a whole number of seconds, up to 86400 (one day).';
+			return undefined;
+		}
+		const { delayMs, maxDelayMs } = answer;
+		if (!whole(delayMs, 1, 300_000)) return '"After seconds" must be more than 0 and at most 300.';
+		if (maxDelayMs !== undefined && (!whole(maxDelayMs, 1, 300_000) || maxDelayMs < delayMs))
+			return '"Up to seconds" must be empty, or from "After seconds" up to 300.';
+		return undefined;
+	}
+
+	function setAnswer() {
+		const service = chosenAnswerService;
+		if (!service) return;
+		const answer = answerToSet();
+		const problem = answerProblem(answer);
+		if (problem) {
+			error = problem;
+			notice = null;
+			return;
+		}
+		void run(() => setOdataServiceAnswer({ service, answer }));
+	}
+
+	/** A number typed into a field that may stay empty. */
+	const optionalNumber = (text: string) => (text.trim() === '' ? undefined : Number(text));
+
 	function answerToSet(): OdataAnswer {
-		if (answerMode === 'fail') return { mode: 'fail', status: failStatus, message: failMessage };
-		return { mode: 'slow', delayMs: Math.round(slowSeconds * 1000) };
+		if (answerMode === 'fail') {
+			const retryAfterSeconds = optionalNumber(retryAfter);
+			return {
+				mode: 'fail',
+				status: failStatus,
+				message: failMessage,
+				...(failRate === 100 ? {} : { rate: failRate }),
+				...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds })
+			};
+		}
+		const upTo = optionalNumber(slowUpTo);
+		return {
+			mode: 'slow',
+			delayMs: Math.round(slowSeconds * 1000),
+			...(upTo === undefined ? {} : { maxDelayMs: Math.round(upTo * 1000) })
+		};
 	}
 
 	/** A cell's text: complex values (an address, say) as JSON. */
@@ -291,6 +364,21 @@
 							value={failMessage}
 							oninput={typed((v) => (failMessage = v))}
 						></ui5-input>
+						<ui5-label for="fail-rate" show-colon>Share of requests (%)</ui5-label>
+						<ui5-input
+							id="fail-rate"
+							type="Number"
+							value={String(failRate)}
+							oninput={typed((v) => (failRate = Number(v)))}
+						></ui5-input>
+						<ui5-label for="retry-after" show-colon>Retry-After (seconds)</ui5-label>
+						<ui5-input
+							id="retry-after"
+							type="Number"
+							placeholder="None"
+							value={retryAfter}
+							oninput={typed((v) => (retryAfter = v))}
+						></ui5-input>
 					{:else}
 						<ui5-label for="slow-seconds" show-colon>After seconds</ui5-label>
 						<ui5-input
@@ -299,17 +387,21 @@
 							value={String(slowSeconds)}
 							oninput={typed((v) => (slowSeconds = Number(v)))}
 						></ui5-input>
+						<ui5-label for="slow-up-to" show-colon>Up to seconds</ui5-label>
+						<ui5-input
+							id="slow-up-to"
+							type="Number"
+							placeholder="Always the same"
+							value={slowUpTo}
+							oninput={typed((v) => (slowUpTo = v))}
+						></ui5-input>
 					{/if}
 					<span></span>
 					<div class="row">
 						<ui5-button
 							design="Emphasized"
 							disabled={busy || !chosenAnswerService || undefined}
-							onclick={() => {
-								const service = chosenAnswerService;
-								if (service)
-									void run(() => setOdataServiceAnswer({ service, answer: answerToSet() }));
-							}}
+							onclick={setAnswer}
 						>
 							Set
 						</ui5-button>
@@ -509,10 +601,8 @@
 					<div class="bodies">
 						<section>
 							<ui5-title level="H5">Sent</ui5-title>
+							{#if view.technical}{@render headerList(full.requestHeaders)}{/if}
 							{#if full.requestBody}
-								{#if view.technical && full.requestType}<p class="muted mono">
-										{full.requestType}
-									</p>{/if}
 								<pre class="raw">{pretty(full.requestBody, full.requestType)}</pre>
 								{#if full.requestBodyCut}<p class="muted">Cut off after 16 KB.</p>{/if}
 							{:else}
@@ -521,10 +611,8 @@
 						</section>
 						<section>
 							<ui5-title level="H5">Answered</ui5-title>
+							{#if view.technical}{@render headerList(full.responseHeaders)}{/if}
 							{#if full.responseBody}
-								{#if view.technical && full.responseType}<p class="muted mono">
-										{full.responseType}
-									</p>{/if}
 								<pre class="raw">{pretty(full.responseBody, full.responseType)}</pre>
 								{#if full.responseBodyCut}<p class="muted">Cut off after 16 KB.</p>{/if}
 							{:else}
@@ -542,7 +630,38 @@
 	{/if}
 {/if}
 
+{#snippet headerList(headers: Record<string, string>)}
+	{@const entries = Object.entries(headers)}
+	{#if entries.length}
+		<dl class="headers mono">
+			{#each entries as [name, value] (name)}
+				<dt>{name}</dt>
+				<dd>{value}</dd>
+			{/each}
+		</dl>
+		{#if entries.some(([, value]) => value.endsWith('(removed)'))}
+			<p class="muted">
+				Logins, cookies and tokens show as "(removed)": the mock does not keep them.
+			</p>
+		{/if}
+	{/if}
+{/snippet}
+
 <style>
+	.headers {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 0.15rem 0.75rem;
+		margin: 0.5rem 0;
+		font-size: 0.8125rem;
+	}
+	.headers dt {
+		color: var(--sapContent_LabelColor);
+	}
+	.headers dd {
+		margin: 0;
+		word-break: break-all;
+	}
 	.intro {
 		margin: 0 0 1rem;
 		max-width: 50rem;
