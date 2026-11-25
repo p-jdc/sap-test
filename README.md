@@ -49,6 +49,10 @@ Where the locator does not say what it finds (Fiori elements apps give their con
 such as `…ListReport::SEPMRA_C_PD_Product--listReportFilter-btnGo`, WebGUI elements have a SID), a
 comment above the step names the control as it was on screen: `// the "Go" button`,
 `// the "Show Value Help" icon of the "Supplier" field`. The Tests page shows the step by that name.
+Enter and Tab in a field are recorded as `press` steps: UI5 checks a typed value when the field is
+left, so the replay leaves it the same way. The error message under a field (`Enter a number`) is
+checked as a part of the field (`interaction: { idSuffix: 'message-text' }`), and a message toast,
+which belongs to no control, as `page.getByRole('alert').filter({ hasText: '…' })`.
 
 Passwords are typed with `fillSecret(locator, value)` from `sap-plugin` (`SAPLogin` does this
 itself), never with `fill`: Playwright writes a filled value into the step title, and so into the

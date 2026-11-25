@@ -105,6 +105,11 @@ type Ctx = {
 	seq: number;
 	/** Keyed by step id. */
 	facts: Map<string, Facts>;
+	/**
+	 * The recorder's name for the element of the last step that had one. The recorder writes it
+	 * once for a run of steps on the same element; the steps after the first share it.
+	 */
+	lastShown?: { display: string; shown: string };
 };
 
 function lineOf(ctx: Ctx, pos: number) {
@@ -237,11 +242,12 @@ function describeLocator(
 			if (idx > -1 && ACTIONS.has(info.display.slice(idx + 2).split('(')[0] ?? '')) {
 				info.display = info.display.slice(0, idx + 1);
 			}
-		} else if (kind && seg.name === 'locator' && info) {
-			// chained .locator() on an existing locator: refine kind only if it is css/xpath
+		} else if (info && (seg.name === 'filter' || (kind && seg.name === 'locator'))) {
+			// chained .locator() on an existing locator: refine kind only if it is css/xpath.
+			// .filter({ hasText }) narrows it down by what it shows (a toast: getByRole('alert')).
 			info = {
 				...info,
-				display: info.display + `.locator(${seg.args.map((a) => a.getText(ctx.sf)).join(', ')})`
+				display: info.display + `.${seg.name}(${seg.args.map((a) => a.getText(ctx.sf)).join(', ')})`
 			};
 		}
 	}
@@ -250,7 +256,9 @@ function describeLocator(
 
 // The comment the recorder writes above a step whose selector does not name the control:
 // `// the "Search" field`, `// the "Show Value Help" icon of the "Supplier" field`.
-const PART = String.raw`the "[^"]+"(?: [\w ]+?)?`;
+// The kind is what the recorder writes: a few words of a control type or an ARIA role
+// ("object page header action button"), not a sentence that happens to start the same way.
+const PART = String.raw`the "[^"]+"(?: [A-Za-z]+(?: [A-Za-z]+){0,4})?`;
 const SHOWN_COMMENT = new RegExp(String.raw`^//\s*(${PART}(?: of ${PART})?)\s*$`);
 
 /** The recorder's comment on the line right above the statement, if there is one. */
@@ -276,7 +284,10 @@ function makeStep(
 		inner: facts.inner ?? [],
 		nth: !container && callsNth(stmt)
 	});
-	const shown = partial.locator && shownAbove(ctx, stmt);
+	const display = partial.locator?.display;
+	const above = partial.locator && shownAbove(ctx, stmt);
+	const shown = above ?? (display === ctx.lastShown?.display ? ctx.lastShown?.shown : undefined);
+	if (above && display) ctx.lastShown = { display, shown: above };
 	return {
 		id,
 		line: lineOf(ctx, stmt.getStart(ctx.sf)),
