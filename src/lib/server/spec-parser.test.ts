@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { must } from '../../test/must.js';
+import { describeStep } from '../shared/step-text.js';
 import { parseHelpers, parseSpec } from './spec-parser.js';
 
 const helpers = parseHelpers([
@@ -118,6 +119,31 @@ test('recorded', async ({ page }) => {
 			undefined,
 			undefined
 		]);
+	});
+
+	test("a run of steps on one element shares the recorder's name; a toast check reads as one", () => {
+		const spec = parseSpec(
+			'fiori/recorded.spec.ts',
+			`import { test, expect } from '../../sap-plugin';
+test('recorded', async ({ page }) => {
+	// the "Weight" field
+	await page.locateUI5Control({ id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'inner' } }).fill('abc');
+	await page.locateUI5Control({ id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'inner' } }).press('Tab');
+	await expect(page.locateUI5Control({ id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'message-text' } })).toHaveText('Enter a number');
+	await expect(page.getByRole('alert').filter({ hasText: 'Changes discarded' })).toBeVisible();
+});`,
+			helpers
+		);
+		const steps = must(spec.tests[0]).steps;
+		expect(steps.map((s) => s.locator?.shown)).toEqual([
+			'the "Weight" field',
+			'the "Weight" field',
+			// Another part of the field: not the field the name was for.
+			undefined,
+			undefined
+		]);
+		expect(describeStep(must(steps[3]))).toBe('Check that the “Changes discarded” alert is shown');
+		expect(must(spec.tests[0]).issues.map((i) => i.rule)).not.toContain('prefer-sap-locator');
 	});
 
 	test('reads the methods the SAP plugin adds: UI5 wait, model reads and locateUI5', () => {

@@ -853,6 +853,40 @@ test('the written spec: a comment names the control where the selector does not'
 	);
 });
 
+test('the written spec: a run of steps on one field is named once, a toast is found by its text', () => {
+	const weight = { id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'inner' } };
+	const named = { shown: { name: 'Weight', kind: 'field' } };
+	const steps: RecordedStep[] = [
+		{ seq: 1, action: 'fill', value: 'abc', selector: weight, ...named },
+		{ seq: 2, action: 'press', key: 'Tab', selector: weight, ...named },
+		{
+			seq: 3,
+			action: 'expect',
+			check: 'text',
+			value: 'Enter a number',
+			selector: { ...weight, interaction: { idSuffix: 'message-text' } }
+		},
+		{ seq: 4, action: 'press', key: 'Shift+Tab', selector: weight, ...named },
+		{ seq: 5, action: 'expect', check: 'visible', alert: "Product 'HT-1000' saved" }
+	];
+	const lines = renderSpec('https://sap.example.com', steps, '../../sap-plugin')
+		.split('\n')
+		.map((line) => line.trim());
+	const field = `page.locateUI5Control({ id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'inner' } })`;
+	expect(lines.slice(lines.indexOf('// the "Weight" field'))).toEqual([
+		'// the "Weight" field',
+		`await ${field}.fill('abc');`,
+		`await ${field}.press('Tab');`,
+		`await expect(page.locateUI5Control({ id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'message-text' } })).toHaveText('Enter a number');`,
+		// Back on the field after a step on something else: named again.
+		'// the "Weight" field',
+		`await ${field}.press('Shift+Tab');`,
+		`await expect(page.getByRole('alert').filter({ hasText: 'Product \\'HT-1000\\' saved' })).toBeVisible();`,
+		'});',
+		''
+	]);
+});
+
 test('the written spec: checks become assertions', () => {
 	const field = { id: 'app--name', interaction: { idSuffix: 'inner' } };
 	const steps: RecordedStep[] = [

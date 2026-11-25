@@ -40,6 +40,11 @@ export type RecordedStep = {
 	 * selector is then the chart.
 	 */
 	chartPoint?: UI5ChartPoint;
+	/**
+	 * A message that belongs to no control (sap.m.MessageToast): an element with the ARIA role
+	 * alert, found by this text in it.
+	 */
+	alert?: string;
 	value?: string;
 	/**
 	 * A password was typed. What was typed never leaves the page: the step has no `value`, and the
@@ -108,6 +113,7 @@ function recorderScript(binding: string) {
 		sid?: string;
 		innerText?: string;
 		chartPoint?: Record<string, string>;
+		alert?: string;
 		problem?: string;
 		shown?: Shown;
 	};
@@ -328,6 +334,23 @@ function recorderScript(binding: string) {
 		return undefined;
 	};
 
+	// An element outside every control's DOM: a part a control draws elsewhere (the error message
+	// of a field, in a popup of its own, with the ID "<field>-message-text"), found by the
+	// control's selector and the rest of the ID as UI5 finds parts; else a message that belongs to
+	// no control (sap.m.MessageToast), by its role and its text.
+	const controlById = (id: string) => elements?.getElementById?.(id) ?? elements?.registry?.get(id);
+	const apart = async (target: Element): Promise<Described | undefined> => {
+		for (let cut = target.id.lastIndexOf('-'); cut > 0; cut = target.id.lastIndexOf('-', cut - 1)) {
+			const owner = controlById(target.id.slice(0, cut))?.getDomRef();
+			const ownSelector = owner ? await selectorFor(owner) : undefined;
+			if (!ownSelector || typeof ownSelector !== 'object') continue;
+			const part = { ...ownSelector, interaction: { idSuffix: target.id.slice(cut + 1) } };
+			if (!check(part, target)) return { selector: part };
+		}
+		const alert = target.closest('[role=alert]');
+		const text = alert ? oneLine(alert.textContent).slice(0, LONGEST_TEXT) : '';
+		return text ? { alert: text } : undefined;
+	};
 	const describeControl = async (target: Element): Promise<Described> => {
 		if (!state.ready) {
 			const sid = sidFor(target);
@@ -360,7 +383,7 @@ function recorderScript(binding: string) {
 				root = root.parentElement?.closest('[data-sap-ui]') ?? null;
 			}
 			const unknown = { problem: 'UI5 could not describe this element' };
-			if (!root || !around) return direct ?? unknown;
+			if (!root || !around) return direct ?? (await apart(target)) ?? unknown;
 
 			// A data point of a chart, by the values it stands for.
 			const chartPoint = shape && root.contains(shape) ? chartPointOf(shape) : undefined;
@@ -676,10 +699,18 @@ function recorderScript(binding: string) {
 		'keydown',
 		(event) => {
 			const target = event.target;
-			if (event.key !== 'Enter' || !isEditable(target) || !watched(target)) return;
+			// Enter, and Tab out of a field: UI5 takes and checks a typed value when the field is left
+			// (an error such as "Enter a number" shows then), and the replay must leave it the same way.
+			const key =
+				event.key === 'Tab'
+					? event.shiftKey
+						? 'Shift+Tab'
+						: 'Tab'
+					: event.key === 'Enter' && 'Enter';
+			if (!key || !isEditable(target) || !watched(target)) return;
 			const { described } = enter(target);
 			recordTyping(target);
-			const step = { ...next(), action: 'press', key: 'Enter', hint: hintFor(target) };
+			const step = { ...next(), action: 'press', key, hint: hintFor(target) };
 			void described.then((found) => report({ ...step, ...found }));
 		},
 		true
@@ -762,7 +793,7 @@ function recorderScript(binding: string) {
 		(element.textContent ?? '').replaceAll('\u200b', '').replace(/\s+/g, ' ').trim();
 	const LONGEST_TEXT = 200;
 	const checkStep = (described: Described, at: Checked): PageStep => {
-		const located = described.chartPoint || described.innerText;
+		const located = described.chartPoint || described.innerText || described.alert;
 		const element = resolvedBy(described) ?? at.element;
 		if (!located && at.check === 'value' && isTextField(element) && !isSecret(element))
 			return { action: 'expect', check: 'value', value: element.value };
@@ -909,6 +940,7 @@ export async function installRecorder(
 		const step = {
 			...raw,
 			selector: isSelector(raw.selector) ? raw.selector : undefined,
+			alert: typeof raw.alert === 'string' && raw.alert ? raw.alert : undefined,
 			shown: isShown(raw.shown) ? raw.shown : undefined
 		};
 		arriving.push(
@@ -956,11 +988,19 @@ const sidSelector = (sid: string) => `sid=${sid}`;
 
 /** The locator a recorded step replays through, or undefined if the step has none. */
 export function stepLocator(page: Page, step: RecordedStep): Locator | undefined {
+	const frames = step.frames ?? [];
+	if (step.alert) {
+		const scope = frames.length
+			? frames
+					.slice(1)
+					.reduce((frame, next) => frame.frameLocator(next), page.frameLocator(frames[0]))
+			: page;
+		return scope.getByRole('alert').filter({ hasText: step.alert });
+	}
 	const selector = step.selector
 		? ui5ControlSelector(step.selector)
 		: step.sid && sidSelector(step.sid);
 	if (!selector) return undefined;
-	const frames = step.frames ?? [];
 	const found = frames.length
 		? frames
 				.slice(1)
@@ -1006,6 +1046,9 @@ function literal(value: unknown): string {
 // an iframe the same selectors through frameLocator, which has no such methods.
 function locatorCode(step: RecordedStep): string | undefined {
 	const frames = (step.frames ?? []).map((frame) => `.frameLocator(${quote(frame)})`).join('');
+	// A message toast is no UI5 control: stock Playwright finds it by its role and its text.
+	if (step.alert)
+		return `page${frames}.getByRole('alert').filter({ hasText: ${quote(step.alert)} })`;
 	let found: string | undefined;
 	if (step.selector)
 		found = frames
@@ -1029,7 +1072,18 @@ function matcher(step: RecordedStep): string {
 	return '.toBeVisible()';
 }
 
-function stepLines(step: RecordedStep): string[] {
+/** What a step acts on, to tell whether two steps use the same element. */
+const target = (step: RecordedStep) =>
+	JSON.stringify([
+		step.selector,
+		step.sid,
+		step.frames,
+		step.innerText,
+		step.chartPoint,
+		step.alert
+	]);
+
+function stepLines(step: RecordedStep, previous?: RecordedStep): string[] {
 	const lines: string[] = [];
 	// One line: a hint is text from the page and may hold line breaks.
 	const hint = step.hint?.replace(/\s+/g, ' ').trim();
@@ -1041,9 +1095,11 @@ function stepLines(step: RecordedStep): string[] {
 	}
 	const said = stepCode(step, locator);
 	const shown = shownComment(step.shown);
-	// Named only where the code does not say it already (an ID-only selector, a SID), on the line
-	// right above the statement, below a FIXME of its own: the Tests page reads it from there.
-	if (shown && !said.some((line) => line.includes(quote(step.shown!.name)))) {
+	// Named only where the code does not say it already (an ID-only selector, a SID) and the step
+	// before was on another element, on the line right above the statement, below a FIXME of its
+	// own: the Tests page reads it from there.
+	const named = !!step.shown && said.some((line) => line.includes(quote(step.shown!.name)));
+	if (shown && !named && !(previous && target(previous) === target(step))) {
 		const statement = said.findIndex((line) => !line.startsWith('//'));
 		said.splice(statement === -1 ? said.length : statement, 0, shown);
 	}
@@ -1118,8 +1174,6 @@ export function renderSpec(
 		? `await page.SAPLogin(process.env.${env.user}!, process.env.${env.password}!, ${address});`
 		: `await page.goto(${address}${options.urlFromEnv ? '!' : ''});`;
 	// fill() focuses the field itself: the click a person makes to get into it adds nothing.
-	const target = (step: RecordedStep) =>
-		JSON.stringify([step.selector, step.sid, step.frames, step.innerText, step.chartPoint]);
 	// The clicks in a date picker around the value it put into the field: the fill of the value
 	// stands for them. The calendar sets the value when the mouse button goes up, before the
 	// click event, so the last click of a pick comes right after its fill.
@@ -1138,7 +1192,9 @@ export function renderSpec(
 		if (pickerClicks.has(step)) return false;
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
-	const body = [start, ...kept.flatMap(stepLines)].join('\n');
+	const body = [start, ...kept.flatMap((step, index) => stepLines(step, kept[index - 1]))].join(
+		'\n'
+	);
 	const names = [
 		'test',
 		'expect',
