@@ -6,9 +6,11 @@ import type { Page } from '@playwright/test';
 import { expect } from '../sap-plugin';
 import { readStatusBar, roundTrip } from '../sap-plugin/webgui';
 import type { MessageType, RoundTripOptions, StatusBarMessage } from '../sap-plugin/webgui';
+import { readGrid } from '../sap-plugin/webgui-grid';
+import type { GridRow, WebGUIGrid } from '../sap-plugin/webgui-grid';
 
-export { readStatusBar, roundTrip };
-export type { MessageType, RoundTripOptions, StatusBarMessage };
+export { readGrid, readStatusBar, roundTrip };
+export type { GridRow, MessageType, RoundTripOptions, StatusBarMessage, WebGUIGrid };
 
 /** Starts a transaction from the command field and waits until SAP shows its first screen. */
 export async function runTransaction(page: Page, tcode: string) {
@@ -59,4 +61,33 @@ export async function expectStatusBar(
 			timeout: options?.timeout
 		})
 		.toEqual(expect.objectContaining(expected));
+}
+
+/**
+ * Waits until the ALV grid `gridSid` shows a row with these cell values, by technical column
+ * name: a string must be the whole cell text, a RegExp must match it. Other columns may hold
+ * anything. A long list draws only the rows on screen; restrict the selection so the row is among
+ * them.
+ */
+export async function expectGridRow(
+	page: Page,
+	gridSid: string,
+	values: Record<string, string | RegExp>,
+	options?: { timeout?: number }
+) {
+	const expected = Object.fromEntries(
+		Object.entries(values).map(([column, value]) => [
+			column,
+			typeof value === 'string' ? value : expect.stringMatching(value)
+		])
+	);
+	await expect
+		.poll(
+			async () => (await readGrid(page, gridSid, { timeout: 1_000 })).rows.map((row) => row.values),
+			{
+				message: `grid ${gridSid} shows a row with ${JSON.stringify(values)}`,
+				timeout: options?.timeout
+			}
+		)
+		.toContainEqual(expect.objectContaining(expected));
 }
