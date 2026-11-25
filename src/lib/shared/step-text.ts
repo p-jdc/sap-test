@@ -85,6 +85,9 @@ function controlTarget(selector: string): string {
  */
 export function targetText(locator: LocatorInfo | undefined): string | undefined {
 	if (!locator) return undefined;
+	// What the recording person saw, as the recorder noted it: `the "Go" button`.
+	if (locator.shown)
+		return locator.shown.replaceAll(/"([^"]*)"/g, (_, text: string) => quote(text));
 	const { kind, display } = locator;
 	if (
 		kind === 'css' ||

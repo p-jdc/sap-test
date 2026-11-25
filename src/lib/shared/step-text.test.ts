@@ -73,6 +73,21 @@ test.each<[LocatorInfo, string | undefined]>([
 		),
 		'the “Compare” link'
 	],
+	// The recorder's comment above the step names what the ID does not.
+	[
+		{
+			...loc('ui5', `locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' })`),
+			shown: 'the "Go" button'
+		},
+		'the “Go” button'
+	],
+	[
+		{
+			...loc('sid-path', `locateSID('wnd[0]/usr/ctxtVBAK-AUART')`),
+			shown: 'the "Show Value Help" icon of the "Order Type" field'
+		},
+		'the “Show Value Help” icon of the “Order Type” field'
+	],
 	[loc('css', `locator('#__button3-inner')`), undefined],
 	[loc('sid-path', `locateSID('wnd[0]/tbar[1]/btn[8]')`), undefined],
 	[loc('ui5-xpath', `locateUI5('//ToolPage//SideNavigation')`), undefined]
