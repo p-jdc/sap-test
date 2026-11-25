@@ -856,6 +856,8 @@ test('the written spec: a comment names the control where the selector does not'
 test('the written spec: a run of steps on one field is named once, a toast is found by its text', () => {
 	const weight = { id: 'app::Details--Weight::Field-input', interaction: { idSuffix: 'inner' } };
 	const named = { shown: { name: 'Weight', kind: 'field' } };
+	const edit = { id: 'app::Details--edit' };
+	const editShown = { shown: { name: 'Edit', kind: 'button' } };
 	const steps: RecordedStep[] = [
 		{ seq: 1, action: 'fill', value: 'abc', selector: weight, ...named },
 		{ seq: 2, action: 'press', key: 'Tab', selector: weight, ...named },
@@ -867,7 +869,11 @@ test('the written spec: a run of steps on one field is named once, a toast is fo
 			selector: { ...weight, interaction: { idSuffix: 'message-text' } }
 		},
 		{ seq: 4, action: 'press', key: 'Shift+Tab', selector: weight, ...named },
-		{ seq: 5, action: 'expect', check: 'visible', alert: "Product 'HT-1000' saved" }
+		{ seq: 5, action: 'expect', check: 'visible', alert: "Product 'HT-1000' saved" },
+		// The check's code says "Edit"; the click on the same button after it does not.
+		{ seq: 6, action: 'expect', check: 'text', value: 'Edit', selector: edit, ...editShown },
+		{ seq: 7, action: 'click', selector: edit, ...editShown },
+		{ seq: 8, action: 'click', selector: { id: 'app--size' }, shown: { name: 'Flat Screen 21"' } }
 	];
 	const lines = renderSpec('https://sap.example.com', steps, '../../sap-plugin')
 		.split('\n')
@@ -882,6 +888,12 @@ test('the written spec: a run of steps on one field is named once, a toast is fo
 		'// the "Weight" field',
 		`await ${field}.press('Shift+Tab');`,
 		`await expect(page.getByRole('alert').filter({ hasText: 'Product \\'HT-1000\\' saved' })).toBeVisible();`,
+		`await expect(page.locateUI5Control({ id: 'app::Details--edit' })).toHaveText('Edit');`,
+		'// the "Edit" button',
+		`await page.locateUI5Control({ id: 'app::Details--edit' }).click();`,
+		// A double quote in the name would end it early.
+		`// the "Flat Screen 21'"`,
+		`await page.locateUI5Control({ id: 'app--size' }).click();`,
 		'});',
 		''
 	]);

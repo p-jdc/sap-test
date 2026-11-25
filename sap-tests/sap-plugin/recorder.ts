@@ -1083,7 +1083,8 @@ const target = (step: RecordedStep) =>
 		step.alert
 	]);
 
-function stepLines(step: RecordedStep, previous?: RecordedStep): string[] {
+/** The step's lines, and whether they name its element (or a comment before already did). */
+function stepLines(step: RecordedStep, alreadyNamed = false): { lines: string[]; named: boolean } {
 	const lines: string[] = [];
 	// One line: a hint is text from the page and may hold line breaks.
 	const hint = step.hint?.replace(/\s+/g, ' ').trim();
@@ -1091,25 +1092,27 @@ function stepLines(step: RecordedStep, previous?: RecordedStep): string[] {
 	const locator = locatorCode(step);
 	if (!locator) {
 		lines.push(`// ${step.action} was not recorded`);
-		return lines;
+		return { lines, named: false };
 	}
 	const said = stepCode(step, locator);
 	const shown = shownComment(step.shown);
-	// Named only where the code does not say it already (an ID-only selector, a SID) and the step
-	// before was on another element, on the line right above the statement, below a FIXME of its
-	// own: the Tests page reads it from there.
-	const named = !!step.shown && said.some((line) => line.includes(quote(step.shown!.name)));
-	if (shown && !named && !(previous && target(previous) === target(step))) {
+	// Named only where the code does not say it already (an ID-only selector, a SID) and no comment
+	// named it for the steps on the same element before, on the line right above the statement,
+	// below a FIXME of its own: the Tests page reads it from there.
+	const inCode = !!step.shown && said.some((line) => line.includes(quote(step.shown!.name)));
+	const writes = !!shown && !inCode && !alreadyNamed;
+	if (writes) {
 		const statement = said.findIndex((line) => !line.startsWith('//'));
 		said.splice(statement === -1 ? said.length : statement, 0, shown);
 	}
 	lines.push(...said);
-	return lines;
+	return { lines, named: writes };
 }
 
 // One part of the comment: `the "Supplier" field`.
+// A double quote in a name would end it early for whoever reads the comment, the Tests page too.
 function phrase(part: { name: string; kind?: string } | undefined): string | undefined {
-	const name = part?.name.replace(/\s+/g, ' ').trim();
+	const name = part?.name.replace(/\s+/g, ' ').replaceAll('"', "'").trim();
 	const kind = part?.kind?.replace(/\s+/g, ' ').trim();
 	return name ? `the "${name}"${kind ? ` ${kind}` : ''}` : undefined;
 }
@@ -1192,9 +1195,15 @@ export function renderSpec(
 		if (pickerClicks.has(step)) return false;
 		return !(step.action === 'click' && next?.action === 'fill' && target(step) === target(next));
 	});
-	const body = [start, ...kept.flatMap((step, index) => stepLines(step, kept[index - 1]))].join(
-		'\n'
-	);
+	// A run of steps on one element is named once: the step that starts it, or the first one whose
+	// code does not say the name itself.
+	let named: string | undefined;
+	const lines = kept.flatMap((step) => {
+		const written = stepLines(step, named === target(step));
+		named = written.named || named === target(step) ? target(step) : undefined;
+		return written.lines;
+	});
+	const body = [start, ...lines].join('\n');
 	const names = [
 		'test',
 		'expect',

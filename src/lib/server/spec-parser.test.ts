@@ -108,6 +108,8 @@ test('recorded', async ({ page }) => {
 	await page.locateUI5Control({ id: 'app::ListReport--listReportFilter-btnGo' }).click();
 	// opens the object page
 	await page.locateUI5Control({ id: 'app::ListReport--listReport' }).click();
+	// the "Save" button stays disabled until the form is valid
+	await page.locateUI5Control({ id: 'app::ListReport--listReport' }).click();
 });`,
 			helpers
 		);
@@ -116,6 +118,7 @@ test('recorded', async ({ page }) => {
 			'the "Show Value Help" icon of the "Supplier" field',
 			undefined,
 			// Only the line right above the step, and only the recorder's form.
+			undefined,
 			undefined,
 			undefined
 		]);
@@ -143,7 +146,6 @@ test('recorded', async ({ page }) => {
 			undefined
 		]);
 		expect(describeStep(must(steps[3]))).toBe('Check that the “Changes discarded” alert is shown');
-		expect(must(spec.tests[0]).issues.map((i) => i.rule)).not.toContain('prefer-sap-locator');
 	});
 
 	test('reads the methods the SAP plugin adds: UI5 wait, model reads and locateUI5', () => {

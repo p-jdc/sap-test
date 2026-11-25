@@ -256,7 +256,9 @@ function describeLocator(
 
 // The comment the recorder writes above a step whose selector does not name the control:
 // `// the "Search" field`, `// the "Show Value Help" icon of the "Supplier" field`.
-const PART = String.raw`the "[^"]+"(?: [\w ]+?)?`;
+// The kind is what the recorder writes: a few words of a control type or an ARIA role
+// ("object page header action button"), not a sentence that happens to start the same way.
+const PART = String.raw`the "[^"]+"(?: [A-Za-z]+(?: [A-Za-z]+){0,4})?`;
 const SHOWN_COMMENT = new RegExp(String.raw`^//\s*(${PART}(?: of ${PART})?)\s*$`);
 
 /** The recorder's comment on the line right above the statement, if there is one. */
