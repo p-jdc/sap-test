@@ -14,6 +14,8 @@ import {
 
 const SERVICE = 'GWSAMPLE_BASIC';
 const BASE = '/sap/opu/odata/IWBEP/GWSAMPLE_BASIC';
+const SALES_ORDER_BASE = '/sap/opu/odata/sap/API_SALES_ORDER_SRV';
+const DELIVERY_BASE = '/sap/opu/odata/sap/API_OUTBOUND_DELIVERY_SRV;v=0002';
 
 let running: RunningOdataMock[] = [];
 async function mock(options: OdataMockOptions = {}) {
@@ -75,7 +77,11 @@ test('serves the configured services and says where', async () => {
 	expect(status).toBe(200);
 	expect(body).toMatchObject({
 		odataUrl: m.odataUrl,
-		services: [{ name: SERVICE, basePath: BASE }]
+		services: [
+			{ name: SERVICE, basePath: BASE },
+			{ name: 'API_SALES_ORDER_SRV', basePath: SALES_ORDER_BASE },
+			{ name: 'API_OUTBOUND_DELIVERY_SRV', basePath: DELIVERY_BASE }
+		]
 	});
 	const response = await odata(m, '/ProductSet?$format=json');
 	expect(response.status).toBe(200);
@@ -263,4 +269,186 @@ test('listens only on this computer: it has no login', async () => {
 	await expect(startOdataMock({ port: 0, controlHost: '192.168.1.5' })).rejects.toThrow(
 		/only listens on this computer/
 	);
+});
+
+test('sales orders: a new one gets a number, its deep-inserted parts land in their own sets and go with it', async () => {
+	const m = await mock();
+	const salesOrder = (path: string, init?: RequestInit) =>
+		fetch(`${m.odataUrl}${SALES_ORDER_BASE}${path}`, init);
+	const count = async (set: string) => Number(await (await salesOrder(`/${set}/$count`)).text());
+	const create = () =>
+		salesOrder('/A_SalesOrder', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify({
+				SalesOrderType: 'OR',
+				SoldToParty: '10100001',
+				to_Partner: { results: [{ PartnerFunction: 'WE', Customer: '10100001' }] },
+				to_Item: {
+					results: [
+						{
+							// No item number: numbered 10, as S/4HANA does.
+							Material: 'TG11',
+							RequestedQuantity: '3',
+							to_ScheduleLine: { results: [{ ScheduleLineOrderQuantity: '3' }] }
+						}
+					]
+				}
+			})
+		});
+	const NumberSchema = z.object({ d: z.object({ SalesOrder: z.string() }) });
+
+	const created = await create();
+	expect(created.status).toBe(201);
+	const { SalesOrder: number } = NumberSchema.parse(await created.json()).d;
+	// One above the highest number in A_SalesOrder.json, as a number range would give it.
+	expect(number).toBe('1000003');
+
+	const read = await salesOrder(
+		`/A_SalesOrder('${number}')?$expand=to_Item/to_ScheduleLine,to_Partner&$format=json`
+	);
+	const order = z
+		.object({
+			d: z.object({
+				to_Item: z.object({
+					results: z.array(
+						z.object({
+							SalesOrder: z.string(),
+							SalesOrderItem: z.string(),
+							to_ScheduleLine: z.object({
+								results: z.array(z.object({ SalesOrder: z.string(), ScheduleLine: z.string() }))
+							})
+						})
+					)
+				}),
+				to_Partner: z.object({
+					results: z.array(z.object({ SalesOrder: z.string(), PartnerFunction: z.string() }))
+				})
+			})
+		})
+		.parse(await read.json()).d;
+	expect(order.to_Item.results).toMatchObject([{ SalesOrder: number, SalesOrderItem: '10' }]);
+	expect(order.to_Item.results[0].to_ScheduleLine.results).toEqual([
+		expect.objectContaining({ SalesOrder: number, ScheduleLine: '1' })
+	]);
+	expect(order.to_Partner.results).toEqual([
+		expect.objectContaining({ SalesOrder: number, PartnerFunction: 'WE' })
+	]);
+	expect(await count('A_SalesOrderItem')).toBe(4);
+
+	// As on S/4HANA, which keeps an ETag on the order: no delete without If-Match.
+	expect((await salesOrder(`/A_SalesOrder('${number}')`, { method: 'DELETE' })).status).toBe(428);
+	expect(
+		(
+			await salesOrder(`/A_SalesOrder('${number}')`, {
+				method: 'DELETE',
+				headers: { 'if-match': '*' }
+			})
+		).status
+	).toBe(204);
+	expect(await count('A_SalesOrder')).toBe(2);
+	expect(await count('A_SalesOrderItem')).toBe(3);
+	expect(await count('A_SalesOrderScheduleLine')).toBe(3);
+	expect(await count('A_SalesOrderHeaderPartner')).toBe(4);
+
+	// A reset brings back the data of the files, and with it the numbers.
+	expect(NumberSchema.parse(await (await create()).json()).d.SalesOrder).toBe('1000003');
+	expect(NumberSchema.parse(await (await create()).json()).d.SalesOrder).toBe('1000004');
+	expect((await control(m, 'POST', '/reset')).status).toBe(200);
+	expect(NumberSchema.parse(await (await create()).json()).d.SalesOrder).toBe('1000003');
+});
+
+test('deliveries: refused as S/4HANA refuses them, and the order follows the delivery', async () => {
+	const m = await mock();
+	const call = (
+		base: string,
+		path: string,
+		init: RequestInit & { json?: boolean; ifMatch?: boolean } = {}
+	) =>
+		fetch(`${m.odataUrl}${base}${path}`, {
+			...init,
+			headers: {
+				accept: 'application/json',
+				...(init.json ? { 'content-type': 'application/json' } : {}),
+				...(init.ifMatch ? { 'if-match': '*' } : {})
+			}
+		});
+	const status = async (path: string) =>
+		z
+			.object({ d: z.record(z.string(), z.unknown()) })
+			.parse(await (await call(SALES_ORDER_BASE, `${path}?$format=json`)).json()).d;
+	const deliver = (order: string, item: string) =>
+		call(DELIVERY_BASE, '/A_OutbDeliveryHeader', {
+			method: 'POST',
+			json: true,
+			body: JSON.stringify({
+				to_DeliveryDocumentItem: {
+					results: [{ ReferenceSDDocument: order, ReferenceSDDocumentItem: item }]
+				}
+			})
+		});
+	const deliveries = async () =>
+		Number(await (await call(DELIVERY_BASE, '/A_OutbDeliveryHeader/$count')).text());
+
+	// A reference to an order item that does not exist, or is delivered already: nothing is stored.
+	expect((await deliver('9999999', '10')).status).toBe(400);
+	expect((await deliver('1000002', '10')).status).toBe(400);
+	expect(await deliveries()).toBe(1);
+
+	const created = await deliver('1000001', '10');
+	expect(created.status).toBe(201);
+	const { DeliveryDocument: delivery } = z
+		.object({ d: z.object({ DeliveryDocument: z.string() }) })
+		.parse(await created.json()).d;
+	// The refused ones took no number.
+	expect(delivery).toBe('80000002');
+	// One of two items delivered: partly.
+	expect((await status("/A_SalesOrder('1000001')")).OverallDeliveryStatus).toBe('B');
+	expect(
+		(await status("/A_SalesOrderItem(SalesOrder='1000001',SalesOrderItem='10')")).DeliveryStatus
+	).toBe('C');
+
+	const action = (name: string, ifMatch = true) =>
+		call(DELIVERY_BASE, `/${name}?DeliveryDocument='${delivery}'`, { method: 'POST', ifMatch });
+	// As on S/4HANA, which keeps an ETag on the delivery: no action and no delete without If-Match.
+	expect((await action('PickAllItems', false)).status).toBe(428);
+	expect(
+		(await call(DELIVERY_BASE, `/A_OutbDeliveryHeader('${delivery}')`, { method: 'DELETE' })).status
+	).toBe(428);
+	expect((await action('PostGoodsIssue')).status).toBe(400);
+	expect((await action('PickAllItems')).status).toBe(200);
+	expect((await action('PostGoodsIssue')).status).toBe(200);
+	expect((await action('PostGoodsIssue')).status).toBe(400);
+	expect((await action('PickOneItem')).status).toBe(501);
+	// Not simulated wins over everything: also bound to an item, also for a delivery that does not exist.
+	const notSimulated = (path: string) =>
+		call(DELIVERY_BASE, path, { method: 'POST', ifMatch: true });
+	expect(
+		(
+			await notSimulated(
+				`/CreateBatchSplitItem?DeliveryDocument='${delivery}'&DeliveryDocumentItem='10'&Batch='B1'`
+			)
+		).status
+	).toBe(501);
+	expect((await notSimulated(`/PickOneItem?DeliveryDocument='99999999'`)).status).toBe(501);
+
+	// An order with a delivery stays; a delivery with goods issue stays.
+	const remove = (base: string, path: string) =>
+		call(base, path, { method: 'DELETE', ifMatch: true });
+	expect((await remove(SALES_ORDER_BASE, "/A_SalesOrder('1000001')")).status).toBe(400);
+	expect((await remove(DELIVERY_BASE, `/A_OutbDeliveryHeader('${delivery}')`)).status).toBe(400);
+
+	expect((await action('ReverseGoodsIssue')).status).toBe(200);
+	expect((await remove(DELIVERY_BASE, `/A_OutbDeliveryHeader('${delivery}')`)).status).toBe(204);
+	expect(Number(await (await call(DELIVERY_BASE, '/A_OutbDeliveryItem/$count')).text())).toBe(1);
+	expect((await status("/A_SalesOrder('1000001')")).OverallDeliveryStatus).toBe('A');
+});
+
+test('a write without a body is answered, not crashed, and logged as it was sent', async () => {
+	const m = await mock();
+	const response = await odata(m, '/ProductSet', { method: 'POST' });
+	expect(response.status).toBeLessThan(500);
+	const [entry] = (await logged(m)).requests;
+	expect(entry).toMatchObject({ method: 'POST', status: response.status });
+	expect(entry).not.toHaveProperty('requestType');
 });

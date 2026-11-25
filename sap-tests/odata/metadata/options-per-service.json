@@ -3,5 +3,15 @@
     "packageName": "gwsample_basic",
     "directoryName": "GWSAMPLE_BASIC",
     "basePath": "/sap/opu/odata/IWBEP/GWSAMPLE_BASIC"
+  },
+  "odata/metadata/API_SALES_ORDER_SRV.edmx": {
+    "packageName": "api_sales_order_srv",
+    "directoryName": "API_SALES_ORDER_SRV",
+    "basePath": "/sap/opu/odata/sap/API_SALES_ORDER_SRV"
+  },
+  "odata/metadata/API_OUTBOUND_DELIVERY_SRV.edmx": {
+    "packageName": "api_outbound_delivery_srv",
+    "directoryName": "API_OUTBOUND_DELIVERY_SRV",
+    "basePath": "/sap/opu/odata/sap/API_OUTBOUND_DELIVERY_SRV;v=0002"
   }
 }

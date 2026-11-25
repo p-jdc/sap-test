@@ -1,0 +1,41 @@
+[
+	{
+		"SalesOrder": "1000001",
+		"SalesOrderItem": "10",
+		"ScheduleLine": "1",
+		"RequestedDeliveryDate": "/Date(1794787200000)/",
+		"ConfirmedDeliveryDate": "/Date(1794787200000)/",
+		"OrderQuantityUnit": "PC",
+		"ScheduleLineOrderQuantity": "4",
+		"ConfdOrderQtyByMatlAvailCheck": "4",
+		"DeliveredQtyInOrderQtyUnit": "0",
+		"OpenConfdDelivQtyInOrdQtyUnit": "4",
+		"DelivBlockReasonForSchedLine": ""
+	},
+	{
+		"SalesOrder": "1000001",
+		"SalesOrderItem": "20",
+		"ScheduleLine": "1",
+		"RequestedDeliveryDate": "/Date(1794787200000)/",
+		"ConfirmedDeliveryDate": "/Date(1794787200000)/",
+		"OrderQuantityUnit": "PC",
+		"ScheduleLineOrderQuantity": "2",
+		"ConfdOrderQtyByMatlAvailCheck": "2",
+		"DeliveredQtyInOrderQtyUnit": "0",
+		"OpenConfdDelivQtyInOrdQtyUnit": "2",
+		"DelivBlockReasonForSchedLine": ""
+	},
+	{
+		"SalesOrder": "1000002",
+		"SalesOrderItem": "10",
+		"ScheduleLine": "1",
+		"RequestedDeliveryDate": "/Date(1795737600000)/",
+		"ConfirmedDeliveryDate": "/Date(1795737600000)/",
+		"OrderQuantityUnit": "PC",
+		"ScheduleLineOrderQuantity": "1",
+		"ConfdOrderQtyByMatlAvailCheck": "1",
+		"DeliveredQtyInOrderQtyUnit": "0",
+		"OpenConfdDelivQtyInOrdQtyUnit": "1",
+		"DelivBlockReasonForSchedLine": ""
+	}
+]

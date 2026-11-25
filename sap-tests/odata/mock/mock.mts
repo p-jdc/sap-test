@@ -33,6 +33,8 @@ type MockServerClass = new (configuration: {
 		metadataPath: string;
 		mockdataPath: string;
 		generateMockData: boolean;
+		/** How a data script reaches another service: `this.base.getEntityInterface(set, alias)`. */
+		alias: string;
 	}[];
 }) => MockServer;
 const isMockServerClass = (value: unknown): value is MockServerClass => typeof value === 'function';
@@ -249,7 +251,9 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 				// The core's own option names (the UI5 middleware maps metadataXmlPath / mockdataRootPath).
 				metadataPath: service.metadataPath,
 				mockdataPath: service.dataPath,
-				generateMockData: false
+				generateMockData: false,
+				// The folder name, so that a data script of one service can read and change another's.
+				alias: service.name
 			}))
 		});
 		await mock.isReady;
@@ -298,6 +302,8 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 			fail(response, error);
 			return;
 		}
+		// As the client sent it: an empty body gets a content type below, for the core only.
+		const requestType = request.headers['content-type'] || undefined;
 
 		// What goes back, kept for the log as it is written.
 		const sent: Buffer[] = [];
@@ -343,7 +349,7 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 					status: response.writableFinished ? response.statusCode : 0,
 					durationMs: Math.round(performance.now() - started),
 					answer: answer?.mode ?? 'normal',
-					requestType: request.headers['content-type'] || undefined,
+					requestType,
 					responseType: typeof responseType === 'string' ? responseType : undefined,
 					requestBody: requestBody?.text,
 					requestBodyCut: requestBody?.cut || undefined,
@@ -372,8 +378,17 @@ export async function startOdataMock(options: OdataMockOptions = {}): Promise<Ru
 			response.end();
 			return;
 		}
-		// Read already for the log: body-parser, which the core uses, then takes it as it is.
-		Object.assign(request, { body, _body: true });
+		// Read already for the log: body-parser, which the core uses, then takes it as it is. An empty
+		// body goes on as an empty JSON object: as an empty string it would reach an action (a V2
+		// function import, whose parameters are in the URL) as a string, and the core fails on it;
+		// as no body at all, a create or change would. The core turns an empty object into '{}' and
+		// parses that back only for a JSON content type.
+		if (body.length === 0) {
+			request.headers['content-type'] = 'application/json';
+			Object.assign(request, { body: {}, _body: true });
+		} else {
+			Object.assign(request, { body, _body: true });
+		}
 		current.router(request, response, () => {
 			response.statusCode = 404;
 			response.end();

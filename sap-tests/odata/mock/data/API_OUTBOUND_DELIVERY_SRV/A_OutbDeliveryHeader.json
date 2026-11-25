@@ -1,0 +1,21 @@
+[
+	{
+		"DeliveryDocument": "80000001",
+		"DeliveryDocumentType": "LF",
+		"ShippingPoint": "1010",
+		"SoldToParty": "10100001",
+		"ShipToParty": "10100001",
+		"DeliveryDate": "/Date(1795737600000)/",
+		"PlannedGoodsIssueDate": "/Date(1795132800000)/",
+		"DocumentDate": "/Date(1795132800000)/",
+		"OverallSDProcessStatus": "A",
+		"OverallPickingStatus": "A",
+		"OverallPickingConfStatus": "",
+		"OverallGoodsMovementStatus": "A",
+		"OverallDelivReltdBillgStatus": "A",
+		"OverallPackingStatus": "",
+		"TotalBlockStatus": "",
+		"HeaderGrossWeight": "2.000",
+		"HeaderWeightUnit": "KG"
+	}
+]

@@ -1,0 +1,40 @@
+[
+	{
+		"SalesOrder": "1000001",
+		"SalesOrderType": "OR",
+		"SalesOrganization": "1010",
+		"DistributionChannel": "10",
+		"OrganizationDivision": "00",
+		"SoldToParty": "10100001",
+		"PurchaseOrderByCustomer": "MOCK-PO-1",
+		"SalesOrderDate": "/Date(1793577600000)/",
+		"RequestedDeliveryDate": "/Date(1794787200000)/",
+		"TransactionCurrency": "EUR",
+		"TotalNetAmount": "500.00",
+		"OverallSDProcessStatus": "A",
+		"OverallDeliveryStatus": "A",
+		"OverallOrdReltdBillgStatus": "",
+		"TotalBlockStatus": "",
+		"DeliveryBlockReason": "",
+		"HeaderBillingBlockReason": ""
+	},
+	{
+		"SalesOrder": "1000002",
+		"SalesOrderType": "OR",
+		"SalesOrganization": "1010",
+		"DistributionChannel": "10",
+		"OrganizationDivision": "00",
+		"SoldToParty": "10100001",
+		"PurchaseOrderByCustomer": "MOCK-PO-2",
+		"SalesOrderDate": "/Date(1794787200000)/",
+		"RequestedDeliveryDate": "/Date(1795737600000)/",
+		"TransactionCurrency": "EUR",
+		"TotalNetAmount": "120.00",
+		"OverallSDProcessStatus": "B",
+		"OverallDeliveryStatus": "C",
+		"OverallOrdReltdBillgStatus": "",
+		"TotalBlockStatus": "",
+		"DeliveryBlockReason": "",
+		"HeaderBillingBlockReason": ""
+	}
+]

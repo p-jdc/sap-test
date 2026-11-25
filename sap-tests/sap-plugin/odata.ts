@@ -5,10 +5,14 @@
 import type { HttpDestination } from '@sap-cloud-sdk/connectivity';
 import { test as base, expect } from './index';
 import { isInsecureHttp } from './secure-url';
+import { apiOutboundDeliverySrv } from '../odata/clients/API_OUTBOUND_DELIVERY_SRV';
+import { apiSalesOrderSrv } from '../odata/clients/API_SALES_ORDER_SRV';
 import { gwsampleBasic } from '../odata/clients/GWSAMPLE_BASIC';
 
 // With its default (de)serializers: Edm.Decimal as BigNumber, Edm.DateTime as Moment.
 const createGwsample = () => gwsampleBasic();
+const createSalesOrder = () => apiSalesOrderSrv();
+const createOutboundDelivery = () => apiOutboundDeliverySrv();
 
 /** Registers an undo step for data the test created. */
 export type Cleanup = (label: string, undo: () => Promise<unknown>) => void;
@@ -23,6 +27,10 @@ export interface SapApiFixtures {
 	sapApi: HttpDestination;
 	/** Typed client for the SAP Gateway sample service GWSAMPLE_BASIC. */
 	gwsample: ReturnType<typeof createGwsample>;
+	/** Typed client for the S/4HANA sales order API API_SALES_ORDER_SRV. */
+	salesOrder: ReturnType<typeof createSalesOrder>;
+	/** Typed client for the S/4HANA outbound delivery API API_OUTBOUND_DELIVERY_SRV (version 2). */
+	outboundDelivery: ReturnType<typeof createOutboundDelivery>;
 	/**
 	 * Undo steps run after the test, newest first, also when the test failed. A failing undo step
 	 * fails the test: data it leaves behind would break later runs.
@@ -65,6 +73,14 @@ export const test = base.extend<SapApiFixtures>({
 	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
 	gwsample: async ({}, use) => {
 		await use(createGwsample());
+	},
+	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
+	salesOrder: async ({}, use) => {
+		await use(createSalesOrder());
+	},
+	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
+	outboundDelivery: async ({}, use) => {
+		await use(createOutboundDelivery());
 	},
 	// oxlint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form
 	cleanup: async ({}, use) => {

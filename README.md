@@ -236,20 +236,29 @@ The SAP scripts change into `sap-tests/` before they start Playwright, so its co
 `sap-tests/tests/api` calls SAP OData services directly, without a browser, through typed clients
 from the [SAP Cloud SDK for JavaScript](https://sap.github.io/cloud-sdk/) (OData V2). The clients
 are generated from the service metadata in `sap-tests/odata/metadata` into `sap-tests/odata/clients`
-after every `bun install`. They are not committed. Specs import `test` from `sap-plugin/odata`, which adds three fixtures
+after every `bun install`. They are not committed. Specs import `test` from `sap-plugin/odata`, which adds these fixtures
 to the SAP locators:
 
-| Fixture    | What it is                                                                                                                                                                                                                                                                 |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sapApi`   | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
-| `gwsample` | Typed client for the Gateway sample service `GWSAMPLE_BASIC`                                                                                                                                                                                                               |
-| `cleanup`  | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test                                                                                                            |
+| Fixture            | What it is                                                                                                                                                                                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sapApi`           | The system to call: `SAP_API_URL` (host only), `SAP_API_USERNAME`, `SAP_API_PASSWORD`, optional `SAP_CLIENT`, from the app's Settings page or `sap-tests/.env`. The test is skipped when they are missing. There is no fallback to `SAP_URL`, because the tests write data |
+| `gwsample`         | Typed client for the Gateway sample service `GWSAMPLE_BASIC`                                                                                                                                                                                                               |
+| `salesOrder`       | Typed client for the S/4HANA sales order API `API_SALES_ORDER_SRV`                                                                                                                                                                                                         |
+| `outboundDelivery` | Typed client for the S/4HANA outbound delivery API `API_OUTBOUND_DELIVERY_SRV` (version 2), with its actions under `operations` (`pickAllItems`, `postGoodsIssue`, …)                                                                                                      |
+| `cleanup`          | `cleanup(label, undo)` registers an undo step for created data. The steps run after the test, newest first, also after a failure. A failing step fails the test                                                                                                            |
 
 Because the fixtures extend the SAP locators, one test can create data over the API, run the flow in
 the UI and check the result over the API. The bundled tests target `GWSAMPLE_BASIC`, the sample
-service that ships with SAP Gateway in every ABAP system. It is often active in development systems,
-otherwise activate it in `/IWFND/MAINT_SERVICE`; the ABAP Cloud Developer Trial (Docker) works too.
-SAP's public demo system ES5 (sapes5.sapdevcenter.com), which used to host it, has been shut down.
+service that ships with SAP Gateway in every ABAP system (often active in development systems,
+otherwise activate it in `/IWFND/MAINT_SERVICE`), and the S/4HANA sales chain: sales orders
+(`API_SALES_ORDER_SRV`) and outbound deliveries (`API_OUTBOUND_DELIVERY_SRV`), from the order to
+the goods issue. These tests copy organization, customer and material from an existing order
+(`helpers/sales-order.ts`): the newest standard order (type OR) without delivery or billing block
+that is not rejected, so the system needs one with a main item. For another order type, change
+`ORDER_TYPE` there; one that delivers on saving (rush order, cash sale) does not fit. Picking
+and goods issue also need stock; for a shipping point run by a decentralized EWM they happen in EWM,
+so the delivery test does not apply there. SAP's public demo system ES5 and the ABAP Cloud Developer Trial image,
+which used to offer `GWSAMPLE_BASIC` without a system of your own, have both been withdrawn.
 
 The app's Settings page has a group for these values (`SAP_API_URL`, `SAP_API_USERNAME`,
 `SAP_API_PASSWORD`, `SAP_CLIENT`); saved there, runs started from the app use them, unless the
@@ -261,6 +270,22 @@ file at its `basePath`, with the fixed data in `odata/mock/data/<service>/<Entit
 stay in memory until the run ends. Playwright starts the mock and points `SAP_API_*` at it, whatever
 `.env` says. CI runs this on every pull request. The mock checks requests against the metadata, not
 against SAP's business logic, so a pass on the mock does not replace a run on a real system.
+Where a service needs more than the files, a script next to them adds it, with what S/4HANA would
+do and refuse:
+
+- `A_SalesOrder.js` gives a new order the next number, stores the items, partners and schedule
+  lines of a deep insert in their own entity sets (SAP's metadata names no referential constraints,
+  so the mock would keep them inside the order) and deletes them with the order. An order with a
+  delivery cannot be deleted.
+- `A_OutbDeliveryHeader.js` creates a delivery from the sales order items it refers to (material,
+  plant, unit, quantity) and marks them delivered; the actions `PickAllItems`, `PostGoodsIssue` and
+  `ReverseGoodsIssue` set the statuses. Goods issue needs complete picking, a delivery with goods
+  issue cannot be deleted, and the other actions of the service answer 501. There is no stock,
+  warehouse or availability check.
+- Both entities carry an ETag on S/4HANA, which refuses a delete or a delivery action without
+  `If-Match` (428). The mock hands out no ETag, but refuses the same requests without the header,
+  so a test that forgets it fails on the mock too.
+
 `bun run test:odata` tests the mock itself.
 
 In the app, the **Mock OData** page starts the same mock (`odata/mock/server.mts`) on free ports on
