@@ -97,7 +97,7 @@ test('webguiState and its attachment name the status bar and the open popups', a
 	await page.setContent(screen(statusBar({ text: 'Enter a table name', barType: 'ERROR' }), POPUP));
 	const state = await webguiState(page);
 	expect(state).toEqual({
-		statusBar: { type: 'E', text: 'Enter a table name' },
+		statusBar: { type: 'E', text: 'Enter a table name', barType: 'ERROR' },
 		popups: [{ window: 1, title: 'Exit' }]
 	});
 	expect(describeWebGUIState(state!)).toBe(
@@ -108,6 +108,29 @@ test('webguiState and its attachment name the status bar and the open popups', a
 	const attachment = testInfo.attachments.find((a) => a.name === 'webgui-state');
 	expect(attachment?.path).toBeTruthy();
 	expect(attachment?.contentType).toBe('text/plain');
+});
+
+test('webguiState keeps the text of a status bar type it does not know', async ({ page }) => {
+	await page.setContent(screen(statusBar({ text: 'Processing stopped', barType: 'BLINKING' })));
+	const state = await webguiState(page);
+	expect(state?.statusBar).toEqual({ type: '', text: 'Processing stopped', barType: 'BLINKING' });
+	expect(describeWebGUIState(state!)).toBe(
+		'Status bar: unknown message bar type "BLINKING" "Processing stopped"\n'
+	);
+});
+
+test('attachWebGUIState gives up on a page whose script hangs', async ({ page }, testInfo) => {
+	await page.setContent(screen(statusBar({ text: 'Saved', barType: 'OK' })));
+	// The page's only thread loops for 6 s, longer than attachWebGUIState waits.
+	const hanging = page.evaluate(() => {
+		const end = Date.now() + 6_000;
+		while (Date.now() < end);
+	});
+	const started = Date.now();
+	await attachWebGUIState(page, testInfo);
+	expect(Date.now() - started).toBeLessThan(5_000);
+	expect(testInfo.attachments.find((a) => a.name === 'webgui-state')).toBeUndefined();
+	await hanging;
 });
 
 // A stand-in WebGUI on its own origin: Enter posts the screen, SAP answers after `delayMs`, and

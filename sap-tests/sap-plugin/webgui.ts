@@ -31,12 +31,18 @@ const MESSAGE_BAR_TYPES: Record<string, MessageType> = {
 
 const STATUS_BAR = 'wnd[0]/sbar_msg';
 
-/** Parses the lsdata of the status bar. Unknown types fail loudly so they get added above. */
-export function parseStatusBar(lsdata: string | null): StatusBarMessage {
+/** The message bar type and text from the lsdata of the status bar, as WebGUI names them. */
+function messageBar(lsdata: string | null): { barType: string; text: string } {
 	const data: unknown = JSON.parse(lsdata ?? '{}');
 	const isObject = typeof data === 'object' && data !== null;
 	const barType = isObject && '1' in data && typeof data['1'] === 'string' ? data['1'] : 'TEXT';
 	const text = isObject && '0' in data && typeof data['0'] === 'string' ? data['0'].trim() : '';
+	return { barType, text };
+}
+
+/** Parses the lsdata of the status bar. Unknown types fail loudly so they get added above. */
+export function parseStatusBar(lsdata: string | null): StatusBarMessage {
+	const { barType, text } = messageBar(lsdata);
 	if (barType === 'TEXT' || barType === 'NONE') return { type: text ? 'I' : '', text };
 	const type = MESSAGE_BAR_TYPES[barType];
 	if (!type) throw new Error(`Unknown WebGUI message bar type "${barType}" (text: "${text}")`);
@@ -142,7 +148,10 @@ export async function roundTrip(
 
 export type WebGUIPopup = { window: number; title: string };
 
-export type WebGUIState = { statusBar: StatusBarMessage | undefined; popups: WebGUIPopup[] };
+/** The status bar with WebGUI's own name of its type: `type` is empty for a type not known above. */
+export type WebGUIStatusBar = StatusBarMessage & { barType: string };
+
+export type WebGUIState = { statusBar: WebGUIStatusBar | undefined; popups: WebGUIPopup[] };
 
 /**
  * What a WebGUI screen shows right now, without waiting: the status bar and the open popups
@@ -152,9 +161,17 @@ export type WebGUIState = { statusBar: StatusBarMessage | undefined; popups: Web
 export async function webguiState(page: Page): Promise<WebGUIState | undefined> {
 	const bar = sid(page, STATUS_BAR);
 	if ((await bar.count()) === 0) return undefined;
-	let statusBar: StatusBarMessage | undefined;
+	let statusBar: WebGUIStatusBar | undefined;
 	try {
-		statusBar = parseStatusBar(await bar.first().getAttribute('lsdata', { timeout: 1_000 }));
+		const lsdata = await bar.first().getAttribute('lsdata', { timeout: 1_000 });
+		const { barType, text } = messageBar(lsdata);
+		let type: StatusBarMessage['type'] = '';
+		try {
+			type = parseStatusBar(lsdata).type;
+		} catch {
+			// A type not known yet: the description names WebGUI's own type and keeps the text.
+		}
+		statusBar = { type, text, barType };
 	} catch {
 		statusBar = undefined;
 	}
@@ -175,15 +192,24 @@ export async function webguiState(page: Page): Promise<WebGUIState | undefined> 
 	return { statusBar, popups };
 }
 
+function describeStatusBar(statusBar: WebGUIStatusBar | undefined): string {
+	if (!statusBar) return 'Status bar: could not be read';
+	const { type, text, barType } = statusBar;
+	if (type) return `Status bar: ${type} "${text}"`;
+	if (text || !['TEXT', 'NONE'].includes(barType))
+		return `Status bar: unknown message bar type "${barType}" "${text}"`;
+	return 'Status bar: no message';
+}
+
 export function describeWebGUIState({ statusBar, popups }: WebGUIState): string {
 	const lines = [
-		statusBar?.type || statusBar?.text
-			? `Status bar: ${statusBar.type || '-'} "${statusBar.text}"`
-			: 'Status bar: no message',
+		describeStatusBar(statusBar),
 		...popups.map(({ window, title }) => `Popup open: wnd[${window}] "${title}"`)
 	];
 	return lines.join('\n') + '\n';
 }
+
+const ATTACH_TIMEOUT_MS = 3_000;
 
 /**
  * For a failed test on a WebGUI screen: attaches what the screen showed at the end (status bar,
@@ -191,14 +217,24 @@ export function describeWebGUIState({ statusBar, popups }: WebGUIState): string 
  * stopped the test. Never fails the test itself.
  */
 export async function attachWebGUIState(page: Page, testInfo: TestInfo): Promise<void> {
+	let timer: NodeJS.Timeout | number | undefined;
 	try {
 		if (page.isClosed()) return;
-		const state = await webguiState(page);
+		// count(), isVisible() and evaluate() do not time out: a page whose script hangs would hold
+		// the teardown until its own timeout. Without an answer in time there is no attachment.
+		const state = await Promise.race([
+			webguiState(page).catch(() => undefined),
+			new Promise<undefined>((done) => {
+				timer = setTimeout(done, ATTACH_TIMEOUT_MS);
+			})
+		]);
 		if (!state) return;
 		const path = testInfo.outputPath('webgui-state.txt');
 		await writeFile(path, describeWebGUIState(state));
 		await testInfo.attach('webgui-state', { path, contentType: 'text/plain' });
 	} catch {
 		// The page navigated away or closed while it was read: nothing to report.
+	} finally {
+		clearTimeout(timer);
 	}
 }
