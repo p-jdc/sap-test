@@ -3,12 +3,60 @@
 // getByRoleSID requires an options object in the fork's types, even when empty (the guide's §4.6
 // example passes only the role and does not type-check).
 import type { Page } from '@playwright/test';
+import { expect } from '../sap-plugin';
+import { readStatusBar, roundTrip } from '../sap-plugin/webgui';
+import type { MessageType, RoundTripOptions, StatusBarMessage } from '../sap-plugin/webgui';
 
+export { readStatusBar, roundTrip };
+export type { MessageType, RoundTripOptions, StatusBarMessage };
+
+/** Starts a transaction from the command field and waits until SAP shows its first screen. */
 export async function runTransaction(page: Page, tcode: string) {
 	await page.getByRoleSID('okCode', {}).fill('/n' + tcode);
-	await page.keyboard.press('Enter');
+	await roundTrip(page, () => page.keyboard.press('Enter'));
+}
+
+/** Presses a key (Enter, F8, Control+S, …) and waits until SAP has answered. */
+export async function pressKey(page: Page, key: string, options?: RoundTripOptions) {
+	await roundTrip(page, () => page.keyboard.press(key), options);
 }
 
 export function field(page: Page, name: string) {
 	return page.getByRoleSID('textField', { name });
+}
+
+/**
+ * The popup (modal window) `wnd[window]`, 1 for the first one. It is a dialog named by its title:
+ * `await expect(popup(page)).toHaveAccessibleName('Exit')`, and `toBeHidden()` once it is closed.
+ * Its buttons and fields: `page.getByRoleSID('button', { name: 'BUTTON_1', wnd: 1 })`.
+ */
+export const popup = (page: Page, window = 1) => page.locateSID(`wnd[${window}]`);
+
+/**
+ * Waits until the status bar shows a message of this type (S, W, E, A, I), and with `text` one
+ * that contains it (a string) or matches it (a RegExp). Check right after the step that shows the
+ * message: a message left over from an earlier step with the same type passes as well.
+ * Prefer a part of the text that does not change between runs, such as the fixed words around a
+ * document number.
+ */
+export async function expectStatusBar(
+	page: Page,
+	type: MessageType,
+	text?: string | RegExp,
+	options?: { timeout?: number }
+) {
+	const expected =
+		text === undefined
+			? { type }
+			: {
+					type,
+					text:
+						typeof text === 'string' ? expect.stringContaining(text) : expect.stringMatching(text)
+				};
+	await expect
+		.poll(() => readStatusBar(page, 1_000), {
+			message: `status bar shows a message of type ${type}`,
+			timeout: options?.timeout
+		})
+		.toEqual(expect.objectContaining(expected));
 }
