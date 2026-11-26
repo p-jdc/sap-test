@@ -12,6 +12,17 @@ import type { GridRow, WebGUIGrid } from '../sap-plugin/webgui-grid';
 export { readGrid, readStatusBar, roundTrip };
 export type { GridRow, MessageType, RoundTripOptions, StatusBarMessage, WebGUIGrid };
 
+// expect.poll does not retry when its callback throws: a screen that is not there yet (SAP still
+// answering, WebGUI drawing anew) would end the wait at once. A read that fails is a value that
+// does not match instead, so the poll goes on, and the failure message shows why it failed.
+const NOT_READ = '(not read)';
+const errorText = (error: unknown) =>
+	(error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+const notRead = (error: unknown): StatusBarMessage => ({
+	type: '',
+	text: `${NOT_READ} ${errorText(error)}`
+});
+
 /** Starts a transaction from the command field and waits until SAP shows its first screen. */
 export async function runTransaction(page: Page, tcode: string) {
 	await page.getByRoleSID('okCode', {}).fill('/n' + tcode);
@@ -56,7 +67,7 @@ export async function expectStatusBar(
 						typeof text === 'string' ? expect.stringContaining(text) : expect.stringMatching(text)
 				};
 	await expect
-		.poll(() => readStatusBar(page, 1_000), {
+		.poll(() => readStatusBar(page, 1_000).catch(notRead), {
 			message: `status bar shows a message of type ${type}`,
 			timeout: options?.timeout
 		})
@@ -83,7 +94,11 @@ export async function expectGridRow(
 	);
 	await expect
 		.poll(
-			async () => (await readGrid(page, gridSid, { timeout: 1_000 })).rows.map((row) => row.values),
+			() =>
+				readGrid(page, gridSid, { timeout: 1_000 }).then(
+					(grid) => grid.rows.map((row) => row.values),
+					(error: unknown) => [{ [NOT_READ]: errorText(error) }]
+				),
 			{
 				message: `grid ${gridSid} shows a row with ${JSON.stringify(values)}`,
 				timeout: options?.timeout

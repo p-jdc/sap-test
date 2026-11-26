@@ -27,19 +27,21 @@ const cell = (row: number, index: number, text: string) =>
 const gridRow = (row: number, values: string[]) =>
 	`<tr><td role="rowheader"></td>${values.map((text, index) => cell(row, index, text)).join('')}</tr>`;
 
+const gridTable = (rows: string[][], totalRows = rows.length) => `<table ct="STCS" ${lsdata({
+	x: 0,
+	34: { id: 'C120', SID: GRID, Type: 'GuiGridView', ColumnIDs: COLUMNS, totalRows, visibleRows: 20 }
+})}>
+<thead><tr><th></th>${COLUMNS.map((column) => header(column)).join('')}</tr></thead>
+<tbody>${rows.map((values, index) => gridRow(index + 1, values)).join('')}</tbody>
+</table>`;
+
 // `later` rows wait in a <template>, outside the document, until a test moves them into the grid.
 const gridPage = (
 	rows: string[][],
 	totalRows = rows.length,
 	later: string[][] = []
 ) => `<!doctype html><html><body>
-<table ct="STCS" ${lsdata({
-	x: 0,
-	34: { id: 'C120', SID: GRID, Type: 'GuiGridView', ColumnIDs: COLUMNS, totalRows, visibleRows: 20 }
-})}>
-<thead><tr><th></th>${COLUMNS.map((column) => header(column)).join('')}</tr></thead>
-<tbody>${rows.map((values, index) => gridRow(index + 1, values)).join('')}</tbody>
-</table>
+${gridTable(rows, totalRows)}
 <template id="later">${later.map((values, index) => gridRow(rows.length + index + 1, values)).join('')}</template>
 </body></html>`;
 
@@ -98,4 +100,29 @@ test('expectGridRow waits for a row with these values', async ({ page }) => {
 		}, 300)
 	);
 	await expectGridRow(page, GRID, { VBELN: '4712', STATUSTXT: 'In process' });
+});
+
+test('expectGridRow waits for a grid that is drawn later, and names a grid it never finds', async ({
+	page
+}) => {
+	// The grid comes 1.5 s late, longer than one read of it waits: SAP is still answering.
+	await page.setContent(
+		`<!doctype html><html><body><div id="screen"></div><template>${gridTable([ROWS[0]])}</template></body></html>`
+	);
+	await page.evaluate(() =>
+		setTimeout(() => {
+			const later = document.querySelector('template')!;
+			document.getElementById('screen')!.append(later.content.cloneNode(true));
+		}, 1_500)
+	);
+	await expectGridRow(page, GRID, { VBELN: '4711' });
+
+	await expect(
+		expectGridRow(
+			page,
+			'wnd[0]/usr/cntlNOGRID/shellcont/shell',
+			{ VBELN: '4711' },
+			{ timeout: 2_500 }
+		)
+	).rejects.toThrow(/\(not read\)/);
 });
