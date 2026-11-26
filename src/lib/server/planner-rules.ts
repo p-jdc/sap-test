@@ -29,11 +29,16 @@ export type PlannerDecision = ToolDecision | { allow: true; plan: string };
 const text = (input: ToolInput, key: string) =>
 	typeof input[key] === 'string' ? input[key] : undefined;
 
-/** The host of an http(s) address, or null for anything else (a file, a script, no address). */
+/**
+ * The host of an http(s) address, or null for anything else (a file, a script, an address with a
+ * user name or password, no address).
+ */
 export function webHost(address?: string): string | null {
 	if (!address) return null;
 	try {
 		const url = new URL(address);
+		// An address with a login in it would carry that login into the session's texts.
+		if (url.username || url.password) return null;
 		return url.protocol === 'http:' || url.protocol === 'https:' ? url.host : null;
 	} catch {
 		return null;
@@ -43,8 +48,10 @@ export function webHost(address?: string): string | null {
 /**
  * Whether the planner may make this tool call. On top of the rules of healer-rules.ts (only the
  * tools its agent file lists, no `browser_run_code_unsafe`, no file given to a browser tool, reads
- * only inside the test code): it starts only the seed test of its session, opens only the hosts it
- * was sent to, uploads no file, and saves one plan, as a new `<name>.plan.md` in sap-tests/specs.
+ * only inside the test code): it starts only the seed test of its session, uploads no file, and
+ * saves one plan, as a new `<name>.plan.md` in sap-tests/specs. `browser_navigate` to another host
+ * is refused here with a reason the model can act on; what keeps the browser on the session's hosts,
+ * whatever a page or a script in it does, is the seed test (sap-tests/sap-plugin/agent-hosts.ts).
  * `plan` is the plan file a save is about to write, from the repository root.
  */
 export function plannerDecision(
@@ -98,6 +105,9 @@ export function plannerDecision(
 					allow: false,
 					reason: `Save the plan as ${PLANS_DIR}/<process>.plan.md (lower-case letters, digits and hyphens).`
 				};
+			// One plan per session: a second save replaces the first.
+			if (limits.ownPlan && rel !== limits.ownPlan)
+				return { allow: false, reason: `Save your plan again as ${limits.ownPlan}.` };
 			// A plan that is already there is a person's, or another session's.
 			if (existsSync(file) && rel !== limits.ownPlan)
 				return {
@@ -109,6 +119,50 @@ export function plannerDecision(
 		default:
 			return general;
 	}
+}
+
+/** Where a session starts and what its planner may open. */
+export type SessionTarget = {
+	/** For the page: the system's title, or the address. */
+	target: string;
+	limits: Pick<PlannerLimits, 'seed' | 'hosts'>;
+	/** The part of the planner's task that says where to start. */
+	start: string;
+};
+
+/**
+ * Where a session starts, or what is wrong with the input. Without a system: the address, with no
+ * sign-in. With one: signed in at the system's address (`systemAddress`, its setting's value); an
+ * address given besides must be on that host, so that the session of one system is never used on
+ * another host.
+ */
+export function sessionTarget(
+	input: { address?: string },
+	system?: { id: string; title: string; setting: string; address: string | undefined }
+): SessionTarget | string {
+	const address = input.address?.trim() || undefined;
+	const addressHost = webHost(address);
+	if (address && !addressHost)
+		return 'The address must start with http:// or https:// and hold no user name or password.';
+	if (!system) {
+		if (!address || !addressHost) return 'Give the address of the application.';
+		return {
+			target: address,
+			limits: { seed: { file: BLANK_SEED, project: 'chromium' }, hosts: new Set([addressHost]) },
+			start: `The application needs no sign-in. Set up the page with seedFile "${BLANK_SEED}" and project "chromium", then open ${address}.`
+		};
+	}
+	const systemHost = webHost(system.address);
+	if (!systemHost) return `${system.title} has no address yet (${system.setting}, Settings page).`;
+	if (addressHost && addressHost !== systemHost)
+		return `The address must be on ${systemHost}, the host of ${system.title}.`;
+	return {
+		target: address ? `${system.title} · ${address}` : system.title,
+		limits: { seed: { file: SIGNED_IN_SEED, project: system.id }, hosts: new Set([systemHost]) },
+		start:
+			`The application is behind the sign-in of ${system.title}. Set up the page with seedFile "${SIGNED_IN_SEED}" and project "${system.id}": the page then starts signed in at the system's address.` +
+			(address ? ` Start the process at ${address}.` : '')
+	};
 }
 
 const quoted = (value: unknown) =>

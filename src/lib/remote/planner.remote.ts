@@ -43,7 +43,8 @@ export const startPlanner = command(
 		requireAdmin();
 		const result = await startPlanning(input);
 		if (!result.ok) error(409, result.error);
-		await recordActivity('Started the planner', input.flow.slice(0, 300));
+		// The description with passwords masked, as the session keeps it.
+		await recordActivity('Started the planner', result.flow.slice(0, 300));
 		await getPlanner().refresh();
 		return { id: result.id };
 	}

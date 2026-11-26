@@ -77,3 +77,20 @@ describe('the sessions', () => {
 		expect(planner.planText('20260103-000001-cccc')).toBeNull();
 	});
 });
+
+describe('the lock while the planner works', () => {
+	test('keeps a run from starting, and names the planner', async () => {
+		const lock = await import('./healing-run.js');
+		expect(lock.planningBlock()).toBeUndefined();
+		lock.setPlanning('check out');
+		expect(lock.planningBlock()).toMatch(/^The planner is exploring/);
+		// A run asks its `busy` callback after its last await, and answers with what it says.
+		const { startRun } = await import('./runner.js');
+		expect(await startRun({}, lock.planningBlock)).toEqual({
+			ok: false,
+			error: lock.planningBlock()
+		});
+		lock.setPlanning(null);
+		expect(lock.planningBlock()).toBeUndefined();
+	});
+});

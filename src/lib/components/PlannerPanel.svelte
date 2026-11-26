@@ -36,6 +36,7 @@
 	const busy = $derived(!!planner.current?.active);
 	const ready = $derived(!!flow.trim() && (system !== NO_SIGN_IN || !!address.trim()));
 
+	// The session shown, while it works.
 	$effect(() => {
 		if (!working || !planning) return;
 		const watched = planning;
@@ -44,8 +45,17 @@
 		}, 2000);
 		return () => {
 			clearInterval(t);
-			// It has just finished: the list and the start button follow.
 			void planner.refresh();
+		};
+	});
+	// The start button and the list, while any session works: also one that is not shown.
+	$effect(() => {
+		if (!busy) return;
+		const t = setInterval(() => {
+			void planner.refresh();
+		}, 3000);
+		return () => {
+			clearInterval(t);
 		};
 	});
 

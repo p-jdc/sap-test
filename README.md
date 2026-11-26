@@ -353,6 +353,7 @@ demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.exampl
 | `TEST_APP_HEALER_BUDGET_USD`                              | `5`                            | The most one healer session may cost, as the Agent SDK estimates it; it stops there                                                                                                                                                                                                          |
 | `TEST_APP_PLANNER`                                        | off                            | `on` lets "Record a test" → "Let the AI plan it" start the planner (see "The planner in the app"). It clicks through the application on its own, with a test user's rights, and sends what the screens show to the AI provider of `TEST_APP_AI`: turn it on once that is approved (guide §9) |
 | `TEST_APP_PLANNER_BUDGET_USD`                             | `5`                            | The most one planner session may cost, as the Agent SDK estimates it; it stops there                                                                                                                                                                                                         |
+| `TEST_APP_PLANNER_HOSTS`                                  | none                           | Further hosts the planner's browser may reach, separated by commas (`host` or `host:port`): a CDN the application loads UI5 from, an identity provider it signs in through. Everything else is blocked                                                                                       |
 | `PLAYWRIGHT_NODE`                                         | first `node` on PATH           | Node binary used to start Playwright (Bun's `node` shim is skipped). Should be Node 22 (the tested version); set it when the default `node` is another version                                                                                                                               |
 | `DEV_PORT`                                                | `5180`                         | Port of `bun run dev` (fails if taken instead of moving to another port)                                                                                                                                                                                                                     |
 | `PREVIEW_PORT`                                            | `4180`                         | Port of `bun run preview` and of the e2e tests                                                                                                                                                                                                                                               |
@@ -633,20 +634,25 @@ does, its closing report and the plan it saved to `sap-tests/specs/<process>.pla
   reading files:
   - It starts only the seed test of its session: `tests/_agents/seed.spec.ts` without sign-in,
     `seed-signed-in.spec.ts` in the project of the system chosen.
-  - `browser_navigate` opens only the host of the address given, or of the system. An address
-    given with a system must be on that system's host. The application's own links can still lead
-    elsewhere.
+  - Its browser reaches only the host of the address given, or of the system: the seed test
+    blocks every request to another host (`sap-tests/sap-plugin/agent-hosts.ts`), whether it comes
+    from a link, a popup or a script in the page. So a page it visits cannot lead it to this
+    computer, to the network the app runs in, or to a site to send what it saw to. An address
+    given with a system must be on that system's host. An application that loads its scripts or
+    signs in through other hosts needs them named in `TEST_APP_PLANNER_HOSTS`.
   - It saves one plan, as a new `.plan.md` directly in `sap-tests/specs`; a plan that is there is
-    not replaced.
+    not replaced, and a second save must use the same name.
   - Refused: `browser_run_code_unsafe` (it runs code in the MCP server's process),
     `browser_file_upload`, and any browser tool given a file. Without the first, the planner
     cannot count a locator with Playwright: its plans say that the locators are not checked for
     uniqueness.
 - **What the app cannot prevent:** the planner acts in the application as the test user. It is
   told to explore without saving, posting or deleting, but nothing enforces that: a misled model
-  (for example by text on a screen) could change data the user may change, or type what it sees
-  into a page of another host that a link led to. So give it test users of test systems only,
-  with the roles the process needs.
+  (for example by text on a screen) could change data the user may change. So give it test users
+  of test systems only, with the roles the process needs. The host limit holds for the planner
+  started from the app; the healer's browser has none.
+- A password of a test user typed into the description or the address is masked before the text
+  goes to the model, the page or the activity log. Do not type one anyway.
 - A session keeps its report, its activity and the name of its plan in `planner/` in the app's
   data folder; the newest 30 sessions stay. The browser's snapshots, console logs and the seed
   test's results are removed when the session ends. The plan is a file of the repository and

@@ -7,12 +7,18 @@ import {
 	BLANK_SEED,
 	describePlannerTool,
 	plannerDecision,
+	sessionTarget,
 	SIGNED_IN_SEED,
 	webHost,
 	type PlannerLimits
 } from './planner-rules.js';
 
 const MCP = 'mcp__playwright-test__';
+/** An address with a login in it, which the planner must not be started on. */
+const WITH_LOGIN = Object.assign(new URL('https://host.example/'), {
+	username: 'user',
+	password: 'x'
+}).href;
 const allowed = new Set([
 	'Read',
 	`${MCP}planner_setup_page`,
@@ -71,7 +77,7 @@ describe('plannerDecision', () => {
 		['file:///etc/passwd', false],
 		['javascript:alert(1)', false],
 		['', false]
-	])('opens only the hosts it was sent to: %s', (url, ok) => {
+	])('browser_navigate is refused for another host, with a reason: %s', (url, ok) => {
 		expect(decide('browser_navigate', { url }).allow).toBe(ok);
 	});
 
@@ -113,12 +119,79 @@ describe('plannerDecision', () => {
 			plan: fileName
 		});
 	});
+
+	test('saves one plan: a second save must use the name of the first', () => {
+		const ownPlan = 'sap-tests/specs/first.plan.md';
+		expect(decide('planner_save_plan', { fileName: ownPlan }, { ownPlan })).toEqual({
+			allow: true,
+			plan: ownPlan
+		});
+		const other = decide(
+			'planner_save_plan',
+			{ fileName: 'sap-tests/specs/second.plan.md' },
+			{ ownPlan }
+		);
+		expect(other).toEqual({ allow: false, reason: `Save your plan again as ${ownPlan}.` });
+	});
+});
+
+describe('sessionTarget', () => {
+	const sap = {
+		id: 'sap',
+		title: 'SAP test system',
+		setting: 'SAP_URL',
+		address: 'https://sap.example:44300/sap/bc/ui2/flp'
+	};
+
+	test('without a system, starts on the address with the blank seed', () => {
+		expect(sessionTarget({ address: ' https://sdk.openui5.org/cart ' })).toMatchObject({
+			target: 'https://sdk.openui5.org/cart',
+			limits: {
+				seed: { file: BLANK_SEED, project: 'chromium' },
+				hosts: new Set(['sdk.openui5.org'])
+			}
+		});
+		expect(sessionTarget({})).toBe('Give the address of the application.');
+	});
+
+	test.each(['ftp://host.example/x', 'file:///etc/hosts', 'sap.example', WITH_LOGIN])(
+		'refuses an address that is not a plain web address: %s',
+		(address) => {
+			expect(sessionTarget({ address })).toMatch(/^The address must start with http/);
+			expect(sessionTarget({ address }, sap)).toMatch(/^The address must start with http/);
+		}
+	);
+
+	test("with a system, starts signed in and stays on the system's host", () => {
+		expect(sessionTarget({}, sap)).toMatchObject({
+			target: 'SAP test system',
+			limits: {
+				seed: { file: SIGNED_IN_SEED, project: 'sap' },
+				hosts: new Set(['sap.example:44300'])
+			}
+		});
+		expect(sessionTarget({ address: 'https://sap.example:44300/sap/bc/gui' }, sap)).toMatchObject({
+			target: 'SAP test system · https://sap.example:44300/sap/bc/gui'
+		});
+		// The session of one system is never used on another host, nor on another port of it.
+		expect(sessionTarget({ address: 'https://elsewhere.example/' }, sap)).toBe(
+			'The address must be on sap.example:44300, the host of SAP test system.'
+		);
+		expect(sessionTarget({ address: 'https://sap.example/' }, sap)).toMatch(/must be on/);
+	});
+
+	test('a system without an address cannot be planned on', () => {
+		expect(sessionTarget({}, { ...sap, address: undefined })).toBe(
+			'SAP test system has no address yet (SAP_URL, Settings page).'
+		);
+	});
 });
 
 describe('webHost', () => {
 	test('is the host of a web address only', () => {
 		expect(webHost('https://host.example:44300/sap/bc/ui2/flp')).toBe('host.example:44300');
 		expect(webHost('ftp://host.example')).toBeNull();
+		expect(webHost(WITH_LOGIN)).toBeNull();
 		expect(webHost('not an address')).toBeNull();
 		expect(webHost()).toBeNull();
 	});

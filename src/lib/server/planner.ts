@@ -15,15 +15,7 @@ import { parseAgentFile, toolInput } from './healer-rules.js';
 import { setPlanning } from './healing-run.js';
 import { idocTestEnv } from './idoc.js';
 import { APP_ROOT, DATA_DIR, toPosix, within } from './paths.js';
-import {
-	BLANK_SEED,
-	describePlannerTool,
-	PLANS_DIR,
-	plannerDecision,
-	SIGNED_IN_SEED,
-	webHost,
-	type PlannerLimits
-} from './planner-rules.js';
+import { describePlannerTool, PLANS_DIR, plannerDecision, sessionTarget } from './planner-rules.js';
 import { redactor } from './redact.js';
 import { activeRunId } from './runner.js';
 import { signInSystems } from './systems.js';
@@ -168,49 +160,13 @@ export type PlanningInput = {
 	flow: string;
 };
 
-/** Where a session starts and what its planner may open, or what is wrong with the input. */
-async function sessionTarget(
-	input: PlanningInput
-): Promise<
-	{ target: string; limits: Pick<PlannerLimits, 'seed' | 'hosts'>; start: string } | string
-> {
-	const address = input.address?.trim() || undefined;
-	const addressHost = webHost(address);
-	if (address && !addressHost) return 'The address must start with http:// or https://.';
-	if (!input.system) {
-		if (!address || !addressHost) return 'Give the address of the application.';
-		return {
-			target: address,
-			limits: { seed: { file: BLANK_SEED, project: 'chromium' }, hosts: new Set([addressHost]) },
-			start: `The application needs no sign-in. Set up the page with seedFile "${BLANK_SEED}" and project "chromium", then open ${address}.`
-		};
-	}
-	const system = signInSystems().find((s) => s.id === input.system);
-	if (!system) return `There is no system "${input.system}" in sap-tests/systems.json.`;
-	const systemHost = webHost((await readTestEnv())[system.env.url]);
-	if (!systemHost) return `${system.title} has no address yet (${system.env.url}, Settings page).`;
-	// A password entered for one system must not be typed into another host's page.
-	if (addressHost && addressHost !== systemHost)
-		return `The address must be on ${systemHost}, the host of ${system.title}.`;
-	return {
-		target: address ? `${system.title} · ${address}` : system.title,
-		limits: {
-			seed: { file: SIGNED_IN_SEED, project: system.id },
-			hosts: new Set([systemHost])
-		},
-		start:
-			`The application is behind the sign-in of ${system.title}. Set up the page with seedFile "${SIGNED_IN_SEED}" and project "${system.id}": the page then starts signed in at the system's address.` +
-			(address ? ` Start the process at ${address}.` : '')
-	};
-}
-
 /** The task for the planner: where to start and what to plan. */
 function plannerTask(flow: string, start: string): string {
 	return [
 		`Plan tests for this business process:\n\n${flow}`,
 		start,
-		'You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews the plan. Save one plan with `planner_save_plan` under a new file name; a file that exists already is refused.',
-		"In this app `browser_run_code_unsafe` and `browser_file_upload` are not available, tool results cannot be saved to files, and `browser_navigate` opens only the host you start on (follow the application's own links for the rest). So you cannot count a locator with Playwright: read the control type and its properties with `browser_evaluate` as your instructions describe, and say under **Locators and pitfalls** that the locators are not checked for uniqueness."
+		'You are started from the Test Lab app, not from a chat: nobody can answer a question, and your closing report is shown to the person who reviews the plan. Save one plan with `planner_save_plan` under a new file name; a file that exists already is refused, and a second save must use the same name as your first.',
+		'In this app `browser_run_code_unsafe` and `browser_file_upload` are not available, tool results cannot be saved to files, and the browser reaches only the host you start on: requests to any other host are blocked. So you cannot count a locator with Playwright: read the control type and its properties with `browser_evaluate` as your instructions describe, and say under **Locators and pitfalls** that the locators are not checked for uniqueness.'
 	].join('\n\n');
 }
 
@@ -246,7 +202,7 @@ function pruneSessions() {
  */
 export async function startPlanning(
 	input: PlanningInput
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; id: string; flow: string } | { ok: false; error: string }> {
 	const problem = plannerProblem();
 	if (problem) return { ok: false, error: problem };
 	const flow = input.flow.trim();
@@ -257,7 +213,18 @@ export async function startPlanning(
 	} catch (e) {
 		return { ok: false, error: `The planner's definition cannot be read: ${errorText(e)}` };
 	}
-	const target = await sessionTarget(input);
+	const chosen = input.system ? signInSystems().find((s) => s.id === input.system) : undefined;
+	if (input.system && !chosen)
+		return { ok: false, error: `There is no system "${input.system}" in sap-tests/systems.json.` };
+	const target = sessionTarget(
+		input,
+		chosen && {
+			id: chosen.id,
+			title: chosen.title,
+			setting: chosen.env.url,
+			address: (await readTestEnv())[chosen.env.url]
+		}
+	);
 	if (typeof target === 'string') return { ok: false, error: target };
 	const settings = await runSettings();
 	// Checked after the last await: nothing below yields, so two requests cannot both start.
@@ -274,6 +241,8 @@ export async function startPlanning(
 	const allowed = new Set(agent.tools);
 	const abort = new AbortController();
 	const browserFilesBefore = browserFiles();
+	// A password typed into the description reaches neither the model nor the page nor a log.
+	const task = redact(plannerTask(flow, target.start));
 	const state: PlannerState = {
 		id,
 		flow: redact(flow),
@@ -364,7 +333,7 @@ export async function startPlanning(
 	let messages: AsyncIterable<SDKMessage>;
 	try {
 		messages = query({
-			prompt: plannerTask(flow, target.start),
+			prompt: task,
 			options: {
 				...healerOptions(agent, {
 					budget,
@@ -378,6 +347,10 @@ export async function startPlanning(
 						...settings.env,
 						...idocTestEnv(),
 						SAP_TESTS_OUTPUT_DIR: files.output,
+						// The seed test keeps the browser on these hosts (sap-plugin/agent-hosts.ts), with
+						// those an admin added for what the application loads from elsewhere.
+						SAP_AGENT_HOSTS: [...target.limits.hosts].join(','),
+						SAP_AGENT_EXTRA_HOSTS: process.env.TEST_APP_PLANNER_HOSTS ?? '',
 						FORCE_COLOR: '0'
 					},
 					secrets: settings.secrets
@@ -423,7 +396,7 @@ export async function startPlanning(
 		}
 	}
 
-	return { ok: true, id };
+	return { ok: true, id, flow: state.flow };
 }
 
 export function stopPlanning(id: string): boolean {

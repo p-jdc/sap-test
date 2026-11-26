@@ -3,8 +3,12 @@
 // what matters: it registers the SAP selector engines and adds getByRoleUI5, locateSID and the
 // other SAP methods to the page. The page starts empty; the agent opens the address it was given.
 // For a flow that starts signed in (SAP, Ariba, ...) use seed-signed-in.spec.ts instead.
+// When the session limits the hosts (the planner started from the Test Lab app), the browser
+// reaches no other host: sap-plugin/agent-hosts.ts.
 import { test } from '../../sap-plugin';
+import { limitHosts } from '../../sap-plugin/agent-hosts';
 
-test('seed', async ({ page }) => {
+test('seed', async ({ page, context }) => {
+	await limitHosts(context);
 	await page.goto('about:blank');
 });
