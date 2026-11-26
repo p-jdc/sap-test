@@ -3,6 +3,7 @@ import { error } from '@sveltejs/kit';
 import { z } from 'zod';
 import { recordActivity } from '#lib/server/auth/access.js';
 import { activeHealing } from '#lib/server/healer.js';
+import { planningBlock } from '#lib/server/healing-run.js';
 import {
 	activeRunId,
 	getLiveState,
@@ -60,7 +61,7 @@ export const startTestRun = command(
 			const healing = activeHealing();
 			return healing
 				? `The healer is working on "${healing.title}". Wait or stop it first.`
-				: undefined;
+				: planningBlock();
 		});
 		if (!result.ok) error(409, result.error);
 		await recordActivity(

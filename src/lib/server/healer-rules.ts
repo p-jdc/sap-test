@@ -141,7 +141,7 @@ export function toolDecision(
 	outputDir?: string
 ): ToolDecision {
 	if (!allowed.has(tool) || DENIED_MCP_TOOLS.has(tool))
-		return { allow: false, reason: `${tool} is not one of the healer's tools.` };
+		return { allow: false, reason: `${tool} is not one of the tools available here.` };
 	if (tool.startsWith('mcp__playwright-test__')) {
 		// Saving to or reading from a file through the browser tools passes no check of the paths.
 		if (input.filename !== undefined)

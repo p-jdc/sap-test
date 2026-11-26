@@ -318,3 +318,24 @@ export interface HealerState {
 	/** The estimated cost of the model calls, in US dollars. */
 	costUsd?: number;
 }
+
+/** One session of the planner (planner.ts): it explores an application and saves a test plan. */
+export interface PlannerState {
+	id: string;
+	/** The business process to plan, as the person described it. */
+	flow: string;
+	/** Where it started: a system's title, or the address of an application without sign-in. */
+	target: string;
+	status: 'running' | 'finished' | 'failed' | 'stopped';
+	startedAt: string;
+	finishedAt?: string;
+	/** What it did, one line per tool call. */
+	activity: string[];
+	/** Its closing report: what it planned, what it could not explore. */
+	report?: string;
+	error?: string;
+	/** The plan it saved, from the repository root: sap-tests/specs/<name>.plan.md. */
+	plan?: string;
+	/** The estimated cost of the model calls, in US dollars. */
+	costUsd?: number;
+}

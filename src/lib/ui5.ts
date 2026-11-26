@@ -29,6 +29,7 @@ import '@ui5/webcomponents/dist/TableHeaderRow.js';
 import '@ui5/webcomponents/dist/TableRow.js';
 import '@ui5/webcomponents/dist/Tag.js';
 import '@ui5/webcomponents/dist/Text.js';
+import '@ui5/webcomponents/dist/TextArea.js';
 import '@ui5/webcomponents/dist/Title.js';
 import '@ui5/webcomponents/dist/Toast.js';
 import '@ui5/webcomponents-fiori/dist/IllustratedMessage.js';
@@ -38,6 +39,7 @@ import '@ui5/webcomponents-fiori/dist/SideNavigation.js';
 import '@ui5/webcomponents-fiori/dist/SideNavigationItem.js';
 
 import '@ui5/webcomponents-icons/dist/accept.js';
+import '@ui5/webcomponents-icons/dist/ai.js';
 import '@ui5/webcomponents-icons/dist/add.js';
 import '@ui5/webcomponents-icons/dist/action-settings.js';
 import '@ui5/webcomponents-icons/dist/locked.js';

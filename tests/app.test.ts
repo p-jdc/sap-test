@@ -22,6 +22,25 @@ test('home page speaks plain language until technical details are switched on', 
 	await expect(page.getByText(/Playwright \d+\.\d+\.\d+ with SAP plugin/)).toBeVisible();
 });
 
+test('a new test is recorded or planned by the AI, which is off until it is turned on', async ({
+	page
+}) => {
+	await page.goto('/recorder');
+	await expect(page.getByRole('heading', { name: 'Record a test' })).toBeVisible();
+	await page.getByRole('option', { name: 'Let the AI plan it' }).click();
+	await expect(page).toHaveURL(/\/recorder\?way=plan$/);
+	await expect(page.getByRole('heading', { name: 'Plan a test' })).toBeVisible();
+	await expect(page.getByText(/^The planner is off\./)).toBeVisible();
+	await expect(page.locator('ui5-button', { hasText: 'Plan the tests' })).toHaveAttribute(
+		'disabled'
+	);
+	// The choice is in the address: a reload stays on the planner.
+	await page.reload();
+	await expect(page.getByRole('heading', { name: 'Plan a test' })).toBeVisible();
+	await page.getByRole('option', { name: 'Record it yourself' }).click();
+	await expect(page.getByRole('button', { name: 'Start recording' })).toBeVisible();
+});
+
 test('tests page lists the demo spec and opens its flow', async ({ page }) => {
 	await page.goto('/tests');
 	await page.getByRole('link', { name: 'demo: create sales order' }).click();
