@@ -786,16 +786,18 @@ test('checks: a value is the one the field held when it was clicked', async ({
 		await ui5Started(page);
 		const search = page.getByRole('searchbox');
 		await search.fill('Screen clean');
-		await checkLikeAPerson(page, search);
-		// Typed on at once, while the recorder is still describing the checked field.
-		await search.fill('Other text');
+		await checkButton(page).click();
+		// The check click and a new value in one task of the page: the value changes before the
+		// recorder could get to it later in any way (a timer, describing the control).
+		await search.evaluate((field: HTMLInputElement) => {
+			field.click();
+			field.value = 'Other text';
+			field.dispatchEvent(new Event('input', { bubbles: true }));
+		});
 	});
 
-	expect(steps.map((step) => [step.action, step.check, step.value])).toEqual([
-		['fill', undefined, 'Screen clean'],
-		['expect', 'value', 'Screen clean'],
-		['fill', undefined, 'Other text']
-	]);
+	const checks = steps.filter((step) => step.action === 'expect');
+	expect(checks.map((step) => [step.check, step.value])).toEqual([['value', 'Screen clean']]);
 });
 
 test('checks: whether a checkbox is ticked', async ({ browser }, testInfo) => {
