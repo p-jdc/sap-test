@@ -6,7 +6,9 @@
 // When the session limits the hosts (the planner started from the Test Lab app), the browser
 // reaches no other host: sap-plugin/agent-hosts.ts.
 import { test, signInSystem } from '../../sap-plugin';
-import { limitHosts } from '../../sap-plugin/agent-hosts';
+import { agentProxy, limitHosts } from '../../sap-plugin/agent-hosts';
+
+test.use({ proxy: agentProxy() });
 import { requireEnv } from '../../helpers/env';
 
 test('seed: signed in', async ({ page, context, system: id }) => {

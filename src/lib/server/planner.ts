@@ -17,6 +17,7 @@ import { idocTestEnv } from './idoc.js';
 import { APP_ROOT, DATA_DIR, toPosix, within } from './paths.js';
 import { describePlannerTool, PLANS_DIR, plannerDecision, sessionTarget } from './planner-rules.js';
 import { redactor } from './redact.js';
+import { startHostProxy, type HostProxy } from './agent-proxy.js';
 import { activeRunId } from './runner.js';
 import { signInSystems } from './systems.js';
 import type { PlannerState } from '#lib/shared/types.js';
@@ -227,16 +228,34 @@ export async function startPlanning(
 	);
 	if (typeof target === 'string') return { ok: false, error: target };
 	const settings = await runSettings();
+	// The browser reaches only these hosts, through a proxy of this session (agent-proxy.ts): the
+	// session's own, and those an admin added for what the application loads from elsewhere.
+	const hosts = new Set([
+		...target.limits.hosts,
+		...(process.env.TEST_APP_PLANNER_HOSTS ?? '')
+			.split(',')
+			.map((host) => host.trim().toLowerCase())
+			.filter(Boolean)
+	]);
+	let proxy: HostProxy;
+	try {
+		proxy = await startHostProxy(hosts);
+	} catch (e) {
+		return { ok: false, error: `The planner's proxy could not start: ${errorText(e)}` };
+	}
+	const refuse = (error: string) => {
+		proxy.close();
+		return { ok: false as const, error };
+	};
 	// Checked after the last await: nothing below yields, so two requests cannot both start.
-	if (activePlanning()) return { ok: false, error: 'The planner is working already.' };
+	if (activePlanning()) return refuse('The planner is working already.');
 	const healing = activeHealing();
-	if (healing) return { ok: false, error: `The healer is working on "${healing.title}".` };
-	if (activeRunId())
-		return { ok: false, error: 'A run is going; start the planner when it has finished.' };
+	if (healing) return refuse(`The healer is working on "${healing.title}".`);
+	if (activeRunId()) return refuse('A run is going; start the planner when it has finished.');
 
 	const id = newId();
 	const files = sessionFiles(id);
-	if (!files) return { ok: false, error: 'The session could not be created.' };
+	if (!files) return refuse('The session could not be created.');
 	const redact = redactor(settings.secrets);
 	const allowed = new Set(agent.tools);
 	const abort = new AbortController();
@@ -319,6 +338,7 @@ export async function startPlanning(
 		setTimeout(() => {
 			removeBrowserData(id);
 		}, LATE_RESULTS_MS).unref();
+		proxy.close();
 		if (active?.state === state) {
 			active = null;
 			setPlanning(null);
@@ -349,8 +369,8 @@ export async function startPlanning(
 						SAP_TESTS_OUTPUT_DIR: files.output,
 						// The seed test keeps the browser on these hosts (sap-plugin/agent-hosts.ts), with
 						// those an admin added for what the application loads from elsewhere.
-						SAP_AGENT_HOSTS: [...target.limits.hosts].join(','),
-						SAP_AGENT_EXTRA_HOSTS: process.env.TEST_APP_PLANNER_HOSTS ?? '',
+						SAP_AGENT_HOSTS: [...hosts].join(','),
+						SAP_AGENT_PROXY: proxy.url,
 						FORCE_COLOR: '0'
 					},
 					secrets: settings.secrets

@@ -634,12 +634,16 @@ does, its closing report and the plan it saved to `sap-tests/specs/<process>.pla
   reading files:
   - It starts only the seed test of its session: `tests/_agents/seed.spec.ts` without sign-in,
     `seed-signed-in.spec.ts` in the project of the system chosen.
-  - Its browser reaches only the host of the address given, or of the system: the seed test
-    blocks every request to another host (`sap-tests/sap-plugin/agent-hosts.ts`), whether it comes
-    from a link, a popup or a script in the page. So a page it visits cannot lead it to this
-    computer, to the network the app runs in, or to a site to send what it saw to. An address
-    given with a system must be on that system's host. An application that loads its scripts or
-    signs in through other hosts needs them named in `TEST_APP_PLANNER_HOSTS`.
+  - Its browser reaches only the host of the address given, or of the system. The app starts a
+    proxy for the session (`src/lib/server/agent-proxy.ts`) that connects to these hosts and
+    refuses every other, and the seed test sends the whole browser through it, addresses of this
+    computer included (`sap-tests/sap-plugin/agent-hosts.ts`). That holds for a link, a popup, a
+    script in the page and the target of a redirect; WebRTC is turned off. So a page it visits
+    cannot lead it to this computer, to the network the app runs in, or to a site to send what it
+    saw to. An address given with a system must be on that system's host. An application that
+    loads its scripts or signs in through other hosts needs them named in
+    `TEST_APP_PLANNER_HOSTS`. The proxy connects straight to the hosts: an application reachable
+    only through a company proxy cannot be planned from the app.
   - It saves one plan, as a new `.plan.md` directly in `sap-tests/specs`; a plan that is there is
     not replaced, and a second save must use the same name.
   - Refused: `browser_run_code_unsafe` (it runs code in the MCP server's process),
