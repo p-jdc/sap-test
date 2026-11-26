@@ -792,13 +792,16 @@ function recorderScript(binding: string) {
 	const textOf = (element: Element) =>
 		(element.textContent ?? '').replaceAll('\u200b', '').replace(/\s+/g, ' ').trim();
 	const LONGEST_TEXT = 200;
-	const checkStep = (described: Described, at: Checked): PageStep => {
+	// What a checked field or checkbox held when it was clicked. Describing it can take a while (UI5
+	// works out the selector), and the person may type on meanwhile: the check is of what was there.
+	type Seen = { value?: string; checked?: boolean };
+	const checkStep = (described: Described, at: Checked, seen: Seen): PageStep => {
 		const located = described.chartPoint || described.innerText || described.alert;
 		const element = resolvedBy(described) ?? at.element;
 		if (!located && at.check === 'value' && isTextField(element) && !isSecret(element))
-			return { action: 'expect', check: 'value', value: element.value };
+			return { action: 'expect', check: 'value', value: seen.value ?? element.value };
 		if (!located && at.check === 'checked' && isTickable(element))
-			return { action: 'expect', check: 'checked', checked: tickedOf(element) };
+			return { action: 'expect', check: 'checked', checked: seen.checked ?? tickedOf(element) };
 		const text = textOf(element);
 		if (!located && at.check === 'text' && text && text.length <= LONGEST_TEXT)
 			return { action: 'expect', check: 'text', value: text };
@@ -843,14 +846,23 @@ function recorderScript(binding: string) {
 			if (!watched(event.target)) return;
 			const at = checkedAt(event.target);
 			const step = { ...next(), hint: hintFor(at.element) };
-			// Read once the click is over: a native checkbox ticks itself before the click event and
-			// only goes back when the event has been cancelled.
+			// A field's value is read now, before the next input can change it.
+			const { element } = at;
+			const typed = isTextField(element) && !isSecret(element) ? element.value : undefined;
+			// Whether a checkbox is ticked is read once the click is over: a native checkbox ticks
+			// itself before the click event and only goes back when the event has been cancelled.
 			// Busy until then, so that the end of a recording waits for this step.
 			state.busy++;
 			const over = new Promise((done) => setTimeout(done));
 			void over
-				.then(() => describe(at.element))
-				.then((described) => report({ ...step, ...described, ...checkStep(described, at) }))
+				.then(async () => {
+					const seen: Seen = {
+						value: typed,
+						checked: isTickable(element) ? tickedOf(element) : undefined
+					};
+					const described = await describe(element);
+					return report({ ...step, ...described, ...checkStep(described, at, seen) });
+				})
 				.finally(() => state.busy--);
 		},
 		true

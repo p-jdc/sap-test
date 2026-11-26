@@ -779,6 +779,27 @@ const CHECK_BOX =
 
 const box = (page: Page) => page.getByRole('checkbox', { name: 'Option b', exact: true });
 
+test('checks: a value is the one the field held when it was clicked', async ({
+	browser
+}, testInfo) => {
+	const steps = await record(browser, testInfo, cartDemo, async (page) => {
+		await ui5Started(page);
+		const search = page.getByRole('searchbox');
+		await search.fill('Screen clean');
+		await checkButton(page).click();
+		// The check click and a new value in one task of the page: the value changes before the
+		// recorder could get to it later in any way (a timer, describing the control).
+		await search.evaluate((field: HTMLInputElement) => {
+			field.click();
+			field.value = 'Other text';
+			field.dispatchEvent(new Event('input', { bubbles: true }));
+		});
+	});
+
+	const checks = steps.filter((step) => step.action === 'expect');
+	expect(checks.map((step) => [step.check, step.value])).toEqual([['value', 'Screen clean']]);
+});
+
 test('checks: whether a checkbox is ticked', async ({ browser }, testInfo) => {
 	const steps = await record(browser, testInfo, { url: CHECK_BOX }, async (page) => {
 		await ui5Started(page);
