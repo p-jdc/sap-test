@@ -126,3 +126,12 @@ test('expectGridRow waits for a grid that is drawn later, and names a grid it ne
 		)
 	).rejects.toThrow(/\(not read\)/);
 });
+
+test('expectGridRow needs a value to look for: an empty one would match any row', async ({
+	page
+}) => {
+	await page.setContent('<p>No grid</p>');
+	await expect(expectGridRow(page, GRID, {})).rejects.toThrow(
+		'expectGridRow needs at least one column value to look for'
+	);
+});

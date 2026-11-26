@@ -99,6 +99,15 @@ test('expectStatusBar waits for a status bar that is drawn later', async ({ page
 	);
 });
 
+test('expectStatusBar fails at once on a message type it does not know', async ({ page }) => {
+	await page.setContent(screen(statusBar({ text: 'Processing stopped', barType: 'BLINKING' })));
+	const started = Date.now();
+	await expect(expectStatusBar(page, 'E', undefined, { timeout: 10_000 })).rejects.toThrow(
+		'Unknown WebGUI message bar type "BLINKING"'
+	);
+	expect(Date.now() - started).toBeLessThan(5_000);
+});
+
 test('popup: the dialog wnd[1], named by its title', async ({ page }) => {
 	await page.setContent(screen(statusBar({ barType: 'TEXT' }), POPUP));
 	await expect(popup(page)).toHaveAccessibleName('Exit');
