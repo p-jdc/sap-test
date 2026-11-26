@@ -4,11 +4,25 @@
 // example passes only the role and does not type-check).
 import type { Page } from '@playwright/test';
 import { expect } from '../sap-plugin';
-import { readStatusBar, roundTrip } from '../sap-plugin/webgui';
+import { parseStatusBar, readStatusBar, roundTrip, statusBarData } from '../sap-plugin/webgui';
 import type { MessageType, RoundTripOptions, StatusBarMessage } from '../sap-plugin/webgui';
+import { readGrid } from '../sap-plugin/webgui-grid';
+import type { GridRow, WebGUIGrid } from '../sap-plugin/webgui-grid';
 
-export { readStatusBar, roundTrip };
-export type { MessageType, RoundTripOptions, StatusBarMessage };
+export { readGrid, readStatusBar, roundTrip };
+export type { GridRow, MessageType, RoundTripOptions, StatusBarMessage, WebGUIGrid };
+
+// expect.poll does not retry when its callback throws: a screen that is not there yet (SAP still
+// answering, WebGUI drawing anew) would end the wait at once. A read of the screen that fails is a
+// value that does not match instead, so the poll goes on, and the failure message shows why. Only
+// the read: an error in what was read (an unknown message type) still ends the wait at once.
+const NOT_READ = '(not read)';
+const errorText = (error: unknown) =>
+	(error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+const notRead = (error: unknown): StatusBarMessage => ({
+	type: '',
+	text: `${NOT_READ} ${errorText(error)}`
+});
 
 /** Starts a transaction from the command field and waits until SAP shows its first screen. */
 export async function runTransaction(page: Page, tcode: string) {
@@ -54,9 +68,56 @@ export async function expectStatusBar(
 						typeof text === 'string' ? expect.stringContaining(text) : expect.stringMatching(text)
 				};
 	await expect
-		.poll(() => readStatusBar(page, 1_000), {
-			message: `status bar shows a message of type ${type}`,
-			timeout: options?.timeout
-		})
+		.poll(
+			async () => {
+				let lsdata: string | null;
+				try {
+					lsdata = await statusBarData(page, 1_000);
+				} catch (error) {
+					return notRead(error);
+				}
+				return parseStatusBar(lsdata);
+			},
+			{
+				message: `status bar shows a message of type ${type}`,
+				timeout: options?.timeout
+			}
+		)
 		.toEqual(expect.objectContaining(expected));
+}
+
+/**
+ * Waits until the ALV grid `gridSid` shows a row with these cell values, by technical column
+ * name: a string must be the whole cell text, a RegExp must match it. Other columns may hold
+ * anything. A long list draws only the rows on screen; restrict the selection so the row is among
+ * them.
+ */
+export async function expectGridRow(
+	page: Page,
+	gridSid: string,
+	values: Record<string, string | RegExp>,
+	options?: { timeout?: number }
+) {
+	// No column would match any row, also the placeholder of a grid that could not be read.
+	if (Object.keys(values).length === 0)
+		throw new Error('expectGridRow needs at least one column value to look for');
+	const expected = Object.fromEntries(
+		Object.entries(values).map(([column, value]) => [
+			column,
+			typeof value === 'string' ? value : expect.stringMatching(value)
+		])
+	);
+	await expect
+		.poll(
+			() =>
+				readGrid(page, gridSid, { timeout: 1_000 }).then(
+					(grid) => grid.rows.map((row) => row.values),
+					(error: unknown) => [{ [NOT_READ]: errorText(error) }]
+				),
+			{
+				message: `grid ${gridSid} shows a row with ${JSON.stringify(values)}`,
+				timeout: options?.timeout
+			}
+		)
+		.toContainEqual(expect.objectContaining(expected));
 }

@@ -51,9 +51,12 @@ export function parseStatusBar(lsdata: string | null): StatusBarMessage {
 
 /** The status bar message as it is now. Waits for the status bar to exist, not for a message. */
 export async function readStatusBar(page: Page, timeout?: number): Promise<StatusBarMessage> {
-	const lsdata = await sid(page, STATUS_BAR).getAttribute('lsdata', { timeout });
-	return parseStatusBar(lsdata);
+	return parseStatusBar(await statusBarData(page, timeout));
 }
+
+/** The lsdata of the status bar, unparsed. Waits for the status bar to exist. */
+export const statusBarData = (page: Page, timeout?: number) =>
+	sid(page, STATUS_BAR).getAttribute('lsdata', { timeout });
 
 export type RoundTripOptions = {
 	/** Milliseconds for the whole round trip. Default 30 000. */
