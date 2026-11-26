@@ -135,6 +135,18 @@ describe('plannerDecision', () => {
 	});
 });
 
+describe('browser_navigate in a session with its endpoints', () => {
+	test('is refused for the same host on another scheme or port', () => {
+		const own = { endpoints: new Set(['sdk.openui5.org:443']) };
+		expect(decide('browser_navigate', { url: 'https://sdk.openui5.org/cart' }, own).allow).toBe(
+			true
+		);
+		expect(decide('browser_navigate', { url: 'http://sdk.openui5.org/cart' }, own).allow).toBe(
+			false
+		);
+	});
+});
+
 describe('sessionTarget', () => {
 	const sap = {
 		id: 'sap',
@@ -178,6 +190,27 @@ describe('sessionTarget', () => {
 			'The address must be on sap.example:44300, the host of SAP test system.'
 		);
 		expect(sessionTarget({ address: 'https://sap.example/' }, sap)).toMatch(/must be on/);
+	});
+
+	test('with a system, the address keeps the scheme of the system', () => {
+		const https = { ...sap, address: 'https://sap.example/sap/bc/ui2/flp' };
+		// Over http the session of an https system would travel unencrypted.
+		expect(sessionTarget({ address: 'http://sap.example/sap/bc/gui' }, https)).toBe(
+			'The address must start with https://sap.example, the address of SAP test system.'
+		);
+		expect(sessionTarget({ address: 'https://sap.example/sap/bc/gui' }, https)).toMatchObject({
+			endpoints: new Set(['sap.example:443'])
+		});
+	});
+
+	test('names what the proxy of the session connects to: the host on the port of the address', () => {
+		expect(sessionTarget({ address: 'https://sdk.openui5.org/cart' })).toMatchObject({
+			endpoints: new Set(['sdk.openui5.org:443'])
+		});
+		expect(sessionTarget({ address: 'http://localhost:8080/' })).toMatchObject({
+			endpoints: new Set(['localhost:8080'])
+		});
+		expect(sessionTarget({}, sap)).toMatchObject({ endpoints: new Set(['sap.example:44300']) });
 	});
 
 	test('a system without an address cannot be planned on', () => {

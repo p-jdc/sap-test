@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import nodePath from 'node:path';
+import { endpointOf } from './agent-proxy.js';
 import { toolDecision, type ToolDecision, type ToolInput } from './healer-rules.js';
 import { toPosix, within } from './paths.js';
 
@@ -18,6 +19,11 @@ export type PlannerLimits = {
 	seed: { file: string; project: string };
 	/** The hosts the planner may open itself: the address it was given, the system's address. */
 	hosts: ReadonlySet<string>;
+	/**
+	 * The same as `host:port` (agent-proxy.ts, endpoint): an address on the host with another
+	 * scheme or port is not the session's.
+	 */
+	endpoints?: ReadonlySet<string>;
 	/** The plan this session saved before, which it may save again. */
 	ownPlan?: string;
 	/** The results folder of the seed test it starts. */
@@ -81,8 +87,14 @@ export function plannerDecision(
 			return { allow: true };
 		}
 		case `${MCP}browser_navigate`: {
-			const host = webHost(text(input, 'url'));
-			if (!host || !limits.hosts.has(host))
+			const url = text(input, 'url');
+			const host = webHost(url);
+			const at = endpointOf(url);
+			if (
+				!host ||
+				!limits.hosts.has(host) ||
+				(limits.endpoints && !(at && limits.endpoints.has(at)))
+			)
 				return {
 					allow: false,
 					reason: `Open only addresses on ${[...limits.hosts].join(', ')}; reach other pages through the application's own links.`
@@ -125,7 +137,9 @@ export function plannerDecision(
 export type SessionTarget = {
 	/** For the page: the system's title, or the address. */
 	target: string;
-	limits: Pick<PlannerLimits, 'seed' | 'hosts'>;
+	limits: Pick<PlannerLimits, 'seed' | 'hosts' | 'endpoints'>;
+	/** What the session's proxy connects to: the host on the port of the address. */
+	endpoints: ReadonlySet<string>;
 	/** The part of the planner's task that says where to start. */
 	start: string;
 };
@@ -145,20 +159,38 @@ export function sessionTarget(
 	if (address && !addressHost)
 		return 'The address must start with http:// or https:// and hold no user name or password.';
 	if (!system) {
-		if (!address || !addressHost) return 'Give the address of the application.';
+		const at = endpointOf(address);
+		if (!address || !addressHost || !at) return 'Give the address of the application.';
+		const endpoints = new Set([at]);
 		return {
 			target: address,
-			limits: { seed: { file: BLANK_SEED, project: 'chromium' }, hosts: new Set([addressHost]) },
+			endpoints,
+			limits: {
+				seed: { file: BLANK_SEED, project: 'chromium' },
+				hosts: new Set([addressHost]),
+				endpoints
+			},
 			start: `The application needs no sign-in. Set up the page with seedFile "${BLANK_SEED}" and project "chromium", then open ${address}.`
 		};
 	}
 	const systemHost = webHost(system.address);
-	if (!systemHost) return `${system.title} has no address yet (${system.setting}, Settings page).`;
+	const systemAt = endpointOf(system.address);
+	if (!systemHost || !systemAt)
+		return `${system.title} has no address yet (${system.setting}, Settings page).`;
 	if (addressHost && addressHost !== systemHost)
 		return `The address must be on ${systemHost}, the host of ${system.title}.`;
+	// The same host over http when the system is https would send its session unencrypted.
+	if (address && endpointOf(address) !== systemAt)
+		return `The address must start with ${new URL(system.address ?? '').origin}, the address of ${system.title}.`;
+	const endpoints = new Set([systemAt]);
 	return {
 		target: address ? `${system.title} · ${address}` : system.title,
-		limits: { seed: { file: SIGNED_IN_SEED, project: system.id }, hosts: new Set([systemHost]) },
+		endpoints,
+		limits: {
+			seed: { file: SIGNED_IN_SEED, project: system.id },
+			hosts: new Set([systemHost]),
+			endpoints
+		},
 		start:
 			`The application is behind the sign-in of ${system.title}. Set up the page with seedFile "${SIGNED_IN_SEED}" and project "${system.id}": the page then starts signed in at the system's address.` +
 			(address ? ` Start the process at ${address}.` : '')

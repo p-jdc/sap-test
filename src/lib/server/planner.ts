@@ -17,7 +17,7 @@ import { idocTestEnv } from './idoc.js';
 import { APP_ROOT, DATA_DIR, toPosix, within } from './paths.js';
 import { describePlannerTool, PLANS_DIR, plannerDecision, sessionTarget } from './planner-rules.js';
 import { redactor } from './redact.js';
-import { startHostProxy, type HostProxy } from './agent-proxy.js';
+import { endpointOf, startHostProxy, type HostProxy } from './agent-proxy.js';
 import { activeRunId } from './runner.js';
 import { signInSystems } from './systems.js';
 import type { PlannerState } from '#lib/shared/types.js';
@@ -178,8 +178,14 @@ function plannerTask(flow: string, start: string): string {
 function removeBrowserData(id: string) {
 	const files = sessionFiles(id);
 	if (!files) return;
-	rmSync(files.browser, { recursive: true, force: true });
-	rmSync(files.output, { recursive: true, force: true });
+	// The MCP server may still be writing there: what stays now goes on a later pass.
+	for (const dir of [files.browser, files.output]) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// Tried again when the next session starts (pruneSessions).
+		}
+	}
 }
 
 /**
@@ -189,8 +195,13 @@ function removeBrowserData(id: string) {
 function pruneSessions() {
 	sessionIds().forEach((id, i) => {
 		if (id === active?.state.id) return;
-		if (i >= KEEP_SESSIONS) rmSync(join(SESSIONS_DIR, id), { recursive: true, force: true });
-		else removeBrowserData(id);
+		if (i < KEEP_SESSIONS) removeBrowserData(id);
+		else
+			try {
+				rmSync(join(SESSIONS_DIR, id), { recursive: true, force: true });
+			} catch {
+				// Tried again when the next session starts.
+			}
 	});
 }
 
@@ -230,16 +241,21 @@ export async function startPlanning(
 	const settings = await runSettings();
 	// The browser reaches only these hosts, through a proxy of this session (agent-proxy.ts): the
 	// session's own, and those an admin added for what the application loads from elsewhere.
-	const hosts = new Set([
-		...target.limits.hosts,
-		...(process.env.TEST_APP_PLANNER_HOSTS ?? '')
-			.split(',')
-			.map((host) => host.trim().toLowerCase())
-			.filter(Boolean)
-	]);
+	const extra = (process.env.TEST_APP_PLANNER_HOSTS ?? '')
+		.split(',')
+		.map((host) => host.trim().toLowerCase())
+		.filter(Boolean);
+	const hosts = new Set([...target.limits.hosts, ...extra]);
 	let proxy: HostProxy;
 	try {
-		proxy = await startHostProxy(hosts);
+		// The session's own host on the port of its address; an added host on the port it names,
+		// else on 443.
+		proxy = await startHostProxy(
+			new Set([
+				...target.endpoints,
+				...extra.flatMap((host) => endpointOf(`https://${host}`) ?? [])
+			])
+		);
 	} catch (e) {
 		return { ok: false, error: `The planner's proxy could not start: ${errorText(e)}` };
 	}
@@ -270,9 +286,13 @@ export async function startPlanning(
 		startedAt: new Date().toISOString(),
 		activity: []
 	};
+	try {
+		save(state);
+	} catch (e) {
+		return refuse(`The session could not be saved: ${errorText(e)}`);
+	}
 	active = { state, abort };
 	setPlanning(state.flow);
-	save(state);
 	pruneSessions();
 
 	const note = (line: string) => {
@@ -314,7 +334,11 @@ export async function startPlanning(
 	const mask = masker(settings.secrets);
 	const afterTool: HookCallback = (hook) => {
 		if (hook.hook_event_name !== 'PostToolUse') return Promise.resolve({});
-		save(state);
+		try {
+			save(state);
+		} catch {
+			// The page shows the activity from memory; the next save may work again.
+		}
 		return Promise.resolve({
 			hookSpecificOutput: {
 				hookEventName: 'PostToolUse',
@@ -329,20 +353,26 @@ export async function startPlanning(
 		state.status = status;
 		if (error) state.error = redact(error);
 		state.finishedAt = new Date().toISOString();
-		// A plan it named but never saved.
-		if (state.plan && !existsSync(resolve(APP_ROOT, state.plan))) delete state.plan;
-		save(state);
-		moveBrowserFiles(browserFilesBefore, files.browser);
-		removeBrowserData(id);
-		// Again once the MCP server has closed and written the seed test's results.
-		setTimeout(() => {
-			removeBrowserData(id);
-		}, LATE_RESULTS_MS).unref();
+		// First what others wait for: a failing disk below must not keep runs, the healer and the
+		// planner blocked.
 		proxy.close();
 		if (active?.state === state) {
 			active = null;
 			setPlanning(null);
 		}
+		try {
+			// A plan it named but never saved.
+			if (state.plan && !existsSync(resolve(APP_ROOT, state.plan))) delete state.plan;
+			save(state);
+			moveBrowserFiles(browserFilesBefore, files.browser);
+		} catch {
+			// The session is over either way; its page shows what was saved last.
+		}
+		removeBrowserData(id);
+		// Again once the MCP server has closed and written the seed test's results.
+		setTimeout(() => {
+			removeBrowserData(id);
+		}, LATE_RESULTS_MS).unref();
 	};
 	const stopWithApp = () => {
 		abort.abort();

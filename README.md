@@ -640,9 +640,11 @@ does, its closing report and the plan it saved to `sap-tests/specs/<process>.pla
     computer included (`sap-tests/sap-plugin/agent-hosts.ts`). That holds for a link, a popup, a
     script in the page and the target of a redirect; WebRTC is turned off. So a page it visits
     cannot lead it to this computer, to the network the app runs in, or to a site to send what it
-    saw to. An address given with a system must be on that system's host. An application that
-    loads its scripts or signs in through other hosts needs them named in
-    `TEST_APP_PLANNER_HOSTS`. The proxy connects straight to the hosts: an application reachable
+    saw to. The proxy resolves each host's name once, when the session starts, and connects only
+    to that address and to the port of the session's address (https alone does not open http).
+    An address given with a system must start like the system's own (scheme, host and port). An
+    application that loads its scripts or signs in through other hosts needs them named in
+    `TEST_APP_PLANNER_HOSTS` (`host` for https on 443, or `host:port`). The proxy connects straight to the hosts: an application reachable
     only through a company proxy cannot be planned from the app.
   - It saves one plan, as a new `.plan.md` directly in `sap-tests/specs`; a plan that is there is
     not replaced, and a second save must use the same name.

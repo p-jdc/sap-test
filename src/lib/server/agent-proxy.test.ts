@@ -1,7 +1,7 @@
 import http from 'node:http';
 import net from 'node:net';
 import { afterEach, describe, expect, test } from 'vitest';
-import { proxyAllows, startHostProxy, type HostProxy } from './agent-proxy.js';
+import { endpoint, endpointOf, startHostProxy, type HostProxy } from './agent-proxy.js';
 
 const closers: (() => void)[] = [];
 
@@ -14,11 +14,14 @@ afterEach(() => {
 	for (const close of closers.splice(0)) close();
 });
 
-/** A local web server; its answer says which one it is. */
-async function site(name: string, redirectTo?: string): Promise<{ host: string; hits: string[] }> {
+/** A local web server on 127.0.0.1; its answer says which one it is. */
+async function site(
+	name: string,
+	redirectTo?: string
+): Promise<{ host: string; port: number; hits: string[] }> {
 	const hits: string[] = [];
 	const server = http.createServer((request, response) => {
-		hits.push(request.url ?? '');
+		hits.push(`${request.headers.host}${request.url}`);
 		if (redirectTo && request.url === '/redirect')
 			response.writeHead(302, { location: redirectTo }).end();
 		else response.end(`${name}${request.url}`);
@@ -31,17 +34,24 @@ async function site(name: string, redirectTo?: string): Promise<{ host: string; 
 		server.close();
 	});
 	// As the browser names it: this computer by name, so that the proxy's list decides.
-	return { host: `localhost:${portOf(server)}`, hits };
+	return { host: `localhost:${portOf(server)}`, port: portOf(server), hits };
 }
 
-async function proxyFor(...hosts: string[]): Promise<HostProxy> {
-	const proxy = await startHostProxy(new Set(hosts));
+/** The proxy for these `host:port`, with names resolved by `resolve` (default: all to 127.0.0.1). */
+async function proxyFor(
+	hosts: string[],
+	resolve: (host: string) => Promise<string> = () => Promise.resolve('127.0.0.1')
+): Promise<HostProxy> {
+	const proxy = await startHostProxy(new Set(hosts), resolve);
 	closers.push(proxy.close);
 	return proxy;
 }
 
 /** A plain http request through the proxy, as a browser sends it. */
-function through(proxy: HostProxy, address: string): Promise<{ status: number; body: string }> {
+function through(
+	proxy: HostProxy,
+	address: string
+): Promise<{ status: number; body: string; location?: string }> {
 	const { hostname, port } = new URL(proxy.url);
 	return new Promise((resolve, reject) => {
 		http
@@ -53,7 +63,8 @@ function through(proxy: HostProxy, address: string): Promise<{ status: number; b
 						body += chunk.toString();
 					});
 					r.on('end', () => {
-						resolve({ status: r.statusCode ?? 0, body });
+						const { location } = r.headers;
+						resolve({ status: r.statusCode ?? 0, body, ...(location ? { location } : {}) });
 					});
 				}
 			)
@@ -80,7 +91,7 @@ describe('the proxy of a planner session', () => {
 	test('reaches the hosts of the session and refuses every other, without connecting', async () => {
 		const app = await site('app');
 		const other = await site('other');
-		const proxy = await proxyFor(app.host);
+		const proxy = await proxyFor([app.host]);
 		expect(await through(proxy, `http://${app.host}/page?x=1`)).toEqual({
 			status: 200,
 			body: 'app/page?x=1'
@@ -89,13 +100,16 @@ describe('the proxy of a planner session', () => {
 		expect(other.hits).toEqual([]);
 	});
 
-	test('a redirect of an allowed host to another host ends at the proxy', async () => {
+	test('hands a redirect to the browser as it is, and does not follow it', async () => {
 		const other = await site('other');
 		const app = await site('app', `http://${other.host}/settings`);
-		const proxy = await proxyFor(app.host);
-		// The browser gets the redirect and asks the proxy for its target, which is refused.
-		const first = await through(proxy, `http://${app.host}/redirect`);
-		expect(first.status).toBe(302);
+		const proxy = await proxyFor([app.host]);
+		expect(await through(proxy, `http://${app.host}/redirect`)).toMatchObject({
+			status: 302,
+			location: `http://${other.host}/settings`
+		});
+		expect(other.hits).toEqual([]);
+		// The browser then asks the proxy for the target, which is refused.
 		expect((await through(proxy, `http://${other.host}/settings`)).status).toBe(403);
 		expect(other.hits).toEqual([]);
 	});
@@ -103,7 +117,7 @@ describe('the proxy of a planner session', () => {
 	test('tunnels (https, WebSockets) only to the hosts of the session', async () => {
 		const app = await site('app');
 		const other = await site('other');
-		const proxy = await proxyFor(app.host);
+		const proxy = await proxyFor([app.host]);
 		expect(await connect(proxy, app.host)).toBe('HTTP/1.1 200 Connection Established');
 		expect(await connect(proxy, other.host)).toBe('HTTP/1.1 403 Forbidden');
 		expect(await connect(proxy, '169.254.169.254:80')).toBe('HTTP/1.1 403 Forbidden');
@@ -111,22 +125,62 @@ describe('the proxy of a planner session', () => {
 		expect(await connect(proxy, 'no-port.example')).toMatch(/^HTTP\/1\.1 4\d\d /);
 		expect(await connect(proxy, 'not an authority')).toMatch(/^HTTP\/1\.1 4\d\d /);
 	});
+
+	test('only the port of the session: https alone does not open http', async () => {
+		const app = await site('app');
+		const proxy = await proxyFor(['app.test:443']);
+		expect((await through(proxy, 'http://app.test/')).status).toBe(403);
+		expect((await through(proxy, `http://app.test:${app.port}/`)).status).toBe(403);
+		expect(app.hits).toEqual([]);
+	});
+
+	test('a name is resolved once: what it answers later changes nothing', async () => {
+		const app = await site('app');
+		// A host under someone else's control: first its public address, then one of this network.
+		const answers = ['127.0.0.1', '169.254.169.254', '10.0.0.1'];
+		const asked: string[] = [];
+		const proxy = await proxyFor([`rebind.test:${app.port}`], (host) => {
+			asked.push(host);
+			return Promise.resolve(String(answers[asked.length - 1]));
+		});
+		for (const path of ['/one', '/two']) {
+			// oxlint-disable-next-line no-await-in-loop -- one after the other, as a page would
+			expect(await through(proxy, `http://rebind.test:${app.port}${path}`)).toEqual({
+				status: 200,
+				body: `app${path}`
+			});
+		}
+		expect(await connect(proxy, `rebind.test:${app.port}`)).toBe(
+			'HTTP/1.1 200 Connection Established'
+		);
+		expect(asked).toEqual(['rebind.test']);
+		// The application still sees its own name.
+		expect(app.hits).toEqual([`rebind.test:${app.port}/one`, `rebind.test:${app.port}/two`]);
+	});
+
+	test('a host without an address is not reachable', async () => {
+		const proxy = await proxyFor(['nowhere.test:80'], () =>
+			Promise.reject(new Error('no address'))
+		);
+		expect((await through(proxy, 'http://nowhere.test/')).status).toBe(403);
+	});
 });
 
-describe('proxyAllows', () => {
-	const hosts = new Set(['sap.example', 'sap.example:44300', '[::1]:8080']);
+describe('endpoint', () => {
+	test('names a host with its port, an IPv6 address without brackets', () => {
+		expect(endpoint('SAP.example', 443)).toBe('sap.example:443');
+		expect(endpoint('[::1]', 8080)).toBe('::1:8080');
+		expect(endpoint('::1', 8080)).toBe('::1:8080');
+	});
+
 	test.each([
-		['sap.example', 443, true],
-		['SAP.example', 80, true],
-		['sap.example', 44300, true],
-		['sap.example', 8443, false],
-		['elsewhere.example', 443, false],
-		['sap.example.elsewhere.example', 443, false],
-		['127.0.0.1', 443, false],
-		['[::1]', 8080, true],
-		['::1', 8080, true],
-		['[::1]', 443, false]
-	])('%s:%i', (host, port, allowed) => {
-		expect(proxyAllows(host, port, hosts)).toBe(allowed);
+		['https://sap.example/sap/bc/ui2/flp', 'sap.example:443'],
+		['http://sap.example/', 'sap.example:80'],
+		['https://sap.example:44300/', 'sap.example:44300'],
+		['http://[::1]:8080/', '::1:8080'],
+		['ftp://sap.example/', null],
+		['sap.example', null]
+	])('of a web address is its host on the port of its scheme: %s', (address, expected) => {
+		expect(endpointOf(address)).toBe(expected);
 	});
 });

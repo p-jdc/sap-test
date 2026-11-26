@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import http from 'node:http';
 import net from 'node:net';
 
@@ -5,22 +6,46 @@ import net from 'node:net';
  * A forward proxy on this computer that reaches only the hosts of one planner session. The
  * planner's browser sends every request through it (the seed tests set it as the context's proxy),
  * so the limit also holds where Playwright's request routing does not look: the target of a
- * redirect, a service worker, a WebSocket. A request to another host, this computer and the
- * network the app runs in included, gets 403 and no connection is made.
+ * redirect, a service worker, a WebSocket. A request to another host or port, this computer and
+ * the network the app runs in included, gets 403 and no connection is made.
+ *
+ * Each host's name is resolved once, when the session starts, and every connection goes to that
+ * address: a name that later answers with another address (of this computer, of the app's
+ * network) changes nothing.
  *
  * It connects straight to the host: an application reachable only through a company proxy
  * (HTTPS_PROXY) cannot be planned from the app.
  */
 export type HostProxy = { url: string; close: () => void };
 
+/** Finds the address of a host name; the default asks the system, IPv4 first. */
+export type Resolve = (host: string) => Promise<string>;
+
+const systemResolve: Resolve = async (host) => {
+	const found = await lookup(host, { all: true });
+	const first = found.find((a) => a.family === 4) ?? found[0];
+	if (!first) throw new Error(`${host} has no address.`);
+	return first.address;
+};
+
+/** A host name as the proxy compares it: lower case, an IPv6 address without its brackets. */
+const hostName = (host: string) => host.toLowerCase().replaceAll(/^\[|\]$/g, '');
+
+/** `host:port` as the proxy's list holds it. */
+export const endpoint = (host: string, port: number) => `${hostName(host)}:${port}`;
+
 /**
- * Whether the proxy may connect to `host:port`. The hosts are as URL.host gives them: without the
- * port for 80 and 443, so a host named without a port is reachable on both.
+ * The endpoint of a web address: its host with the port of its scheme when it names none, or null
+ * for anything but http(s).
  */
-export function proxyAllows(host: string, port: number, hosts: ReadonlySet<string>): boolean {
-	const name = host.toLowerCase().replaceAll(/^\[|\]$/g, '');
-	const bare = name.includes(':') ? `[${name}]` : name;
-	return hosts.has(port === 80 || port === 443 ? bare : `${bare}:${port}`);
+export function endpointOf(address?: string): string | null {
+	try {
+		const url = new URL(address ?? '');
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+		return endpoint(url.hostname, Number(url.port || (url.protocol === 'https:' ? 443 : 80)));
+	} catch {
+		return null;
+	}
 }
 
 const REFUSED = 'HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n';
@@ -31,8 +56,29 @@ function authority(value = ''): { host: string; port: number } | null {
 	return match ? { host: match[1]!, port: Number(match[2]) } : null;
 }
 
-/** Starts the proxy for these hosts on a free port of 127.0.0.1. */
-export async function startHostProxy(hosts: ReadonlySet<string>): Promise<HostProxy> {
+/**
+ * Starts the proxy on a free port of 127.0.0.1. `endpoints` are the `host:port` it may connect to
+ * (see `endpoint`). A host whose name has no address is not reachable in this session.
+ */
+export async function startHostProxy(
+	endpoints: ReadonlySet<string>,
+	resolve: Resolve = systemResolve
+): Promise<HostProxy> {
+	// Once per host, now: what a name answers later does not matter.
+	const pinned = new Map<string, string>();
+	await Promise.all(
+		[...new Set([...endpoints].map((e) => e.slice(0, e.lastIndexOf(':'))))].map(async (host) => {
+			if (net.isIP(host)) pinned.set(host, host);
+			else {
+				const address = await resolve(host).catch(() => null);
+				if (address && net.isIP(address)) pinned.set(host, address);
+			}
+		})
+	);
+	/** The address to connect to, or null when the proxy must not or cannot. */
+	const target = (host: string, port: number) =>
+		endpoints.has(endpoint(host, port)) ? (pinned.get(hostName(host)) ?? null) : null;
+
 	const open = new Set<net.Socket>();
 	const track = (socket: net.Socket) => {
 		open.add(socket);
@@ -54,21 +100,17 @@ export async function startHostProxy(hosts: ReadonlySet<string>): Promise<HostPr
 			return;
 		}
 		const port = Number(url.port || 80);
-		if (url.protocol !== 'http:' || !proxyAllows(url.hostname, port, hosts)) {
+		const address = url.protocol === 'http:' ? target(url.hostname, port) : null;
+		if (!address) {
 			response.writeHead(403).end();
 			return;
 		}
+		// The Host header keeps the name; the connection goes to the pinned address.
 		const headers = Object.fromEntries(
 			Object.entries(request.headers).filter(([name]) => !name.startsWith('proxy-'))
 		);
 		const upstream = http.request(
-			{
-				host: url.hostname,
-				port,
-				method: request.method,
-				path: url.pathname + url.search,
-				headers
-			},
+			{ host: address, port, method: request.method, path: url.pathname + url.search, headers },
 			(answer) => {
 				response.writeHead(answer.statusCode ?? 502, answer.headers);
 				answer.pipe(response);
@@ -85,11 +127,12 @@ export async function startHostProxy(hosts: ReadonlySet<string>): Promise<HostPr
 	server.on('connect', (request, client: net.Socket, head: Buffer) => {
 		track(client);
 		const to = authority(request.url);
-		if (!to || !proxyAllows(to.host, to.port, hosts)) {
+		const address = to ? target(to.host, to.port) : null;
+		if (!to || !address) {
 			client.end(REFUSED);
 			return;
 		}
-		const upstream = net.connect(to.port, to.host, () => {
+		const upstream = net.connect(to.port, address, () => {
 			client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
 			upstream.write(head);
 			upstream.pipe(client);
@@ -108,9 +151,9 @@ export async function startHostProxy(hosts: ReadonlySet<string>): Promise<HostPr
 	});
 	server.on('connection', track);
 
-	await new Promise<void>((resolve, reject) => {
+	await new Promise<void>((resolveListen, reject) => {
 		server.once('error', reject);
-		server.listen(0, '127.0.0.1', resolve);
+		server.listen(0, '127.0.0.1', resolveListen);
 	});
 	const address = server.address();
 	if (address === null || typeof address === 'string') throw new Error('The proxy has no port.');
