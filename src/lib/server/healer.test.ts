@@ -135,6 +135,53 @@ describe('a session the app stopped', () => {
 	});
 });
 
+/** The healer changed a.ts in this test's session (as its gate and hook record it). */
+async function unreadRepair() {
+	const review = await import('./healer-review.js');
+	writeFileSync(file('a.ts'), 'B0');
+	review.beforeChange({ runId: RUN, testId: TEST, title: 'a test' }, file('a.ts'));
+	writeFileSync(file('a.ts'), 'H1');
+	review.afterChange();
+	saved({}, { [file('a.ts')]: { before: 'B0', after: 'H1' } });
+	return review;
+}
+
+describe('a repair nobody has read', () => {
+	test('keeps every run from starting until a person runs it', async () => {
+		const review = await unreadRepair();
+		expect(healer.healingState(RUN, TEST)?.unreviewed).toEqual([expect.stringMatching(/a\.ts$/)]);
+		expect(healer.runBlocker()).toMatch(/has not been read yet/);
+		expect(healer.repairToRun(RUN, TEST)).toEqual({ ok: true, file: 'a.spec.ts', title: 'a test' });
+		// Its own run may start; until it has, the repair stays unread for everything else.
+		expect(healer.runBlocker({ runId: RUN, testId: TEST })).toBeUndefined();
+		expect(healer.runBlocker({ runId: RUN, testId: 'another' })).toMatch(/has not been read/);
+		expect(healer.runBlocker()).toMatch(/has not been read yet/);
+		review.settleRepair(RUN, TEST);
+		expect(healer.runBlocker()).toBeUndefined();
+		expect(review.unreviewed()).toBeNull();
+		expect(healer.healingState(RUN, TEST)?.unreviewed).toBeUndefined();
+	});
+
+	test('or discards it', async () => {
+		await unreadRepair();
+		expect(healer.discardRepair(RUN, TEST)).toEqual({ ok: true, kept: [] });
+		expect(healer.runBlocker()).toBeUndefined();
+		// The saved state does not keep the list of unread files.
+		expect(readFileSync(join(runDir, 'healer', `${TEST}.json`), 'utf8')).not.toContain(
+			'unreviewed'
+		);
+	});
+
+	test('a discarded repair cannot be run', async () => {
+		await unreadRepair();
+		healer.discardRepair(RUN, TEST);
+		expect(healer.repairToRun(RUN, TEST)).toEqual({
+			ok: false,
+			error: 'The repair was discarded.'
+		});
+	});
+});
+
 describe('healerOptions', () => {
 	test('keeps the passwords from the model and from command lines, and the task as it is', () => {
 		const secret = 'Pw-of-the-test-user';

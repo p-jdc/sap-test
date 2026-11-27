@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { database, type AppDatabase } from './db/database.js';
 import { run, runTest } from './db/schema.js';
 import { RUNS_DIR, within } from './paths.js';
+import { unreviewed } from './healer-review.js';
 import { healingRun } from './healing-run.js';
 import { decide, retentionFromEnv, type Retention } from './retention.js';
 import {
@@ -340,10 +341,23 @@ function dropDeleted() {
 	history().run(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
 }
 
+/**
+ * The run whose healer repair nobody has read yet: it stays with its healer folder, so that the
+ * repair can be read, run or discarded from its page. A record that cannot be read still keeps
+ * every run from starting (healer-review.ts), but does not hold up the retention rules.
+ */
+function unreadRepairRun(): string | null {
+	try {
+		return unreviewed()?.runId ?? null;
+	} catch {
+		return null;
+	}
+}
+
 /** Deletes a run's directory and its rows. */
-function deleteRun(id: string): boolean {
+function deleteRun(id: string, keep = unreadRepairRun()): boolean {
 	const dir = within(RUNS_DIR, id);
-	if (!dir || dir === RUNS_DIR || id === liveId) return false;
+	if (!dir || dir === RUNS_DIR || id === liveId || id === keep) return false;
 	rmSync(dir, { recursive: true, force: true });
 	history().delete(run).where(eq(run.id, id)).run();
 	return true;
@@ -355,10 +369,11 @@ function deleteRun(id: string): boolean {
  */
 export function pruneRuns(keep = Number(process.env.TEST_APP_KEEP_RUNS)): string[] {
 	if (!Number.isInteger(keep) || keep < 1) return [];
+	const unread = unreadRepairRun();
 	const removed = listRuns()
 		.slice(keep)
 		.map((r) => r.id)
-		.filter((id) => deleteRun(id));
+		.filter((id) => deleteRun(id, unread));
 	if (removed.length > 0) dropDeleted();
 	return removed;
 }
@@ -452,12 +467,13 @@ export function applyRetention(
 		policy
 	);
 	const changed: string[] = [];
+	const unread = unreadRepairRun();
 	for (const r of runs) {
 		const dir = within(RUNS_DIR, r.id);
 		const decision = decisions.get(r.id);
 		if (!dir || dir === RUNS_DIR || !decision) continue;
-		// The healer works on it: its files go on the next pass after the session.
-		if (r.id === healingRun()) continue;
+		// The healer works on it, or its repair has not been read: its files go on a pass after that.
+		if (r.id === healingRun() || r.id === unread) continue;
 		let touched = false;
 		const set: Partial<RunRow> = {};
 		if (!decision.artifacts && !r.artifactsRemovedAt) {

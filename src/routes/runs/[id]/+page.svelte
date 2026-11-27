@@ -30,7 +30,11 @@
 	const run = $derived(query.current);
 	/** The tests of a sign-in that failed did not run (Playwright skips them). */
 	const signInFailed = $derived(run?.tests.some((t) => t.setup && t.status === 'failed') ?? false);
-	let error = $state<string | null>(null);
+	/** The last action's error; cleared when the page moves to another run. */
+	let error = $derived.by<string | null>(() => {
+		void id;
+		return null;
+	});
 
 	// When a live run ends, refresh the lists that depend on it.
 	let wasRunning = false;
