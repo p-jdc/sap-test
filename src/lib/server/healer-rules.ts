@@ -152,7 +152,7 @@ export function toolDecision(
 	testCodeBlocked = false
 ): ToolDecision {
 	if (!allowed.has(tool) || DENIED_MCP_TOOLS.has(tool))
-		return { allow: false, reason: `${tool} is not one of the healer's tools.` };
+		return { allow: false, reason: `${tool} is not one of the tools available here.` };
 	if (testCodeBlocked && TEST_CODE_TOOLS.has(tool))
 		return {
 			allow: false,

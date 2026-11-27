@@ -37,7 +37,7 @@ import {
 	settleRepair,
 	unreviewed
 } from './healer-review.js';
-import { setHealingRun } from './healing-run.js';
+import { planningBlock, setHealingRun } from './healing-run.js';
 import { settingNames } from './systems.js';
 import { idocTestEnv } from './idoc.js';
 import { childEnv, PLAYWRIGHT_PACKAGE, playwrightCommand } from './node-cli.js';
@@ -123,14 +123,19 @@ export function modelAccess(
 export function healerProblem(): string | undefined {
 	if (!healerOn())
 		return "The healer is off. It sends the test, its error and what the SAP screens show to the app's AI provider (TEST_APP_AI), so it is turned on with TEST_APP_HEALER=on once that is approved.";
+	return agentProblem('healer', HEALER_AGENT);
+}
+
+/** Why an agent of .claude/agents cannot run from this app, or undefined when it can. */
+export function agentProblem(name: string, agentFile: string): string | undefined {
 	const access = modelAccess();
 	if ('problem' in access) return access.problem;
 	// The agent file and its paths assume the test project of this repository.
 	if (resolve(TESTS_ROOT) !== resolve(APP_ROOT, 'sap-tests'))
-		return 'The healer works only on the test project in this repository (SAP_TESTS_DIR points elsewhere).';
-	if (!existsSync(HEALER_AGENT)) return `The healer's definition is missing: ${HEALER_AGENT}.`;
+		return `The ${name} works only on the test project in this repository (SAP_TESTS_DIR points elsewhere).`;
+	if (!existsSync(agentFile)) return `The ${name}'s definition is missing: ${agentFile}.`;
 	if (!process.versions.bun || !existsSync(MASK_SCRIPT))
-		return 'The healer needs the app to run on Bun from this repository (it starts src/lib/server/healer-mask.ts).';
+		return `The ${name} needs the app to run on Bun from this repository (it starts src/lib/server/healer-mask.ts).`;
 	if (!existsSync(PLAYWRIGHT_PACKAGE))
 		return 'Playwright is not installed. Run "bun run setup" in the repository root.';
 	return undefined;
@@ -302,10 +307,11 @@ function healerTask(test: RunTest, runId: string): string {
  * in the folder Claude Code works in (the repository root), not to a folder of their own.
  */
 const BROWSER_FILES = resolve(APP_ROOT, '.playwright-mcp');
-const browserFiles = () => new Set(existsSync(BROWSER_FILES) ? readdirSync(BROWSER_FILES) : []);
+export const browserFiles = () =>
+	new Set(existsSync(BROWSER_FILES) ? readdirSync(BROWSER_FILES) : []);
 
 /** Moves what the browser tools wrote during the session into the healer's folder of the run. */
-function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
+export function moveBrowserFiles(before: ReadonlySet<string>, to: string) {
 	const added = [...browserFiles()].filter((name) => !before.has(name));
 	if (added.length === 0 || !existsSync(dirname(to))) return;
 	mkdirSync(to, { recursive: true });
@@ -494,6 +500,8 @@ export async function startHealing(
 		return { ok: false, error: `The healer is working on "${activeHealing()?.title}".` };
 	if (activeRunId())
 		return { ok: false, error: 'A run is going; start the healer when it has finished.' };
+	const planning = planningBlock();
+	if (planning) return { ok: false, error: planning };
 	// Its test tools would run code nobody has read; it could not run a test at all.
 	const unread = reviewBlock();
 	if (unread) return { ok: false, error: unread };
@@ -754,11 +762,11 @@ export function repairToRun(
 }
 
 /**
- * Why no run may start now: the healer is working, or its repair has not been read. `reading` is
- * the repair a person has just read, whose run is starting.
+ * Why no run may start now: the healer or the planner is working, or the healer's repair has not
+ * been read. `reading` is the repair a person has just read, whose run is starting.
  */
 export function runBlocker(reading?: { runId: string; testId: string }): string | undefined {
 	const healing = activeHealing();
 	if (healing) return `The healer is working on "${healing.title}". Wait or stop it first.`;
-	return reviewBlock(reading);
+	return planningBlock() ?? reviewBlock(reading);
 }

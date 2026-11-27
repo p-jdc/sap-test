@@ -173,7 +173,14 @@ export default defineConfig<SapOptions>({
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure',
-		launchOptions: executablePath ? { executablePath } : {}
+		launchOptions: {
+			...(executablePath ? { executablePath } : {}),
+			// A test agent's session with limited hosts (sap-plugin/agent-hosts.ts): WebRTC would send
+			// packets past the session's proxy.
+			...(process.env.SAP_AGENT_PROXY
+				? { args: ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] }
+				: {})
+		}
 	},
 	projects: [
 		...systems.map((system) => ({

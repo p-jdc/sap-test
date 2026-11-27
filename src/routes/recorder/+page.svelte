@@ -1,10 +1,21 @@
 <script lang="ts">
-	import { settingsHref, testsHref } from '#lib/client/links.js';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import PlannerPanel from '#lib/components/PlannerPanel.svelte';
+	import { recorderHref, settingsHref, testsHref } from '#lib/client/links.js';
 	import { errorMessage } from '#lib/client/run-actions.js';
 	import { view } from '#lib/client/view.svelte.js';
 	import { RECORDER_LABEL } from '#lib/shared/format.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
 	import { getRecorder, startRecorder, stopRecorder } from '#lib/remote/recorder.remote.js';
+
+	/** Two ways to a new test: record it yourself, or have the AI planner write a plan first. */
+	const way = $derived(page.url.searchParams.get('way') === 'plan' ? 'plan' : 'record');
+	function onWay(e: CustomEvent<{ selectedItems: HTMLElement[] }>) {
+		void goto(recorderHref(e.detail.selectedItems[0]?.dataset.value === 'plan' ? 'plan' : null), {
+			replaceState: true
+		});
+	}
 
 	const rec = getRecorder();
 	const env = getEnvStatus();
@@ -75,161 +86,173 @@
 </script>
 
 <div class="page-head">
-	<ui5-title level="H2">Record a test</ui5-title>
+	<ui5-title level="H2">{way === 'plan' ? 'Plan a test' : 'Record a test'}</ui5-title>
+	<ui5-segmented-button onselection-change={onWay} accessible-name="How to create the test">
+		<ui5-segmented-button-item data-value="record" selected={way === 'record' || undefined}>
+			Record it yourself
+		</ui5-segmented-button-item>
+		<ui5-segmented-button-item data-value="plan" selected={way === 'plan' || undefined}>
+			Let the AI plan it
+		</ui5-segmented-button-item>
+	</ui5-segmented-button>
 </div>
 
-<ui5-message-strip design="Information" hide-close-button>
-	{#if view.technical}
-		The systems and their folders come from <span class="mono">sap-tests/systems.json</span>. Fiori
-		/ UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on stock
-		Playwright: UI5 itself describes each control, so the test names a row by its data and not by
-		its position. WebGUI (a folder named <span class="mono">webgui</span>) records with
-		<span class="mono">codegen</span> from the Playwright-SAP recorder (guide §4.4); the systems
-		that do not sign in with SAP's login, such as Ariba, with Playwright's own
-		<span class="mono">codegen</span>. Either way the recorded test runs on stock Playwright. The
-		browser opens on the machine that runs this app, so record from a local install. Fiori and
-		WebGUI log in automatically with the system's credentials from
-		<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>. Other systems
-		start with the session the last test run saved for them; without one you sign in by hand, and
-		then delete the sign-in steps from the test.
-	{:else}
-		Show the app once what to do, and it can repeat it as a test. How it works:
-		<ol class="how">
-			<li>Pick the system and give the test a name.</li>
-			<li>
-				Press “Start recording”. A browser window opens on this computer and logs in to SAP for you
-				(other systems, such as Ariba, start signed in once a test run has signed in to them; until
-				then you sign in yourself).
-			</li>
-			<li>
-				Do the task as you normally would. Every click and entry is written down; for Fiori a red
-				“Recording” mark at the top of the page counts them.
-			</li>
-			<li>
-				To have the test check something (a value, a text, a ticked box), press “Check” on that
-				mark, then click it. That click is written down as a check and does nothing in the app.
-			</li>
-			<li>Close the browser window when you are done. The test is saved.</li>
-		</ol>
-	{/if}
-</ui5-message-strip>
-
-<ui5-card class="form-card">
-	<div class="form">
-		<ui5-label for="target" show-colon>System</ui5-label>
-		<ui5-select
-			id="target"
-			onchange={(e: CustomEvent<{ selectedOption: HTMLElement }>) =>
-				(chosen = e.detail.selectedOption.dataset.value ?? null)}
-		>
-			{#each targets as t (t.target.folder)}
-				<ui5-option
-					data-value={t.target.folder}
-					selected={t.target.folder === current?.target.folder || undefined}
-				>
-					{t.label}{view.technical && !t.shared ? ` (tests/${t.target.folder})` : ''}
-				</ui5-option>
-			{/each}
-		</ui5-select>
-
-		<ui5-label for="name" required show-colon>Name of the test</ui5-label>
-		<ui5-input
-			id="name"
-			value={name}
-			placeholder="create sales order"
-			oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
-		></ui5-input>
-
-		{#if canSkipLogin}
-			<ui5-label for="nologin" show-colon>Without login</ui5-label>
-			<div class="row">
-				<ui5-switch
-					id="nologin"
-					checked={noLogin || undefined}
-					onchange={(e: Event) => (noLogin = (e.target as HTMLInputElement).checked)}
-				></ui5-switch>
-				<span class="muted">For a page that needs no SAP login, such as a demo app</span>
-			</div>
+{#if way === 'plan'}
+	<PlannerPanel />
+{:else}
+	<ui5-message-strip design="Information" hide-close-button>
+		{#if view.technical}
+			The systems and their folders come from <span class="mono">sap-tests/systems.json</span>.
+			Fiori / UI5 records with the recorder in <span class="mono">sap-tests/sap-plugin</span> on
+			stock Playwright: UI5 itself describes each control, so the test names a row by its data and
+			not by its position. WebGUI (a folder named <span class="mono">webgui</span>) records with
+			<span class="mono">codegen</span> from the Playwright-SAP recorder (guide §4.4); the systems
+			that do not sign in with SAP's login, such as Ariba, with Playwright's own
+			<span class="mono">codegen</span>. Either way the recorded test runs on stock Playwright. The
+			browser opens on the machine that runs this app, so record from a local install. Fiori and
+			WebGUI log in automatically with the system's credentials from
+			<a href={settingsHref()}>Settings</a> or <span class="mono">sap-tests/.env</span>. Other
+			systems start with the session the last test run saved for them; without one you sign in by
+			hand, and then delete the sign-in steps from the test.
+		{:else}
+			Show the app once what to do, and it can repeat it as a test. How it works:
+			<ol class="how">
+				<li>Pick the system and give the test a name.</li>
+				<li>
+					Press “Start recording”. A browser window opens on this computer and logs in to SAP for
+					you (other systems, such as Ariba, start signed in once a test run has signed in to them;
+					until then you sign in yourself).
+				</li>
+				<li>
+					Do the task as you normally would. Every click and entry is written down; for Fiori a red
+					“Recording” mark at the top of the page counts them.
+				</li>
+				<li>
+					To have the test check something (a value, a text, a ticked box), press “Check” on that
+					mark, then click it. That click is written down as a check and does nothing in the app.
+				</li>
+				<li>Close the browser window when you are done. The test is saved.</li>
+			</ol>
 		{/if}
+	</ui5-message-strip>
 
-		<ui5-label for="url" show-colon>Start page</ui5-label>
-		<ui5-input
-			id="url"
-			value={url}
-			placeholder={withoutLogin
-				? 'https://… the page to record'
-				: view.technical
-					? signsIn
-						? `defaults to ${current?.system.env.url} (same host only)`
-						: `defaults to ${current?.system.env.url}`
-					: 'Optional: leave empty to start on the usual start page'}
-			oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
-		></ui5-input>
+	<ui5-card class="form-card">
+		<div class="form">
+			<ui5-label for="target" show-colon>System</ui5-label>
+			<ui5-select
+				id="target"
+				onchange={(e: CustomEvent<{ selectedOption: HTMLElement }>) =>
+					(chosen = e.detail.selectedOption.dataset.value ?? null)}
+			>
+				{#each targets as t (t.target.folder)}
+					<ui5-option
+						data-value={t.target.folder}
+						selected={t.target.folder === current?.target.folder || undefined}
+					>
+						{t.label}{view.technical && !t.shared ? ` (tests/${t.target.folder})` : ''}
+					</ui5-option>
+				{/each}
+			</ui5-select>
 
-		<span></span>
-		<div class="row">
-			{#if recording}
-				<ui5-button icon="stop" design="Negative" onclick={() => stopRecorder()}>
-					Stop recording
-				</ui5-button>
-			{:else}
-				<ui5-button
-					icon="record"
-					design="Emphasized"
-					onclick={start}
-					disabled={!name.trim() || !ready || undefined}
-				>
-					Start recording
-				</ui5-button>
+			<ui5-label for="name" required show-colon>Name of the test</ui5-label>
+			<ui5-input
+				id="name"
+				value={name}
+				placeholder="create sales order"
+				oninput={(e: Event) => (name = (e.target as HTMLInputElement).value)}
+			></ui5-input>
+
+			{#if canSkipLogin}
+				<ui5-label for="nologin" show-colon>Without login</ui5-label>
+				<div class="row">
+					<ui5-switch
+						id="nologin"
+						checked={noLogin || undefined}
+						onchange={(e: Event) => (noLogin = (e.target as HTMLInputElement).checked)}
+					></ui5-switch>
+					<span class="muted">For a page that needs no SAP login, such as a demo app</span>
+				</div>
 			{/if}
-			{#if !ready && env.current}
-				<span class="muted">
-					{#if withoutLogin}
-						Enter the start page to record.
-					{:else}
-						The connection to this system is not set up yet.
-						<a href={settingsHref()}>Open Settings</a>
-					{/if}
-				</span>
-			{:else if !name.trim() && !recording}
-				<span class="muted">Give the test a name first.</span>
-			{/if}
+
+			<ui5-label for="url" show-colon>Start page</ui5-label>
+			<ui5-input
+				id="url"
+				value={url}
+				placeholder={withoutLogin
+					? 'https://… the page to record'
+					: view.technical
+						? signsIn
+							? `defaults to ${current?.system.env.url} (same host only)`
+							: `defaults to ${current?.system.env.url}`
+						: 'Optional: leave empty to start on the usual start page'}
+				oninput={(e: Event) => (url = (e.target as HTMLInputElement).value)}
+			></ui5-input>
+
+			<span></span>
+			<div class="row">
+				{#if recording}
+					<ui5-button icon="stop" design="Negative" onclick={() => stopRecorder()}>
+						Stop recording
+					</ui5-button>
+				{:else}
+					<ui5-button
+						icon="record"
+						design="Emphasized"
+						onclick={start}
+						disabled={!name.trim() || !ready || undefined}
+					>
+						Start recording
+					</ui5-button>
+				{/if}
+				{#if !ready && env.current}
+					<span class="muted">
+						{#if withoutLogin}
+							Enter the start page to record.
+						{:else}
+							The connection to this system is not set up yet.
+							<a href={settingsHref()}>Open Settings</a>
+						{/if}
+					</span>
+				{:else if !name.trim() && !recording}
+					<span class="muted">Give the test a name first.</span>
+				{/if}
+			</div>
 		</div>
-	</div>
-</ui5-card>
+	</ui5-card>
 
-{#if error}
-	<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
-{/if}
-
-{#if rec.current && rec.current.status !== 'idle'}
-	{@const status = rec.current.status}
-	{#if status === 'recording'}
-		<ui5-message-strip design="Information" hide-close-button>
-			Recording. Do your task in the browser window that opened, then close that window to save the
-			test.
-		</ui5-message-strip>
-	{:else if status === 'saved'}
-		<ui5-message-strip design="Positive" hide-close-button>
-			Your test is saved. <a href={testsHref()}>Open it under Tests</a> to look at its steps and run
-			it.
-			{#if view.technical}Clean it up with the AI assistant first (guide §4.7).{/if}
-		</ui5-message-strip>
-	{:else}
-		<ui5-message-strip design="Negative" hide-close-button>
-			The recording was not saved. This happens when the browser is closed before anything was done;
-			otherwise the details below say what went wrong.
-		</ui5-message-strip>
+	{#if error}
+		<ui5-message-strip design="Negative" onclose={() => (error = null)}>{error}</ui5-message-strip>
 	{/if}
-	{#if view.technical || status === 'error'}
-		<ui5-panel
-			header-text="Technical log{view.technical && rec.current.file
-				? ` · ${rec.current.file}`
-				: ''}"
-			collapsed={!view.technical || undefined}
-		>
-			<pre class="log">{rec.current.log.join('\n')}</pre>
-		</ui5-panel>
+
+	{#if rec.current && rec.current.status !== 'idle'}
+		{@const status = rec.current.status}
+		{#if status === 'recording'}
+			<ui5-message-strip design="Information" hide-close-button>
+				Recording. Do your task in the browser window that opened, then close that window to save
+				the test.
+			</ui5-message-strip>
+		{:else if status === 'saved'}
+			<ui5-message-strip design="Positive" hide-close-button>
+				Your test is saved. <a href={testsHref()}>Open it under Tests</a> to look at its steps and
+				run it.
+				{#if view.technical}Clean it up with the AI assistant first (guide §4.7).{/if}
+			</ui5-message-strip>
+		{:else}
+			<ui5-message-strip design="Negative" hide-close-button>
+				The recording was not saved. This happens when the browser is closed before anything was
+				done; otherwise the details below say what went wrong.
+			</ui5-message-strip>
+		{/if}
+		{#if view.technical || status === 'error'}
+			<ui5-panel
+				header-text="Technical log{view.technical && rec.current.file
+					? ` · ${rec.current.file}`
+					: ''}"
+				collapsed={!view.technical || undefined}
+			>
+				<pre class="log">{rec.current.log.join('\n')}</pre>
+			</ui5-panel>
+		{/if}
 	{/if}
 {/if}
 

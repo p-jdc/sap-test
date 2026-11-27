@@ -55,8 +55,8 @@ export const startTestRun = command(
 	}),
 	async (input) => {
 		// The healer runs the test it repairs itself; a run beside it would share the browser's
-		// session and the test results folder. And code the healer wrote runs only after a person
-		// has read it.
+		// session and the test results folder; so does the planner with its seed test. And code the
+		// healer wrote runs only after a person has read it.
 		const result = await startRun(input, () => runBlocker());
 		if (!result.ok) error(409, result.error);
 		await recordActivity(

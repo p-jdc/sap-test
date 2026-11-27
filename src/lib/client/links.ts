@@ -6,7 +6,9 @@ import { resolve } from '$app/paths';
 export const homeHref = () => resolve('/');
 export const testsHref = () => resolve('/tests');
 export const runsHref = () => resolve('/runs');
-export const recorderHref = () => resolve('/recorder');
+/** The page for a new test; `way` 'plan' opens it on the AI planner. */
+export const recorderHref = (way?: 'plan' | null) =>
+	resolve(way ? `/recorder?way=${way}` : '/recorder');
 export const settingsHref = () => resolve('/settings');
 
 export const runHref = (id: string) => resolve('/runs/[id]', { id });
