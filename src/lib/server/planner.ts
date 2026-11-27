@@ -16,9 +16,15 @@ import { parseAgentFile, toolInput } from './healer-rules.js';
 import { setPlanning } from './healing-run.js';
 import { idocTestEnv } from './idoc.js';
 import { APP_ROOT, DATA_DIR, toPosix, within } from './paths.js';
-import { describePlannerTool, PLANS_DIR, plannerDecision, sessionTarget } from './planner-rules.js';
+import {
+	describePlannerTool,
+	extraHosts,
+	PLANS_DIR,
+	plannerDecision,
+	sessionTarget
+} from './planner-rules.js';
 import { redactor } from './redact.js';
-import { endpointOf, startHostProxy, type HostProxy } from './agent-proxy.js';
+import { startHostProxy, type HostProxy } from './agent-proxy.js';
 import { activeRunId } from './runner.js';
 import { signInSystems } from './systems.js';
 import type { PlannerState } from '#lib/shared/types.js';
@@ -243,21 +249,13 @@ export async function startPlanning(
 	const settings = await runSettings();
 	// The browser reaches only these hosts, through a proxy of this session (agent-proxy.ts): the
 	// session's own, and those an admin added for what the application loads from elsewhere.
-	const extra = (process.env.TEST_APP_PLANNER_HOSTS ?? '')
-		.split(',')
-		.map((host) => host.trim().toLowerCase())
-		.filter(Boolean);
-	const hosts = new Set([...target.limits.hosts, ...extra]);
+	const extra = extraHosts(process.env.TEST_APP_PLANNER_HOSTS);
+	const hosts = new Set([...target.limits.hosts, ...extra.hosts]);
 	let proxy: HostProxy;
 	try {
 		// The session's own host on the port of its address; an added host on the port it names,
-		// else on 443.
-		proxy = await startHostProxy(
-			new Set([
-				...target.endpoints,
-				...extra.flatMap((host) => endpointOf(`https://${host}`) ?? [])
-			])
-		);
+		// else on that of its scheme.
+		proxy = await startHostProxy(new Set([...target.endpoints, ...extra.endpoints]));
 	} catch (e) {
 		return { ok: false, error: `The planner's proxy could not start: ${errorText(e)}` };
 	}
@@ -265,6 +263,14 @@ export async function startPlanning(
 		proxy.close();
 		return { ok: false as const, error };
 	};
+	// A typing error, or a name only a company proxy or a VPN knows: every page would be refused.
+	const unknown = [...target.endpoints]
+		.map((at) => at.slice(0, at.lastIndexOf(':')))
+		.filter((host) => proxy.unresolved.includes(host));
+	if (unknown.length > 0)
+		return refuse(
+			`This computer finds no address for ${unknown.join(', ')}. Check the address; the planner reaches an application only directly, not through a company proxy.`
+		);
 	// Checked after the last await: nothing below yields, so two requests cannot both start.
 	if (activePlanning()) return refuse('The planner is working already.');
 	const healing = activeHealing();

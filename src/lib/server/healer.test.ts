@@ -182,6 +182,19 @@ describe('a repair nobody has read', () => {
 	});
 });
 
+describe('the planner at work', () => {
+	test('keeps a run from starting', async () => {
+		const lock = await import('./healing-run.js');
+		expect(healer.runBlocker()).toBeUndefined();
+		lock.setPlanning('check out');
+		expect(healer.runBlocker()).toMatch(/^The planner is exploring/);
+		// Also the run of a repair a person has just read.
+		expect(healer.runBlocker({ runId: RUN, testId: TEST })).toMatch(/^The planner is exploring/);
+		lock.setPlanning(null);
+		expect(healer.runBlocker()).toBeUndefined();
+	});
+});
+
 describe('healerOptions', () => {
 	test('keeps the passwords from the model and from command lines, and the task as it is', () => {
 		const secret = 'Pw-of-the-test-user';

@@ -66,6 +66,11 @@ function through(
 						const { location } = r.headers;
 						resolve({ status: r.statusCode ?? 0, body, ...(location ? { location } : {}) });
 					});
+					// An answer that breaks off half way.
+					r.on('error', reject);
+					r.on('close', () => {
+						if (!r.complete) reject(new Error('The answer broke off.'));
+					});
 				}
 			)
 			.on('error', reject);
@@ -163,6 +168,53 @@ describe('the proxy of a planner session', () => {
 			Promise.reject(new Error('no address'))
 		);
 		expect((await through(proxy, 'http://nowhere.test/')).status).toBe(403);
+	});
+});
+
+describe('the proxy and a connection that breaks', () => {
+	/** A host that sends the start of an answer and then nothing more; it counts its connections. */
+	async function stalling(drop: boolean): Promise<{ host: string; open: () => number }> {
+		const sockets = new Set<net.Socket>();
+		const server = http.createServer((_request, response) => {
+			response.writeHead(200, { 'content-length': '100' });
+			response.write('start');
+			if (drop)
+				setTimeout(() => {
+					response.socket?.destroy();
+				}, 20);
+		});
+		server.on('connection', (socket) => {
+			sockets.add(socket);
+			socket.once('close', () => {
+				sockets.delete(socket);
+			});
+		});
+		await new Promise<void>((resolve) => {
+			server.listen(0, '127.0.0.1', resolve);
+		});
+		closers.push(() => {
+			server.closeAllConnections();
+			server.close();
+		});
+		return { host: `localhost:${portOf(server)}`, open: () => sockets.size };
+	}
+
+	test('a host that drops its answer half way ends the request, and the proxy goes on', async () => {
+		const broken = await stalling(true);
+		const app = await site('app');
+		const proxy = await proxyFor([broken.host, app.host]);
+		await expect(through(proxy, `http://${broken.host}/`)).rejects.toThrow();
+		expect((await through(proxy, `http://${app.host}/`)).status).toBe(200);
+	});
+
+	test('closing the proxy also closes its connections to the hosts', async () => {
+		const slow = await stalling(false);
+		const proxy = await proxyFor([slow.host]);
+		const pending = through(proxy, `http://${slow.host}/`).catch(() => null);
+		await expect.poll(() => slow.open()).toBe(1);
+		proxy.close();
+		await expect.poll(() => slow.open()).toBe(0);
+		await pending;
 	});
 });
 

@@ -133,6 +133,30 @@ export function plannerDecision(
 	}
 }
 
+/**
+ * The further hosts of TEST_APP_PLANNER_HOSTS, separated by commas: `host` or `host:port` for
+ * https, `http://host` or `http://host:port` for plain http. `hosts` holds them as the browser
+ * names them (URL.host, without the port of the scheme), `endpoints` as the proxy does. An entry
+ * that is no host is left out.
+ */
+export function extraHosts(setting?: string): { hosts: string[]; endpoints: string[] } {
+	const hosts = new Set<string>();
+	const endpoints = new Set<string>();
+	for (const entry of (setting ?? '').split(',')) {
+		const text = entry.trim().toLowerCase();
+		if (!text) continue;
+		// A host with or without a port, and nothing after it.
+		if (!/^(https?:\/\/)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?$/.test(text)) continue;
+		const address = /^https?:\/\//.test(text) ? text : `https://${text}`;
+		const host = webHost(address);
+		const at = endpointOf(address);
+		if (!host || !at) continue;
+		hosts.add(host);
+		endpoints.add(at);
+	}
+	return { hosts: [...hosts], endpoints: [...endpoints] };
+}
+
 /** Where a session starts and what its planner may open. */
 export type SessionTarget = {
 	/** For the page: the system's title, or the address. */

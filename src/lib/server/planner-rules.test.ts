@@ -6,6 +6,7 @@ import type { ToolInput } from './healer-rules.js';
 import {
 	BLANK_SEED,
 	describePlannerTool,
+	extraHosts,
 	plannerDecision,
 	sessionTarget,
 	SIGNED_IN_SEED,
@@ -217,6 +218,32 @@ describe('sessionTarget', () => {
 		expect(sessionTarget({}, { ...sap, address: undefined })).toBe(
 			'SAP test system has no address yet (SAP_URL, Settings page).'
 		);
+	});
+});
+
+describe('extraHosts', () => {
+	test('names each host as the browser does and as the proxy does', () => {
+		expect(
+			extraHosts(
+				' CDN.example.com, idp.example.com:443 ,sso.example.com:8443,http://old.example.com'
+			)
+		).toEqual({
+			hosts: ['cdn.example.com', 'idp.example.com', 'sso.example.com:8443', 'old.example.com'],
+			endpoints: [
+				'cdn.example.com:443',
+				'idp.example.com:443',
+				'sso.example.com:8443',
+				'old.example.com:80'
+			]
+		});
+	});
+
+	test('leaves out what is no host', () => {
+		expect(extraHosts()).toEqual({ hosts: [], endpoints: [] });
+		expect(extraHosts(', ,file:///etc,user:secret@example.com')).toEqual({
+			hosts: [],
+			endpoints: []
+		});
 	});
 });
 

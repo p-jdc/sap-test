@@ -16,7 +16,12 @@ import net from 'node:net';
  * It connects straight to the host: an application reachable only through a company proxy
  * (HTTPS_PROXY) cannot be planned from the app.
  */
-export type HostProxy = { url: string; close: () => void };
+export type HostProxy = {
+	url: string;
+	close: () => void;
+	/** The hosts whose name had no address at the start: the proxy refuses them. */
+	unresolved: string[];
+};
 
 /** Finds the address of a host name; the default asks the system, IPv4 first. */
 export type Resolve = (host: string) => Promise<string>;
@@ -66,12 +71,14 @@ export async function startHostProxy(
 ): Promise<HostProxy> {
 	// Once per host, now: what a name answers later does not matter.
 	const pinned = new Map<string, string>();
+	const unresolved: string[] = [];
 	await Promise.all(
 		[...new Set([...endpoints].map((e) => e.slice(0, e.lastIndexOf(':'))))].map(async (host) => {
 			if (net.isIP(host)) pinned.set(host, host);
 			else {
 				const address = await resolve(host).catch(() => null);
 				if (address && net.isIP(address)) pinned.set(host, address);
+				else unresolved.push(host);
 			}
 		})
 	);
@@ -80,6 +87,8 @@ export async function startHostProxy(
 		endpoints.has(endpoint(host, port)) ? (pinned.get(hostName(host)) ?? null) : null;
 
 	const open = new Set<net.Socket>();
+	/** The requests to hosts over plain http that are under way. */
+	const forwarded = new Set<http.ClientRequest>();
 	const track = (socket: net.Socket) => {
 		open.add(socket);
 		socket.once('close', () => {
@@ -112,13 +121,25 @@ export async function startHostProxy(
 		const upstream = http.request(
 			{ host: address, port, method: request.method, path: url.pathname + url.search, headers },
 			(answer) => {
+				// A host that drops the connection in the middle of its answer.
+				answer.on('error', () => {
+					response.destroy();
+				});
 				response.writeHead(answer.statusCode ?? 502, answer.headers);
 				answer.pipe(response);
 			}
 		);
+		forwarded.add(upstream);
 		upstream.on('error', () => {
 			if (response.headersSent) response.destroy();
 			else response.writeHead(502).end();
+		});
+		upstream.once('close', () => {
+			forwarded.delete(upstream);
+		});
+		// The browser gave up, or the session ended: the connection to the host goes too.
+		response.once('close', () => {
+			upstream.destroy();
 		});
 		request.pipe(upstream);
 	});
@@ -162,6 +183,8 @@ export async function startHostProxy(
 		close: () => {
 			server.close();
 			for (const socket of open) socket.destroy();
-		}
+			for (const request of forwarded) request.destroy();
+		},
+		unresolved
 	};
 }
