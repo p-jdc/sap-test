@@ -9,12 +9,14 @@ import { keychain, type SecretStore } from './secret-store.js';
 import {
 	API_SYSTEM,
 	IDOC_SYSTEMS,
+	OCTANE_SYSTEM,
 	readSystems,
 	secretSettings,
 	settingNames,
 	signInSystems
 } from './systems.js';
 import { IDOC_SAP_SETTINGS } from '#lib/shared/idoc.js';
+import { OCTANE_SETTINGS } from '#lib/shared/octane.js';
 import type { EnvStatus, SettingName, SettingSource } from '#lib/shared/types.js';
 
 /**
@@ -36,9 +38,9 @@ type Resolved = {
 	withheld: Map<SettingName, SettingSource>;
 };
 
-/** The URL setting of each system (systems.json and the OData system) and the credentials that belong to it. */
+/** The URL setting of each system (systems.json, the OData system, the IDoc targets and Octane) and the credentials that belong to it. */
 function credentialGroups(): { url: SettingName; credentials: SettingName[] }[] {
-	return [...signInSystems().map((s) => s.env), API_SYSTEM, ...IDOC_SYSTEMS].map(
+	return [...signInSystems().map((s) => s.env), API_SYSTEM, ...IDOC_SYSTEMS, OCTANE_SYSTEM].map(
 		({ url, user, password }) => ({
 			url,
 			credentials: [user, password]
@@ -171,6 +173,8 @@ function childVars({ values, withheld }: Resolved): Record<string, string> {
 	// The IDoc receiver's SAP systems and logins: tests send through the receiver and never get them. childEnv
 	// empties them for every child process.
 	for (const name of IDOC_SAP_SETTINGS) delete vars[name];
+	// The Octane importer's address and API key: only the app uses them.
+	for (const name of OCTANE_SETTINGS) delete vars[name];
 	return vars;
 }
 

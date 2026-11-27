@@ -40,6 +40,17 @@ test('an SAP system for IDocs is a host with https and a three-digit client, as 
 	expect(settingProblem('IDOC_S4_CLIENT', '1000')).toMatch(/three digits/);
 });
 
+test('Octane is the server without /ui, with https, and the space and workspace are numbers', () => {
+	expect(settingProblem('OCTANE_URL', 'https://octane.example.com')).toBeUndefined();
+	expect(settingProblem('OCTANE_URL', 'https://example.com/octane')).toBeUndefined();
+	expect(
+		settingProblem('OCTANE_URL', 'https://octane.example.com/ui/?p=1001/1002#/my-work')
+	).toMatch(/without \/ui.*https:\/\/octane\.example\.com\./);
+	expect(settingProblem('OCTANE_URL', 'http://octane.example.com')).toMatch(/https/);
+	expect(settingProblem('OCTANE_SHARED_SPACE', '1001')).toBeUndefined();
+	expect(settingProblem('OCTANE_WORKSPACE', '1001/1002')).toMatch(/must be a number/);
+});
+
 test('the self-signed host is a host name or IP address only', () => {
 	expect(settingProblem('SAP_SELF_SIGNED_HOST', '203.0.113.10')).toBeUndefined();
 	expect(settingProblem('SAP_SELF_SIGNED_HOST', 'S4H.Trial.Example.com')).toBeUndefined();

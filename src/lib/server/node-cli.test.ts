@@ -28,6 +28,11 @@ describe('childEnv', () => {
 		expect(childEnv({ IDOC_S4_URL: 'https://s4' }, parent).IDOC_S4_URL).toBe('https://s4');
 	});
 
+	test("the Octane importer's settings are empty, so no run or recording gets the API key", () => {
+		const env = childEnv({}, { ...parent, OCTANE_CLIENT_SECRET: 'key', OCTANE_URL: 'https://o' });
+		expect(env).toMatchObject({ OCTANE_CLIENT_SECRET: '', OCTANE_URL: '', OCTANE_CLIENT_ID: '' });
+	});
+
 	test('everything else is passed on, without the node shim, plus the extras', () => {
 		const env = childEnv({ SYSTEM: 'sap' }, parent);
 		expect(env.SAP_URL).toBe('https://sap.example.com');

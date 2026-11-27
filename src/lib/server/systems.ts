@@ -31,6 +31,13 @@ export const IDOC_SYSTEMS = [
 	{ url: 'IDOC_EWM_URL', user: 'IDOC_EWM_USER', password: 'IDOC_EWM_PASSWORD' }
 ] as const;
 
+/** The Octane server test cases are imported from: an API access key (client ID and secret), no sign-in. */
+export const OCTANE_SYSTEM = {
+	url: 'OCTANE_URL',
+	user: 'OCTANE_CLIENT_ID',
+	password: 'OCTANE_CLIENT_SECRET'
+} as const;
+
 /**
  * Where a recording for the system can be saved, and with which recorder: each of its folders
  * except those starting with `_` (reference and agent tests). An SAP system records with the UI5
@@ -126,6 +133,7 @@ export function secretSettings(systems = signInSystems()): SettingName[] {
 	return [
 		...systems.map((s) => s.env.password),
 		API_SYSTEM.password,
-		...IDOC_SYSTEMS.map((s) => s.password)
+		...IDOC_SYSTEMS.map((s) => s.password),
+		OCTANE_SYSTEM.password
 	];
 }

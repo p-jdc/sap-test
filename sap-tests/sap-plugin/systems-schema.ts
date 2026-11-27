@@ -109,7 +109,14 @@ export const FIXED_SETTINGS = [
 	'IDOC_EWM_URL',
 	'IDOC_EWM_CLIENT',
 	'IDOC_EWM_USER',
-	'IDOC_EWM_PASSWORD'
+	'IDOC_EWM_PASSWORD',
+	// Where the app imports test cases from: OpenText Octane (src/lib/shared/octane.ts). Only the app
+	// reads them; test runs and recordings never get them.
+	'OCTANE_URL',
+	'OCTANE_SHARED_SPACE',
+	'OCTANE_WORKSPACE',
+	'OCTANE_CLIENT_ID',
+	'OCTANE_CLIENT_SECRET'
 ] as const;
 
 // A value saved for a setting becomes an environment variable of every run. Names that the

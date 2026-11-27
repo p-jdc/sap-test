@@ -16,6 +16,7 @@
 		{ href: '/tests', link: resolve('/tests'), text: 'Tests', icon: 'process' },
 		{ href: '/runs', link: resolve('/runs'), text: 'Results', icon: 'history' },
 		{ href: '/recorder', link: resolve('/recorder'), text: 'Record a test', icon: 'record' },
+		{ href: '/octane', link: resolve('/octane'), text: 'Import from Octane', icon: 'download' },
 		{ href: '/mfs', link: resolve('/mfs'), text: 'Mock PLC', icon: 'machine' },
 		{ href: '/idoc', link: resolve('/idoc'), text: 'Mock IDoc', icon: 'inbox' },
 		{ href: '/odata', link: resolve('/odata'), text: 'Mock OData', icon: 'database' },
