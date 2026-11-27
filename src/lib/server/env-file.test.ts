@@ -386,7 +386,11 @@ describe('systems from sap-tests/systems.json', () => {
 			'IDOC_EWM_URL',
 			'IDOC_EWM_CLIENT',
 			'IDOC_EWM_USER',
-			'IDOC_EWM_PASSWORD'
+			'IDOC_EWM_PASSWORD',
+			'UFT_GIT_URL',
+			'UFT_GIT_BRANCH',
+			'UFT_GIT_USER',
+			'UFT_GIT_TOKEN'
 		]);
 		expect((await env.runSettings(NONE)).secrets).toEqual(['sf-pw']);
 

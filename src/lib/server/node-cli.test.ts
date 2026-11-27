@@ -28,6 +28,11 @@ describe('childEnv', () => {
 		expect(childEnv({ IDOC_S4_URL: 'https://s4' }, parent).IDOC_S4_URL).toBe('https://s4');
 	});
 
+	test('the repository UFT tests are read from is empty: only the app reads it', () => {
+		const env = childEnv({}, { ...parent, UFT_GIT_URL: 'https://git', UFT_GIT_TOKEN: 'token' });
+		expect(env).toMatchObject({ UFT_GIT_URL: '', UFT_GIT_TOKEN: '', UFT_GIT_USER: '' });
+	});
+
 	test('everything else is passed on, without the node shim, plus the extras', () => {
 		const env = childEnv({ SYSTEM: 'sap' }, parent);
 		expect(env.SAP_URL).toBe('https://sap.example.com');

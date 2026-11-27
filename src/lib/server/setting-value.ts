@@ -3,6 +3,7 @@ import {
 	selfSignedHostProblem
 } from '../../../sap-tests/sap-plugin/self-signed.js';
 import { allowsCredentials } from './origin.js';
+import { gitUrlProblem } from './uft-source.js';
 import type { SettingName } from '#lib/shared/types.js';
 
 /** Why `value` cannot be saved as this setting, or undefined when it can. */
@@ -27,6 +28,7 @@ export function settingProblem(setting: SettingName, value: string): string | un
 	) {
 		return `${setting} must be the three digits of an SAP client, for example 100.`;
 	}
+	if (setting === 'UFT_GIT_URL') return gitUrlProblem(value);
 	if (setting === SELF_SIGNED_SETTING) return selfSignedHostProblem(value);
 	return undefined;
 }

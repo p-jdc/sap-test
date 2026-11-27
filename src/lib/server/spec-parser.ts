@@ -892,6 +892,18 @@ export function parseSpec(file: string, source: string, helpers: HelperMap = {})
 			line
 		});
 	}
+	// A test translated from UFT (the Move from UFT page) carries its own marker for the same review.
+	const uft = /Aus UFT übersetzt,\s*geprüft von:[ \t]*(.*)/.exec(source);
+	const uftReviewer = uft?.[1]?.trim() ?? '';
+	if (uft && (!uftReviewer || /<name>/i.test(uftReviewer))) {
+		fileIssues.push({
+			rule: 'uft-review',
+			severity: 'warning',
+			message:
+				'Test translated from UFT without a named reviewer. Whoever checked the translation puts their name in the comment at the top of the file.',
+			line: source.slice(0, uft.index).split('\n').length
+		});
+	}
 	const surface = surfaceFromPath(file) ?? tests[0]?.surface ?? 'other';
 	return { file, surface, tests, issues: fileIssues };
 }

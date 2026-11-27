@@ -516,6 +516,18 @@ test.describe(() => {
 		expect(spec.issues).toMatchObject([{ rule: 'ai-review', severity: 'warning', line: 1 }]);
 	});
 
+	test('warns on tests translated from UFT until someone checked the translation', () => {
+		const body = `test('x', async () => {});`;
+		expect(
+			parseSpec('webgui/uft-x.spec.ts', `// Aus UFT übersetzt, geprüft von:\n// more\n${body}`)
+				.issues
+		).toMatchObject([{ rule: 'uft-review', severity: 'warning', line: 1 }]);
+		expect(
+			parseSpec('webgui/uft-x.spec.ts', `// Aus UFT übersetzt, geprüft von: A. Reviewer\n${body}`)
+				.issues
+		).toEqual([]);
+	});
+
 	test('a reviewer name, or no marker at all, is not a finding', () => {
 		const body = `test('x', async () => {});`;
 		expect(

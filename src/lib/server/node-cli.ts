@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { IDOC_SAP_SETTINGS } from '#lib/shared/idoc.js';
+import { UFT_SETTINGS } from '#lib/shared/uft.js';
 import { PACKAGES_DIR, TESTS_ROOT } from './paths.js';
 
 /**
@@ -44,7 +45,7 @@ export const APP_SECRETS = [
 
 /**
  * The app's environment for a child process: without Bun's node shim and the app's secrets, and with the IDoc
- * receiver's SAP systems empty. Those only the receiver gets, through `extra`. Empty rather than left out, so that a
+ * receiver's SAP systems and the UFT repository's settings empty. Those only the receiver gets, through `extra`. Empty rather than left out, so that a
  * test run's dotenv doesn't fill them from sap-tests/.env either.
  */
 export function childEnv(
@@ -58,7 +59,9 @@ export function childEnv(
 	const kept = Object.fromEntries(
 		Object.entries(env).filter(([name]) => !APP_SECRETS.includes(name))
 	);
-	const noSapSystems = Object.fromEntries(IDOC_SAP_SETTINGS.map((name) => [name, '']));
+	const noSapSystems = Object.fromEntries(
+		[...IDOC_SAP_SETTINGS, ...UFT_SETTINGS].map((name) => [name, ''])
+	);
 	return { ...kept, ...noSapSystems, PATH, ...extra };
 }
 

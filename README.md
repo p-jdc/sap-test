@@ -164,6 +164,7 @@ locators, source code, timelines, logs and the references to the guide. The tabl
 | Steps (per test) | The test parsed into a step graph (Svelte Flow), each step as a sentence. Overlay of any run: passed / failed / not reached per step with timings, live while a run is in progress. Technical details: action, locator type (UI5 / SID / SID path / role / CSS…), value, helper used, and the source panel with the selected step highlighted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Results          | Run history; per run: live progress, error, screenshot, video, step-by-step replay (the Playwright trace viewer) and the full HTML report. Technical details: per-test step timeline and the raw log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Record a test    | Pick a system and its folder (from `sap-tests/systems.json`, see "Adding a system"); starts a recorder with that system's saved credentials and writes `tests/<folder>/<name>.spec.ts`, importing from `sap-plugin`. Fiori: the UI5 recorder of `sap-plugin`, which logs in, shows a "Recording" mark with the step count and writes a spec that starts with `page.SAPLogin`. WebGUI: the Playwright-SAP recorder (`playwright codegen --sap-login`, §4.4), started through `sap-tests/recorder/codegen.cjs`, which hands it the login from the environment so the password is not on its command line. Systems with a login page of their own (Ariba): stock Playwright's `codegen`, without credentials; it starts from the session the last test run saved for the system (`sap-tests/.auth`, `--load-storage`) when the start page is on the system's address, and otherwise the person signs in. The line codegen writes for that session (`test.use({ storageState: … })`) is removed from the saved spec, which gets the session from its project "Let the AI plan it" switches the page to the planner (see "The planner in the app") |
+| Move from UFT    | Brings UFT One tests into this project, to replace UFT (see "Moving tests from UFT"): a folder uploaded from this computer or a Git repository (Settings). Lists each UFT test with what it drives (SAP GUI becomes WebGUI, Fiori stays Fiori), how many of its statements translate, and how far each imported test has come: statements still to do, review, passes in a row until the UFT test can be retired. Technical details: the UFT test's folder and the test file it became                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Mock PLC         | Stands in for the PLCs of an EWM-controlled automated warehouse (MFS) on Dev and Qual systems: the warehouse drawn live with its HUs, PLC connections, devices that can be switched off, protocol faults, "what happened" and the telegram log. Mode _Wait for EWM_ opens the PLC ports for a real EWM; mode _Demo_ adds a simulated EWM so the whole flow runs without SAP. **Scenarios** (choose one at the start or on the running Mock PLC) play prepared situations, such as a crane failing with a task waiting or a connection lost mid-task, step by step, and check what EWM did. The Mock PLC runs as its own process (`sap-tests/mfs`, see its README); with `MFS_EMULATOR_URL` the app controls one that runs elsewhere (its control token goes in `MFS_EMULATOR_TOKEN`). Technical details: ports, life telegrams, acknowledgements                                                                                                                                                                                                                                                                                              |
 | Mock IDoc        | Stands in for the partner system SAP sends IDocs to (`sap-tests/idoc`, see its README): start and stop the receiver, the address SAP posts to (SM59 type G destination, WE21 XML HTTP port), the received IDocs newest first with their control record and segments, and the answers per partner: refuse with an HTTP error, answer late to test SAP's timeout, or accept. **Try it without SAP** sends a sample IDoc in SAP's place. Tests started from the app reach the receiver it started through the `idocInbox` fixture. Its settings (address, HTTPS, login; `IDOC_*`, listed in `sap-tests/.env.example`) come from the app's environment or else `sap-tests/.env`; with `IDOC_HUB_URL` the app controls one that runs elsewhere (its control token goes in `IDOC_HUB_TOKEN`). Technical details: the SAP setup steps, the whole control record, SOAP and the request as SAP sent it                                                                                                                                                                                                                                                 |
 | Settings         | With sign-in on, admins only; People (invites, roles, removal) and the Activity log there too. SAP and Ariba address, user and password, saved in the computer's credential store through [`Bun.secrets`](https://bun.sh/docs/runtime/secrets) instead of a file. Shows whether each value is set, never the value. A user or password from `.env` or the environment is used only with the address set there (or one on the same host): when the address saved here points elsewhere, it is not used and the page says so. Technical details: where each value comes from and an optional Chromium path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -336,6 +337,56 @@ The `_demo` tests run offline against an inline page, so the app has something t
 system is connected; the Fiori/WebGUI/Ariba templates skip until their `.env` values are set. One
 demo test fails on purpose to produce a trace. `tests/fiori/rule-findings.example.spec.ts` is a
 `test.fixme` that shows what the rule check flags. Delete both once real flows exist.
+
+### Moving tests from UFT
+
+The **Move from UFT** page translates UFT One GUI tests into Playwright tests of this project, so that
+UFT can be retired test by test. It is separate from any import of manual test cases: UFT holds
+the automated tests, and nothing of them goes anywhere else.
+
+**Where the tests come from.** Either a folder chosen on the page (a UFT test, or a folder with
+several), or a Git repository set on the Settings page (`UFT_GIT_URL`, `UFT_GIT_BRANCH`,
+`UFT_GIT_USER`, `UFT_GIT_TOKEN`; HTTPS only, the token never in the address). Only the text files of
+UFT are read: the action scripts (`Action<n>/Script.mts`), function libraries (`.qfl`, `.vbs`) and
+object repositories exported as XML. The binary files (`Test.tsp`, `*.mtr`, `ObjectRepository.bdb`,
+`*.tsr`, `Default.xls`) are neither uploaded nor checked out (Git: a shallow, sparse checkout into
+`.data/uft/git`; an upload is kept in `.data/uft/uploads` for a day). The server needs `git` on its
+PATH for the repository. Only the app reads the `UFT_GIT_*` settings; test runs never get them.
+
+**Export the object repositories to XML first** (Object Repository Manager › File › Export to XML),
+next to the tests: UFT keeps them in binary files. Without them a script names its objects only by
+their logical names ("Order Type"), and the import cannot know which field that is.
+
+**What is translated.** SAP GUI for Windows becomes SAP WebGUI, which shows the same transactions and
+screens: WebGUI's SIDs are the IDs of SAP GUI Scripting that UFT recorded, so a field is written as
+the WebGUI recorder writes it (`getByRoleSID('textField', { name: 'VBAK-AUART' })`, else
+`locateSID(…)`). OK code plus Enter becomes `runTransaction`, `SendKey` and toolbar buttons
+(`btn[n]`) become `pressKey`, status bar checks `expectStatusBar`, fields, check boxes, radio buttons
+and tabs become `fill`, `check`, `click`. Web and SAPUI5 objects become UI5 locators where the
+repository names their text or placeholder (`button(page, 'Go')`), `Navigate` opens the same path on
+`SAP_URL`. Fixed waits, `Sync` and sign-in steps are dropped (each test starts with
+`page.SAPLogin`). Values from the data sheet, test parameters and environment become constants
+(`DATA`, `PARAMETERS`, `ENVIRONMENT`) to fill in: `Default.xls` is binary. The flow in `Action0`
+runs each action as a `test.step`, also an action of another test in the source.
+
+**What is not.** Conditions and loops with what is inside them, combo boxes, grids and table
+controls without full IDs, checkpoints (their checks are in binary files), function library
+calls, `SetSecure` and password fields (use `fillSecret` with a setting), and anything the import
+does not know. Each stays in the test file as its UFT statement in a comment marked `TODO UFT`, with
+the reason; a line translated on an assumption ends in `// check: …`. A test with anything left to
+do is `test.fixme`.
+
+**What is written.** Per UFT test `sap-tests/tests/<webgui or fiori folder>/uft-<name>.spec.ts`,
+tagged `@uft` and `@uft-<name>`, and a plan `sap-tests/specs/uft-<name>.plan.md` in the planner's
+format that lists every statement and what became of it (the generator agent can fill in the rest
+from it). SAP GUI tests (also those that drive a browser as well) go to the WebGUI folder of the SAP
+system in `systems.json`, browser-only tests to its Fiori folder. The test file starts with
+`// Aus UFT übersetzt, geprüft von:`, which the Tests page reports until someone puts their name
+there. Importing again never replaces a test file, and a plan only when asked to.
+
+**When a UFT test can go.** The page shows per test: statements still to do, ready to run (no
+`TODO UFT` left, still `test.fixme`), needs review, and then the passes in a row from the run
+history; after 10 (the reliability criterion of the Home page) the UFT test can be retired.
 
 ### Settings (environment variables of the app)
 
@@ -811,5 +862,6 @@ README there lists them and where each came from.
   the recorders refuse one, also when it comes from `.env`. Over `http://` the password would cross
   the network unencrypted. Addresses on this computer (`localhost`, `127.x.x.x`, `::1`) may use
   `http://`, for the OData mock and local stand-ins.
-- Not covered (guide §10): SAP GUI for Windows.
+- Not covered (guide §10): SAP GUI for Windows. UFT tests of SAP GUI are translated into WebGUI
+  tests instead ("Moving tests from UFT").
 - Octane import is not part of this version.

@@ -31,6 +31,13 @@ export const IDOC_SYSTEMS = [
 	{ url: 'IDOC_EWM_URL', user: 'IDOC_EWM_USER', password: 'IDOC_EWM_PASSWORD' }
 ] as const;
 
+/** The Git repository UFT tests are read from: a user and access token, no sign-in. */
+export const UFT_GIT_SYSTEM = {
+	url: 'UFT_GIT_URL',
+	user: 'UFT_GIT_USER',
+	password: 'UFT_GIT_TOKEN'
+} as const;
+
 /**
  * Where a recording for the system can be saved, and with which recorder: each of its folders
  * except those starting with `_` (reference and agent tests). An SAP system records with the UI5
@@ -126,6 +133,7 @@ export function secretSettings(systems = signInSystems()): SettingName[] {
 	return [
 		...systems.map((s) => s.env.password),
 		API_SYSTEM.password,
-		...IDOC_SYSTEMS.map((s) => s.password)
+		...IDOC_SYSTEMS.map((s) => s.password),
+		UFT_GIT_SYSTEM.password
 	];
 }
