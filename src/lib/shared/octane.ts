@@ -16,6 +16,9 @@ export const OCTANE_SETTINGS = [
 ] as const;
 export type OctaneSetting = (typeof OCTANE_SETTINGS)[number];
 
+/** The most tests one import takes. */
+export const MAX_IMPORT = 50;
+
 /** The kinds of Octane test the importer reads steps from. */
 export type OctaneTestKind = 'manual' | 'gherkin';
 

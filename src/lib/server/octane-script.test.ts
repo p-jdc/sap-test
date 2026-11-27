@@ -107,6 +107,27 @@ Feature: Sales orders
 		]);
 	});
 
+	test("a Rule's background is for that Rule's scenarios only", () => {
+		const script = [
+			'Feature: x',
+			'Background:',
+			'Given f',
+			'Rule: A',
+			'Background:',
+			'Given a',
+			'Scenario: one',
+			'When 1',
+			'Rule: B',
+			'Scenario: two',
+			'When 2'
+		].join('\n');
+		const { scenarios } = parseGherkinScript('Rules', script);
+		expect(scenarios.map((s) => s.steps.map((step) => step.action))).toEqual([
+			['Given f', 'Given a', 'When 1'],
+			['Given f', 'When 2']
+		]);
+	});
+
 	test('a feature with only a background is one test', () => {
 		const { scenarios } = parseGherkinScript('Only', 'Feature: x\nBackground:\n Given a\n');
 		expect(scenarios).toEqual([

@@ -32,9 +32,10 @@ if (odataMock)
 // inherit both.
 const idocMock = process.env.IDOC_HUB_MOCK === '1';
 // The SAP systems the IDoc receiver sends into, and their logins, are the receiver's alone: tests send through it.
-// dotenv may have loaded them from the environment file; no test or worker keeps them.
+// The Octane importer's address and API key are the app's alone. dotenv may have loaded them from the environment
+// file; no test or worker keeps them.
 for (const name of Object.keys(process.env))
-	if (/^IDOC_(S4|EWM)_/.test(name)) delete process.env[name];
+	if (/^(IDOC_(S4|EWM)_|OCTANE_)/.test(name)) delete process.env[name];
 /** The settings each SAP system IDocs are sent into has (IDOC_S4_URL and so on; idoc/server.mts). */
 const SAP_SETTINGS = [
 	'URL',

@@ -9,11 +9,11 @@
 		searchOctaneTests
 	} from '#lib/remote/octane.remote.js';
 	import { getEnvStatus } from '#lib/remote/specs.remote.js';
-	import type { ImportedFile, OctaneImportResult } from '#lib/shared/octane.js';
+	import { MAX_IMPORT, type ImportedFile, type OctaneImportResult } from '#lib/shared/octane.js';
 
 	const setup = getOctaneSetup();
 	const env = getEnvStatus();
-	const ready = $derived(setup.current?.missing.length === 0);
+	const ready = $derived(setup.current?.missing.length === 0 && !setup.current.problem);
 
 	let draft = $state('');
 	let search = $state({ text: '', offset: 0 });
@@ -33,6 +33,8 @@
 		folders.find((f) => f.folder === chosenFolder)?.folder ?? folders[0]?.folder
 	);
 	let replacePlans = $state(false);
+	// The selection is kept across pages; one import takes at most MAX_IMPORT.
+	const tooMany = $derived(selected.size > MAX_IMPORT);
 
 	let busy = $state(false);
 	let error = $state<string | null>(null);
@@ -48,7 +50,7 @@
 	}
 
 	async function runImport() {
-		if (!folder || selected.size === 0) return;
+		if (!folder || selected.size === 0 || tooMany) return;
 		busy = true;
 		error = null;
 		try {
@@ -106,9 +108,14 @@
 
 {#if setup.current && !ready}
 	<ui5-message-strip design="Critical" hide-close-button>
-		The connection to Octane is not set up yet{view.technical
-			? `: ${setup.current.missing.join(', ')}`
-			: ''}. <a href={settingsHref()}>Open Settings</a>
+		{#if setup.current.problem}
+			{setup.current.problem}
+		{:else}
+			The connection to Octane is not set up yet{view.technical
+				? `: ${setup.current.missing.join(', ')}`
+				: ''}.
+		{/if}
+		<a href={settingsHref()}>Open Settings</a>
 	</ui5-message-strip>
 {/if}
 
@@ -247,13 +254,16 @@
 				<ui5-button
 					icon="download"
 					design="Emphasized"
-					disabled={busy || selected.size === 0 || !folder || undefined}
+					disabled={busy || selected.size === 0 || tooMany || !folder || undefined}
 					onclick={runImport}
 				>
 					Import {selected.size === 1 ? 'one test' : `${selected.size} tests`}
 				</ui5-button>
 				{#if busy}<ui5-busy-indicator active size="S"></ui5-busy-indicator>{/if}
 				{#if selected.size === 0}<span class="muted">Select tests above first.</span>{/if}
+				{#if tooMany}
+					<span class="muted">At most {MAX_IMPORT} tests at a time: unselect some.</span>
+				{/if}
 			</div>
 		</div>
 	</ui5-card>

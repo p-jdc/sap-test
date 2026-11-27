@@ -75,6 +75,7 @@ function importedFiles(): Map<string, { plan?: string; spec?: string }> {
 /** The importer's settings, or an error that names those missing. */
 async function config(): Promise<OctaneConfig> {
 	const result = octaneConfig(await readTestEnv());
+	if (result.problem) throw new OctaneError(`${result.problem} Correct it on the Settings page.`);
 	if (result.missing)
 		throw new OctaneError(
 			`Octane is not set up yet. Set ${result.missing.join(', ')} on the Settings page.`
@@ -254,7 +255,12 @@ export function renderSpec(input: RenderInput): string {
 		'// in (or have the generator agent do it from the plan), then change test.fixme to test.',
 		`import { test } from ${tsString(input.pluginImport)};`
 	];
-	for (const scenario of distinct(parsed.scenarios)) {
+	// A test without steps (or a Gherkin test without scenarios) still gets one test to fill in.
+	const scenarios =
+		parsed.scenarios.length > 0
+			? distinct(parsed.scenarios)
+			: [{ name: test.name || `Octane test ${test.id}`, steps: [], examples: [] }];
+	for (const scenario of scenarios) {
 		const title = tsString(scenario.name);
 		const tag = `{ tag: ${tsString(`@octane-${test.id}`)} }`;
 		const head = `test.fixme(${title}, ${tag}, async () => {`;
@@ -272,6 +278,7 @@ export function renderSpec(input: RenderInput): string {
 			if (step.expect.length === 0) lines.push(`${indent}\t// to do`);
 			lines.push(`${indent}});`);
 		}
+		if (scenario.steps.length === 0) lines.push(`${indent}// No steps in Octane yet.`);
 		lines.push(...(wrapped ? ['\t}', ');'] : ['});']));
 	}
 	return `${lines.join('\n')}\n`;
@@ -308,7 +315,8 @@ export async function importOctane(
 		throw new OctaneError(`No system in systems.json records into tests/${input.folder}.`);
 	const cfg = await config();
 	const fetched = await withOctane(cfg, async (session: OctaneSession) => {
-		const tests = await session.byIds(input.ids);
+		// Only the tests asked for, whatever else the answer holds.
+		const tests = (await session.byIds(input.ids)).filter((t) => input.ids.includes(t.id));
 		const missing = input.ids.filter((id) => !tests.some((t) => t.id === id));
 		if (missing.length > 0)
 			throw new OctaneError(`Octane has no test ${missing.join(', ')} in this workspace.`);

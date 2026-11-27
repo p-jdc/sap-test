@@ -6,6 +6,7 @@ import { readTestEnv } from '#lib/server/env-file.js';
 import { octaneConfig, PAGE_SIZE } from '#lib/server/octane.js';
 import { OctaneError } from '#lib/server/octane-error.js';
 import { importFolders, importOctane, searchOctane } from '#lib/server/octane-import.js';
+import { MAX_IMPORT } from '#lib/shared/octane.js';
 import { getSpecs } from './specs.remote.js';
 
 /** Octane answered with an error, or cannot be reached: the page shows the message. */
@@ -19,6 +20,7 @@ export const getOctaneSetup = query(async () => {
 	const result = octaneConfig(await readTestEnv());
 	return {
 		missing: result.missing ?? [],
+		problem: result.problem,
 		server: result.config ? new URL(result.config.url).host : undefined,
 		folders: importFolders(),
 		pageSize: PAGE_SIZE
@@ -41,7 +43,7 @@ export const importOctaneTests = command(
 		ids: z
 			.array(z.string().regex(/^\d{1,18}$/))
 			.min(1)
-			.max(50),
+			.max(MAX_IMPORT),
 		folder: z.string().min(1).max(200),
 		replacePlans: z.boolean()
 	}),

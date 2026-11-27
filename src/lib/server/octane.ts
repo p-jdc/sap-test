@@ -17,13 +17,30 @@ export interface OctaneConfig {
 	clientSecret: string;
 }
 
-/** The importer's settings from the app's settings, or the names of those not set. */
+/**
+ * The importer's settings from the app's settings, or the names of those not set and what is
+ * wrong with those set. Values from the environment file do not pass the Settings page's checks.
+ */
 export function octaneConfig(
 	settings: Record<string, string>
-): { config: OctaneConfig; missing?: never } | { config?: never; missing: OctaneSetting[] } {
+):
+	| { config: OctaneConfig; missing?: never; problem?: never }
+	| { config?: never; missing: OctaneSetting[]; problem?: string } {
 	const missing = OCTANE_SETTINGS.filter((name) => !settings[name]?.trim());
 	if (missing.length > 0) return { missing };
 	const value = (name: OctaneSetting) => settings[name]?.trim() ?? '';
+	const url = URL.parse(value('OCTANE_URL'));
+	if (url?.protocol !== 'https:' && url?.protocol !== 'http:')
+		return {
+			missing: [],
+			problem: 'OCTANE_URL is not a web address such as https://octane.example.com.'
+		};
+	for (const name of ['OCTANE_SHARED_SPACE', 'OCTANE_WORKSPACE'] as const)
+		if (!/^\d+$/.test(value(name)))
+			return {
+				missing: [],
+				problem: `${name} must be a number: in a link to Octane, ?p=<shared space>/<workspace>.`
+			};
 	return {
 		config: {
 			url: value('OCTANE_URL').replace(/\/+$/, ''),
@@ -45,7 +62,8 @@ const Named = z.object({ name: z.string().optional(), full_name: z.string().opti
 const NamedList = z.object({ data: z.array(Named) });
 
 const TestEntity = z.object({
-	id: z.union([z.string(), z.number()]).transform(String),
+	// Written into file names and generated code: digits only.
+	id: z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]).transform(String),
 	name: z.string().default(''),
 	subtype: z.string().optional(),
 	description: z.string().nullish(),
@@ -207,7 +225,10 @@ export class OctaneSession {
 			// The query keeps its own encoding rules; URLSearchParams would turn spaces into `+`.
 			const url = `${this.base}/tests?query=${encodeURIComponent(`"${query}"`)}&${search.toString()}`;
 			const response = await this.send(url, what);
-			return TestCollection.parse(await response.json());
+			const parsed = TestCollection.safeParse(await response.json().catch(() => null));
+			if (!parsed.success)
+				throw new OctaneError(`${what}: Octane's answer is not a list of tests.`);
+			return parsed.data;
 		};
 		try {
 			return await read(FIELDS);

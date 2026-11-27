@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { FAKE_KEY, fakeOctane, type FakeOctane } from '../../test/fake-octane.js';
+import { must } from '../../test/must.js';
 import { copySystems } from '../../test/systems.js';
 
 // The importer's settings: a stand-in for what the app reads from its settings. Vitest hoists both.
@@ -194,6 +195,17 @@ test.fixme('Create sales order (VA01)', { tag: '@octane-1501' }, async () => {
 		).rejects.toThrow('Octane has no test 1599 in this workspace.');
 	});
 
+	test('imports only the tests asked for, whatever else Octane answers', async () => {
+		const { importOctane } = await importer();
+		const asked = octane.fetch;
+		// Octane (or a proxy) answers the id query with one more test.
+		vi.stubGlobal('fetch', (input: string, init?: RequestInit) =>
+			asked(input.replace('id%20IN%201501', 'id%20IN%201501%2C1502'), init)
+		);
+		const results = await importOctane({ ids: ['1501'], folder: 'webgui', replacePlans: false });
+		expect(results.map((r) => r.id)).toEqual(['1501']);
+	});
+
 	test('names the settings missing before it calls Octane', async () => {
 		settings.values = { OCTANE_URL: SETTINGS.OCTANE_URL };
 		const { searchOctane } = await importer();
@@ -215,10 +227,18 @@ describe('the files', () => {
 			script:
 				"Scenario Outline: s\nGiven a \"b\" and 'c' and 'd'\nThen e\nExamples:\n| a | long b |\n| 1 | 2 |\n"
 		};
-		octane = fakeOctane([MANUAL, long]);
+		// A test without steps, and a Gherkin test without scenarios, still give a test to fill in.
+		const empty = { id: '1505', name: 'No steps yet', subtype: 'test_manual', script: '' };
+		const bare = {
+			id: '1506',
+			name: 'Bare feature',
+			subtype: 'gherkin_test',
+			script: 'Feature: x'
+		};
+		octane = fakeOctane([MANUAL, long, empty, bare]);
 		vi.stubGlobal('fetch', octane.fetch);
 		const results = await importOctane({
-			ids: ['1501', '1504'],
+			ids: ['1501', '1504', '1505', '1506'],
 			folder: 'webgui',
 			replacePlans: false
 		});
@@ -230,6 +250,17 @@ describe('the files', () => {
 			{ encoding: 'utf8' }
 		);
 		expect(check.stdout + check.stderr).toContain('All matched files use the correct format.');
+		const specs = results.map((r) => join(root, r.spec.file));
+		expect(read(must(results[3]).spec.file)).toContain(
+			"test.fixme('Bare feature', { tag: '@octane-1506' }, async () => {\n\t// No steps in Octane yet.\n});"
+		);
+		// oxlint's default rules (no-unused-vars among them), run where the repository's type-aware
+		// configuration is not found: it cannot resolve the plugin from this temporary folder.
+		const lint = spawnSync(join(repo, 'node_modules/.bin/oxlint'), ['--deny-warnings', ...specs], {
+			cwd: root,
+			encoding: 'utf8'
+		});
+		expect(lint.stdout + lint.stderr).toBe('');
 	});
 });
 

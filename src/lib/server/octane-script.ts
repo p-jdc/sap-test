@@ -67,10 +67,14 @@ const STEP = /^(Given|When|Then|And|But|\*)\s+(.*)$/;
 
 /**
  * The scenarios of a Gherkin test (English keywords). Background steps come first in each
- * scenario; Then and the And or But after it are checks of the step before, the rest actions.
+ * scenario (the feature's, then those of the scenario's Rule); Then and the And or But after it
+ * are checks of the step before, the rest actions.
  */
 export function parseGherkinScript(name: string, script: string): ParsedScript {
 	const background: PlanStep[] = [];
+	// The Background of the Rule being read; a new Rule starts without one.
+	let ruleBackground: PlanStep[] = [];
+	let inRule = false;
 	const scenarios: PlanScenario[] = [];
 	let target: PlanStep[] | null = null;
 	let current: PlanScenario | null = null;
@@ -97,17 +101,27 @@ export function parseGherkinScript(name: string, script: string): ParsedScript {
 		if (!line || line.startsWith('#') || line.startsWith('@')) continue;
 		const scenario = SCENARIO.exec(line);
 		if (scenario) {
-			current = { name: scenario[2] || name, steps: structuredClone(background), examples: [] };
+			current = {
+				name: scenario[2] || name,
+				steps: structuredClone([...background, ...ruleBackground]),
+				examples: []
+			};
 			scenarios.push(current);
 			target = current.steps;
 			inExamples = false;
 			continue;
 		}
 		if (line.startsWith('Background:')) {
-			target = background;
+			target = inRule ? ruleBackground : background;
 			continue;
 		}
-		if (/^(Feature|Rule):/.test(line)) {
+		if (line.startsWith('Rule:')) {
+			inRule = true;
+			ruleBackground = [];
+			target = null;
+			continue;
+		}
+		if (line.startsWith('Feature:')) {
 			target = null;
 			continue;
 		}

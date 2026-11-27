@@ -49,6 +49,23 @@ describe('octaneConfig', () => {
 		).toEqual({ ...config, clientSecret: ' s3cret' });
 	});
 
+	test('says what is wrong with an address or a number from the environment file', () => {
+		const set = {
+			OCTANE_URL: 'octane.example.com',
+			OCTANE_SHARED_SPACE: '1001',
+			OCTANE_WORKSPACE: '1002',
+			OCTANE_CLIENT_ID: 'importer',
+			OCTANE_CLIENT_SECRET: 's3cret'
+		};
+		expect(octaneConfig(set)).toEqual({
+			missing: [],
+			problem: 'OCTANE_URL is not a web address such as https://octane.example.com.'
+		});
+		expect(
+			octaneConfig({ ...set, OCTANE_URL: 'https://o.example.com', OCTANE_WORKSPACE: 'w' }).problem
+		).toMatch(/^OCTANE_WORKSPACE must be a number/);
+	});
+
 	test('links a test to its page in Octane', () => {
 		expect(octaneLink(config, '11')).toBe(
 			'https://octane.example.com/ui/entity-navigation?p=1001/1002&entityType=test&id=11'
@@ -114,6 +131,13 @@ describe('a session', () => {
 				await expect(s.byIds(['11) || (id GT 0'])).rejects.toThrow('Octane ids are numbers.');
 			},
 			octane.fetch
+		);
+	});
+
+	test('refuses an answer whose ids are not numbers', async () => {
+		const octane = fakeOctane([{ id: "1');\nevil()//", name: 'x', subtype: 'test_manual' }]);
+		await expect(withOctane(config, (s) => s.search(''), octane.fetch)).rejects.toThrow(
+			"Searching Octane: Octane's answer is not a list of tests."
 		);
 	});
 
