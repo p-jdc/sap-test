@@ -38,6 +38,16 @@ describe('startPlanning', () => {
 		expect(result).toHaveProperty('error', expect.stringMatching(/^The planner is off/));
 		expect(planner.activePlanning()).toBeNull();
 	});
+
+	test("is refused while the record of the healer's unread repairs stands", async () => {
+		vi.stubEnv('TEST_APP_PLANNER', 'on');
+		// One that cannot be read blocks all test code, the planner's seed test included.
+		writeFileSync(join(data, 'healer-unreviewed.json'), '{');
+		expect(planner.plannerProblem()).toMatch(/cannot be read, so no test code runs/);
+		const result = await planner.startPlanning({ address: 'https://example.org', flow: 'x' });
+		expect(result).toHaveProperty('error', expect.stringMatching(/so no test code runs/));
+		expect(planner.activePlanning()).toBeNull();
+	});
 });
 
 describe('the sessions', () => {

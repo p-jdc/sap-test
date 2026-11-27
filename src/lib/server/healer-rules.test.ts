@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
 	describeTool,
 	parseAgentFile,
+	TEST_CODE_TOOLS,
 	toolDecision,
 	unifiedDiff,
 	type ToolInput
@@ -58,6 +59,9 @@ describe('toolDecision', () => {
 	let output = '';
 	const decide = (tool: string, input: ToolInput) =>
 		toolDecision(tool, input, root, allowed, output);
+	/** With code it changed not read yet. */
+	const blocked = (tool: string) =>
+		toolDecision(tool, {}, root, allowed, output, TEST_CODE_TOOLS.has(tool));
 
 	beforeAll(() => {
 		root = mkdtempSync(join(tmpdir(), 'healer-rules-'));
@@ -95,6 +99,22 @@ describe('toolDecision', () => {
 
 	test('allows the tools of the MCP server it lists', () => {
 		expect(decide('mcp__playwright-test__test_run', { locations: [] })).toEqual({ allow: true });
+	});
+
+	test('runs no test code while code it changed has not been read', () => {
+		const run = blocked('mcp__playwright-test__test_run');
+		expect(run.allow).toBe(false);
+		expect(run).toHaveProperty(
+			'reason',
+			expect.stringMatching(/runs only after a person has read/)
+		);
+		// The browser tools act on the test it paused before, and run nothing new.
+		expect(blocked('mcp__playwright-test__browser_snapshot')).toEqual({ allow: true });
+		expect([...TEST_CODE_TOOLS].toSorted()).toEqual([
+			'mcp__playwright-test__test_debug',
+			'mcp__playwright-test__test_list',
+			'mcp__playwright-test__test_run'
+		]);
 	});
 
 	test.each([

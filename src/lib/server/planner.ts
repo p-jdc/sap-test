@@ -11,6 +11,7 @@ import {
 	moveBrowserFiles
 } from './healer.js';
 import { masker } from './healer-mask.js';
+import { reviewBlock } from './healer-review.js';
 import { parseAgentFile, toolInput } from './healer-rules.js';
 import { setPlanning } from './healing-run.js';
 import { idocTestEnv } from './idoc.js';
@@ -47,7 +48,8 @@ export const plannerOn = () => process.env.TEST_APP_PLANNER === 'on';
 export function plannerProblem(): string | undefined {
 	if (!plannerOn())
 		return "The planner is off. It explores the application on its own, with a test user's rights, and sends what the screens show to the app's AI provider (TEST_APP_AI), so it is turned on with TEST_APP_PLANNER=on once that is approved.";
-	return agentProblem('planner', PLANNER_AGENT);
+	// Its seed test is test code, and none runs while a repair of the healer has not been read.
+	return reviewBlock() ?? agentProblem('planner', PLANNER_AGENT);
 }
 
 type Planning = { state: PlannerState; abort: AbortController };
@@ -268,6 +270,8 @@ export async function startPlanning(
 	const healing = activeHealing();
 	if (healing) return refuse(`The healer is working on "${healing.title}".`);
 	if (activeRunId()) return refuse('A run is going; start the planner when it has finished.');
+	const unread = reviewBlock();
+	if (unread) return refuse(unread);
 
 	const id = newId();
 	const files = sessionFiles(id);

@@ -315,6 +315,11 @@ export interface HealerState {
 	discarded?: boolean;
 	/** Files the undo left as they were, because someone changed them after the healer. */
 	discardKept?: string[];
+	/**
+	 * Files of the repair that hold code nobody has read yet: no test runs until a person runs the
+	 * repair from the run page or discards it.
+	 */
+	unreviewed?: string[];
 	/** The estimated cost of the model calls, in US dollars. */
 	costUsd?: number;
 }
