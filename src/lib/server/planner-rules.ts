@@ -143,11 +143,11 @@ export function extraHosts(setting?: string): { hosts: string[]; endpoints: stri
 	const hosts = new Set<string>();
 	const endpoints = new Set<string>();
 	for (const entry of (setting ?? '').split(',')) {
-		const text = entry.trim().toLowerCase();
-		if (!text) continue;
+		const name = entry.trim().toLowerCase();
+		if (!name) continue;
 		// A host with or without a port, and nothing after it.
-		if (!/^(https?:\/\/)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?$/.test(text)) continue;
-		const address = /^https?:\/\//.test(text) ? text : `https://${text}`;
+		if (!/^(https?:\/\/)?(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(:\d{1,5})?$/.test(name)) continue;
+		const address = /^https?:\/\//.test(name) ? name : `https://${name}`;
 		const host = webHost(address);
 		const at = endpointOf(address);
 		if (!host || !at) continue;

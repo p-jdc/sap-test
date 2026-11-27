@@ -171,39 +171,41 @@ describe('the proxy of a planner session', () => {
 	});
 });
 
-describe('the proxy and a connection that breaks', () => {
-	/** A host that sends the start of an answer and then nothing more; it counts its connections. */
-	async function stalling(drop: boolean): Promise<{ host: string; open: () => number }> {
-		const sockets = new Set<net.Socket>();
-		const server = http.createServer((_request, response) => {
-			response.writeHead(200, { 'content-length': '100' });
-			response.write('start');
-			if (drop)
-				setTimeout(() => {
-					response.socket?.destroy();
-				}, 20);
+/** A host that sends the start of an answer and then nothing more; it counts its connections. */
+async function stalling(drop: boolean): Promise<{ host: string; open: () => number }> {
+	const sockets = new Set<net.Socket>();
+	const server = http.createServer((_request, response) => {
+		response.writeHead(200, { 'content-length': '100' });
+		response.write('start');
+		if (drop)
+			setTimeout(() => {
+				response.socket?.destroy();
+			}, 20);
+	});
+	server.on('connection', (socket) => {
+		sockets.add(socket);
+		socket.once('close', () => {
+			sockets.delete(socket);
 		});
-		server.on('connection', (socket) => {
-			sockets.add(socket);
-			socket.once('close', () => {
-				sockets.delete(socket);
-			});
-		});
-		await new Promise<void>((resolve) => {
-			server.listen(0, '127.0.0.1', resolve);
-		});
-		closers.push(() => {
-			server.closeAllConnections();
-			server.close();
-		});
-		return { host: `localhost:${portOf(server)}`, open: () => sockets.size };
-	}
+	});
+	await new Promise<void>((resolve) => {
+		server.listen(0, '127.0.0.1', resolve);
+	});
+	closers.push(() => {
+		server.closeAllConnections();
+		server.close();
+	});
+	return { host: `localhost:${portOf(server)}`, open: () => sockets.size };
+}
 
+describe('the proxy and a connection that breaks', () => {
 	test('a host that drops its answer half way ends the request, and the proxy goes on', async () => {
 		const broken = await stalling(true);
 		const app = await site('app');
 		const proxy = await proxyFor([broken.host, app.host]);
-		await expect(through(proxy, `http://${broken.host}/`)).rejects.toThrow();
+		await expect(through(proxy, `http://${broken.host}/`)).rejects.toThrow(
+			/broke off|aborted|hang up|ECONNRESET|closed/i
+		);
 		expect((await through(proxy, `http://${app.host}/`)).status).toBe(200);
 	});
 
