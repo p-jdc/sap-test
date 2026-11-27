@@ -106,13 +106,13 @@ SuccessFactors behind IAS:
 
 ```json
 {
-	"id": "successfactors",
-	"title": "SuccessFactors",
-	"description": "Optional: only for SuccessFactors tests",
-	"optional": true,
-	"signIn": { "method": "ias" },
-	"env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
-	"tests": ["successfactors"]
+  "id": "successfactors",
+  "title": "SuccessFactors",
+  "description": "Optional: only for SuccessFactors tests",
+  "optional": true,
+  "signIn": { "method": "ias" },
+  "env": { "url": "SF_URL", "user": "SF_USERNAME", "password": "SF_PASSWORD" },
+  "tests": ["successfactors"]
 }
 ```
 
@@ -580,7 +580,7 @@ report (the cause, test or application, what it changed) and a diff of every fil
   whatever is in the files.
 - Its changes stay in the working tree of the app's checkout. Nothing is committed: a person checks
   that no assertion was removed or loosened, puts their name in the line `KI-generiert, geprüft
-von:`, and commits, or presses "Discard the repair", which puts back the files as they were
+  von:`, and commits, or presses "Discard the repair", which puts back the files as they were
   before (a file someone changed since is left alone). "Diagnose again" on a repair that was run
   and not discarded goes on from it: the diff and the discard still go back to before the first
   session.
