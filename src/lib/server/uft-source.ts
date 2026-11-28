@@ -30,6 +30,10 @@ const GIT_DIR = () => resolve(UFT_DIR(), 'git');
 
 /** An upload is kept this long after it started, then removed with the next upload. */
 const UPLOAD_KEPT_MS = 24 * 60 * 60 * 1000;
+/** Uploads kept at most: a new one removes the oldest beyond, so uploads cannot fill the disk. */
+const UPLOADS_KEPT = 5;
+/** Bytes one upload may hold: the importer reads at most UFT_LIMITS.totalChars characters. */
+const UPLOAD_BYTES = 60_000_000;
 
 const UPLOAD_ID = /^[0-9a-f-]{36}$/;
 
@@ -59,17 +63,25 @@ export function readFolder(root: string): UftFile[] {
 
 // ---- Upload -----------------------------------------------------------------------------------
 
+/** Removes uploads older than a day, and the oldest beyond the newest UPLOADS_KEPT - 1. */
 function removeOldUploads(now: number) {
 	if (!existsSync(UPLOADS_DIR())) return;
-	for (const id of readdirSync(UPLOADS_DIR())) {
-		const dir = join(UPLOADS_DIR(), id);
-		try {
-			if (now - statSync(dir).mtimeMs > UPLOAD_KEPT_MS)
-				rmSync(dir, { recursive: true, force: true });
-		} catch {
-			// Removed meanwhile.
-		}
-	}
+	const uploads = readdirSync(UPLOADS_DIR())
+		.map((id) => {
+			const dir = join(UPLOADS_DIR(), id);
+			try {
+				return { dir, time: statSync(dir).mtimeMs };
+			} catch {
+				// Removed meanwhile.
+				return null;
+			}
+		})
+		.filter((u) => u !== null)
+		.toSorted((a, b) => b.time - a.time);
+	uploads.forEach((upload, i) => {
+		if (i >= UPLOADS_KEPT - 1 || now - upload.time > UPLOAD_KEPT_MS)
+			rmSync(upload.dir, { recursive: true, force: true });
+	});
 }
 
 /** Starts an upload: a new, empty folder. */
@@ -115,7 +127,7 @@ export function addToUpload(id: string, parts: { path: string; text: string }[])
 			throw new UftSourceError(`Not a file inside the upload: ${part.path}`);
 		if (!existsSync(full)) size.files++;
 		size.chars += Buffer.byteLength(part.text);
-		if (size.files > UFT_LIMITS.files || size.chars > UFT_LIMITS.totalChars * 3)
+		if (size.files > UFT_LIMITS.files || size.chars > UPLOAD_BYTES)
 			throw new UftSourceError(
 				`The folder holds more than the importer reads at once (${UFT_LIMITS.files} files). Upload a part of it.`
 			);
@@ -282,6 +294,8 @@ async function checkout(
 
 /** The files of the last checkout, and its commit; undefined before the first one. */
 export async function checkoutFiles(): Promise<{ files: UftFile[]; commit: string } | undefined> {
+	// Not while a read of the repository replaces the checkout folder.
+	await fetching;
 	if (!existsSync(join(GIT_DIR(), '.git'))) return undefined;
 	const commit = await git(
 		['rev-parse', 'HEAD'],

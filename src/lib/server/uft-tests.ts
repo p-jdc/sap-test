@@ -298,12 +298,44 @@ export interface RenderInput {
 	importedOn: string;
 }
 
+/** The line that names the UFT test a file was translated from: the next import finds it by it. */
+export const UFT_PATH_MARKER = 'UFT test:';
+
 /** The marker of the person who checked a translated test, which the Tests page reads. */
 export const REVIEW_MARKER = 'Aus UFT übersetzt, geprüft von:';
 
 const oneLine = (text: string) => text.replaceAll(/\s+/g, ' ').trim();
 
+/** The identifiers of a line of code, without what is inside its string literals and comments. */
+function words(code: string): string[] {
+	const bare = code.replaceAll(/'(?:\\.|[^'\\])*'/g, "''").replaceAll(/\/\/.*$/g, '');
+	return bare.match(/[A-Za-z_$][\w$]*/g) ?? [];
+}
+
+/**
+ * Per scope (the body of one test.step, which is one action), what the linter needs to know of
+ * its variables: which are assigned again (else `const`) and which are read (else the
+ * declaration stays a comment until the statements still to be translated that read it are
+ * written). One pass over the scope's code.
+ */
+function scopeVariables(items: (Item | Step)[]): { reassigned: Set<string>; read: Set<string> } {
+	const reassigned = new Set<string>();
+	const read = new Set<string>();
+	for (const item of items) {
+		if (isStep(item) || item.kind !== 'statement' || item.open) continue;
+		for (const code of item.code) {
+			const declared = /^let (\w+) = /.exec(code);
+			const assigned = declared ? undefined : /^(\w+) = /.exec(code);
+			if (assigned?.[1]) reassigned.add(assigned[1]);
+			const rest = code.slice((declared ?? assigned)?.[0].length ?? 0);
+			for (const word of words(rest)) read.add(word);
+		}
+	}
+	return { reassigned, read };
+}
+
 function renderItems(items: (Item | Step)[], indent: string, out: string[]) {
+	const { reassigned, read } = scopeVariables(items);
 	for (const item of items) {
 		if (isStep(item)) {
 			out.push(`${indent}await test.step(${str(oneLine(item.title))}, async () => {`);
@@ -325,44 +357,33 @@ function renderItems(items: (Item | Step)[], indent: string, out: string[]) {
 		}
 		item.code.forEach((code, i) => {
 			const last = i === item.code.length - 1;
-			out.push(`${indent}${code}${last && item.check ? ` // check: ${oneLine(item.check)}` : ''}`);
+			const check = last && item.check ? ` // check: ${oneLine(item.check)}` : '';
+			const name = /^(?:let )?(\w+) = /.exec(code)?.[1];
+			if (!name) {
+				out.push(`${indent}${code}${check}`);
+				return;
+			}
+			// Every write of a variable nothing reads stays a comment, the declaration and the rest.
+			const line = reassigned.has(name) ? code : code.replace(/^let /, 'const ');
+			out.push(
+				read.has(name)
+					? `${indent}${line}${check}`
+					: `${indent}// ${line} (used only by statements still to be translated)`
+			);
 		});
 	}
 }
 
-const isCode = (l: string) => !l.trimStart().startsWith('//');
-
-/** Whether the rendered code (not its comments) uses `name`. */
-function uses(lines: string[], name: string) {
-	const word = new RegExp(`\\b${name}\\b`);
-	return lines.some((l) => isCode(l) && word.test(l));
-}
-
-/**
- * Variables as the linter wants them: `const` unless assigned again. One that only statements
- * still to be translated read stays a comment until those are written: unused, it would fail lint.
- */
-function tidyVariables(lines: string[]): string[] {
-	return lines.map((l, i) => {
-		const name = /^\s*let (\w+) = /.exec(l)?.[1];
-		if (!name) return l;
-		const others = lines.filter((_, j) => j !== i);
-		const assigned = new RegExp(`^\\s*${name} = `);
-		const out = others.some((o) => assigned.test(o)) ? l : l.replace(/\blet /, 'const ');
-		if (uses(others, name)) return out;
-		const indent = /^\s*/.exec(out)?.[0] ?? '';
-		return `${indent}// ${out.trimStart()} (used only by statements still to be translated)`;
-	});
-}
-
 export function renderSpec(input: RenderInput): string {
 	const { translation: t } = input;
-	const rendered: string[] = [];
-	renderItems(t.body, '\t', rendered);
-	const body = tidyVariables(rendered);
+	const body: string[] = [];
+	renderItems(t.body, '\t', body);
+	const used = new Set(
+		body.filter((l) => !l.trimStart().startsWith('//')).flatMap((l) => words(l))
+	);
 	const dataLines: string[] = [];
 	// Only those the translated code reads: the statements still to do keep theirs in the comment.
-	const data = [...t.ctx.data].filter(([constant]) => uses(body, constant));
+	const data = [...t.ctx.data].filter(([constant]) => used.has(constant));
 	for (const [constant, keys] of data) {
 		const what =
 			constant === 'DATA'
@@ -381,14 +402,15 @@ export function renderSpec(input: RenderInput): string {
 		);
 	}
 	const open = t.statements - t.translated + data.length;
-	const webgui = [...t.ctx.webgui].filter((h) => uses(body, h)).toSorted();
-	const fiori = [...t.ctx.fiori].filter((h) => uses(body, h)).toSorted();
+	const webgui = [...t.ctx.webgui].filter((h) => used.has(h)).toSorted();
+	const fiori = [...t.ctx.fiori].filter((h) => used.has(h)).toSorted();
 	const lines = [
 		`// ${REVIEW_MARKER}`,
-		`// Translated from the UFT test ${oneLine(t.test.path || t.test.name)} (${oneLine(input.origin)}) on ${input.importedOn}: ${t.translated} of ${t.statements} statements.`,
+		`// ${UFT_PATH_MARKER} ${oneLine(t.test.path || t.test.name)}`,
+		`// Translated from UFT (${oneLine(input.origin)}) on ${input.importedOn}: ${t.translated} of ${t.statements} statements.`,
 		`// Plan: ${input.planFile}. The UFT statements still to be written by hand are marked as to do;`,
 		'// once there are none left and the test has passed, change test.fixme to test.',
-		`import { test${uses(body, 'expect') ? ', expect' : ''} } from ${str(input.pluginImport)};`,
+		`import { test${used.has('expect') ? ', expect' : ''} } from ${str(input.pluginImport)};`,
 		...(webgui.length > 0
 			? [`import { ${webgui.join(', ')} } from ${str(`${input.helpersImport}/webgui`)};`]
 			: []),

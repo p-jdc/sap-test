@@ -7,13 +7,19 @@ import { uftSource } from '../../test/uft/fixtures.js';
 
 // The run history: a stand-in, so that a test can say how often an imported test has passed.
 const history = vi.hoisted(
-	(): { rows: { file: string; streak: number; lastStatus?: string }[] } => ({
+	(): { rows: { file: string; streak: number; lastStatus?: string; run?: string }[] } => ({
 		rows: []
 	})
 );
 vi.mock('./runs-store.js', () => ({
 	PILOT_STREAK: 10,
-	stability: () => history.rows.map((r) => ({ key: `${r.file}::x`, title: 'x', history: [], ...r }))
+	stability: () =>
+		history.rows.map(({ run, ...r }) => ({
+			key: `${r.file}::x`,
+			title: 'x',
+			history: [{ runId: run ?? '20261128-0', status: r.lastStatus ?? 'passed' }],
+			...r
+		}))
 }));
 
 let root = '';
@@ -82,9 +88,10 @@ describe('importTests', () => {
 			}
 		]);
 		const spec = read('tests/webgui/uft-va01-create.spec.ts');
-		expect(spec.split('\n').slice(0, 2)).toEqual([
+		expect(spec.split('\n').slice(0, 3)).toEqual([
 			'// Aus UFT übersetzt, geprüft von:',
-			'// Translated from the UFT test UFT/Sales/VA01_Create (uploaded) on 2026-11-27: 10 of 15 statements.'
+			'// UFT test: UFT/Sales/VA01_Create',
+			'// Translated from UFT (uploaded) on 2026-11-27: 10 of 15 statements.'
 		]);
 		// oxfmt laid it out: the long locator call is wrapped, trailing commas are gone.
 		expect(spec).toContain("const DATA = {\n\tOrderType: ''\n};");
@@ -98,7 +105,16 @@ describe('importTests', () => {
 			join(root, 'tests/webgui/uft-va01-create.spec.ts'),
 			"// Aus UFT übersetzt, geprüft von: A. Tester\ntest('VA01_Create', async () => {});\n"
 		);
-		history.rows = [{ file: 'webgui/uft-va01-create.spec.ts', streak: 10, lastStatus: 'passed' }];
+		history.rows = [
+			{
+				file: 'webgui/uft-va01-create.spec.ts',
+				streak: 10,
+				lastStatus: 'passed',
+				run: '20261128-1'
+			},
+			// The test under its title before a rename: its last run is older and does not count.
+			{ file: 'webgui/uft-va01-create.spec.ts', streak: 0, lastStatus: 'failed', run: '20261127-1' }
+		];
 		const again = await importTests(
 			uftSource(),
 			{ paths: ['UFT/Sales/VA01_Create'], replacePlans: true },
@@ -151,6 +167,21 @@ describe('importTests', () => {
 		await importTests(files, { paths: ['Done'], replacePlans: false }, 'uploaded');
 		expect(read('tests/webgui/uft-done.spec.ts')).toContain("test('Done',");
 		expect(scan(files, 'upload').tests[0]?.imported).toMatchObject({ open: 0, fixme: false });
+	});
+
+	test('the same UFT test from another source finds its earlier import; another test of the same name does not', async () => {
+		const { importTests, scan } = await importer();
+		const upload = [{ path: 'Mine/Sales/Create/Action1/Script.mts', text: 'Wait 1' }];
+		await importTests(upload, { paths: ['Mine/Sales/Create'], replacePlans: false }, 'uploaded');
+		// From Git, without the folder that was uploaded: the same test.
+		const git = [{ path: 'Sales/Create/Action1/Script.mts', text: 'Wait 1' }];
+		expect(scan(git, 'git').tests[0]?.imported?.spec).toBe('tests/webgui/uft-create.spec.ts');
+		// Another test called Create: a name of its own.
+		const other = [{ path: 'Purchasing/Create/Action1/Script.mts', text: 'Wait 1' }];
+		expect(scan(other, 'upload').tests[0]).toMatchObject({
+			spec: 'tests/webgui/uft-purchasing-create.spec.ts'
+		});
+		expect(scan(other, 'upload').tests[0]?.imported).toBeUndefined();
 	});
 
 	test('tests of the same name get as many folders above them as make them differ', async () => {

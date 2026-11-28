@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
-import { playwrightNode } from './node-cli.js';
+import { childEnv, playwrightNode } from './node-cli.js';
 import { APP_ROOT, TESTS_DIR, TESTS_ROOT, toPosix, within } from './paths.js';
 import { PILOT_STREAK, stability } from './runs-store.js';
 import { signInSystems, systemsOfFiles } from './systems.js';
@@ -12,6 +12,7 @@ import {
 	renderPlan,
 	renderSpec,
 	REVIEW_MARKER,
+	UFT_PATH_MARKER,
 	translateTest,
 	type RenderInput,
 	type Translation,
@@ -52,38 +53,56 @@ export function slug(name: string): string {
 	);
 }
 
+/** The same UFT test: one path is the other, or ends with it (an upload adds the folder chosen). */
+function samePath(a: string, b: string): boolean {
+	const x = a.toLowerCase();
+	const y = b.toLowerCase();
+	return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
+}
+
+/** The folders above a test, as file name parts. */
+const parentsOf = (t: UftTest) =>
+	t.path
+		.split('/')
+		.slice(0, -1)
+		.map((p) => slug(p));
+
+/** `uft-<test folder>`, with the `depth` folders above it in front. */
+const candidate = (t: UftTest, depth: number) =>
+	`uft-${[...parentsOf(t).slice(parentsOf(t).length - depth), slug(t.name)].join('-')}`;
+
 /**
- * The file name of each test: `uft-<test folder>`. Where tests of the source share a name, as many
- * of the folders above each as make them differ (`uft-sales-regression-create`). The same UFT test
- * read again, uploaded or from Git, gets the same name, and so finds its earlier import.
+ * The file name of each test, `uft-<test folder>`. A test imported before keeps its file, found by
+ * the UFT path written into it. Otherwise, where tests of the source or earlier imports of other
+ * UFT tests share the name, as many of the folders above it as make it differ
+ * (`uft-sales-regression-create`), and a number when even those are the same.
  */
-function fileNames(tests: UftTest[]): Map<string, string> {
-	const names = new Map<string, string>();
-	const groups = new Map<string, UftTest[]>();
-	for (const t of tests) groups.set(slug(t.name), [...(groups.get(slug(t.name)) ?? []), t]);
-	for (const [base, group] of groups) {
-		if (group.length === 1) {
-			names.set(group[0]?.path ?? '', `uft-${base}`);
+function fileNames(tests: UftTest[], imported: ImportedSpec[]): Map<string, ImportedSpec | string> {
+	const names = new Map<string, ImportedSpec | string>();
+	const taken = new Set(imported.map((i) => i.name));
+	for (const t of tests) {
+		// A file without the path (written by hand, or renamed) counts as this test by its name.
+		const before =
+			imported.find((i) => i.uftPath && samePath(i.uftPath, t.path)) ??
+			imported.find((i) => !i.uftPath && i.name === candidate(t, 0));
+		if (before) {
+			names.set(t.path, before);
+			taken.add(before.name);
 			continue;
 		}
-		const parts = group.map((t) =>
-			t.path
-				.split('/')
-				.slice(0, -1)
-				.map((p) => slug(p))
-		);
-		const longest = Math.max(...parts.map((p) => p.length));
-		let depth = 1;
-		const named = (i: number) => [...(parts[i] ?? []).slice(-depth), base].join('-');
-		while (depth < longest && new Set(group.map((_, i) => named(i))).size < group.length) depth++;
-		const taken = new Set<string>();
-		group.forEach((t, i) => {
-			let name = `uft-${named(i)}`;
-			// Same folders all the way up (cannot happen in one source, but cheap to rule out).
-			for (let n = 2; taken.has(name); n++) name = `uft-${named(i)}-${n}`;
-			taken.add(name);
-			names.set(t.path, name);
-		});
+		// Tests of this source with the same name: the depth at which their names differ.
+		const twins = tests.filter((o) => o !== t && slug(o.name) === slug(t.name));
+		let depth = 0;
+		while (
+			depth < parentsOf(t).length &&
+			(twins.some((o) => candidate(o, depth) === candidate(t, depth)) ||
+				taken.has(candidate(t, depth)))
+		)
+			depth++;
+		let name = candidate(t, depth);
+		for (let n = 2; taken.has(name); n++) name = `${candidate(t, depth)}-${n}`;
+		taken.add(name);
+		names.set(t.path, name);
 	}
 	return names;
 }
@@ -107,14 +126,24 @@ function folderFor(
 
 // ---- Imported tests ---------------------------------------------------------------------------
 
-/** The imported test files by their name (`uft-…`), relative to tests/. */
-function importedSpecs(): Map<string, string> {
-	const found = new Map<string, string>();
+/** A test file the import wrote: its name (`uft-…`), file under tests/, and the UFT test in it. */
+interface ImportedSpec {
+	name: string;
+	file: string;
+	uftPath?: string;
+}
+
+/** The test files imported before, with the UFT test each was translated from. */
+function importedSpecs(): ImportedSpec[] {
+	const found: ImportedSpec[] = [];
 	if (!existsSync(TESTS_DIR)) return found;
 	for (const entry of readdirSync(TESTS_DIR, { recursive: true, encoding: 'utf8' })) {
 		const file = toPosix(entry);
 		const name = /(?:^|\/)(uft-[^/]+)\.spec\.ts$/.exec(file)?.[1];
-		if (name && !found.has(name)) found.set(name, file);
+		if (!name || found.some((f) => f.name === name)) continue;
+		const head = readFileSync(resolve(TESTS_DIR, entry), 'utf8').slice(0, 2000);
+		const uftPath = new RegExp(`^// ${UFT_PATH_MARKER} (.+)$`, 'm').exec(head)?.[1]?.trim();
+		found.push(uftPath ? { name, file, uftPath } : { name, file });
 	}
 	return found;
 }
@@ -143,7 +172,14 @@ function migration(
 	return out;
 }
 
-/** The newest result and the streak of passes of each spec file's test (the lowest, for several). */
+/** A run's spec file, relative to tests/ as the import names it. */
+const fileOf = (file: string) => file.replace(/^(?:sap-tests\/)?tests\//, '');
+
+/**
+ * The newest result and the streak of passes of each spec file's test: of the tests of the file in
+ * its newest run (the lowest, for several), so that a test renamed since keeps no old title's
+ * streak.
+ */
 function streaksByFile(): Map<string, { lastStatus?: string; streak: number }> {
 	const out = new Map<string, { lastStatus?: string; streak: number }>();
 	let rows: ReturnType<typeof stability>;
@@ -152,8 +188,16 @@ function streaksByFile(): Map<string, { lastStatus?: string; streak: number }> {
 	} catch {
 		return out;
 	}
+	// Run ids start with the time they started (yyyymmdd-hhmmss-…): the largest is the newest.
+	const newest = new Map<string, string>();
 	for (const row of rows) {
-		const file = row.file.replace(/^(?:sap-tests\/)?tests\//, '');
+		const last = row.history.at(-1)?.runId ?? '';
+		const file = fileOf(row.file);
+		if (last > (newest.get(file) ?? '')) newest.set(file, last);
+	}
+	for (const row of rows) {
+		const file = fileOf(row.file);
+		if ((row.history.at(-1)?.runId ?? '') !== newest.get(file)) continue;
 		const before = out.get(file);
 		if (!before || row.streak < before.streak) {
 			const entry: { lastStatus?: string; streak: number } = { streak: row.streak };
@@ -177,15 +221,15 @@ interface Planned {
 /** What the import makes of each test of the source, or of those in `only`. */
 function plan(files: UftFile[], only?: Set<string>): { planned: Planned[]; tests: UftTest[] } {
 	const tests = findTests(files);
-	const names = fileNames(tests);
+	const names = fileNames(tests, importedSpecs());
 	const folders = importFolders();
-	const existing = importedSpecs();
 	const index = indexSource(files);
 	const chosen = only ? tests.filter((t) => only.has(t.path)) : tests;
 	const planned = chosen.map((test): Planned => {
 		const translation = translateTest(test, tests, index);
-		const name = names.get(test.path) ?? `uft-${slug(test.name)}`;
-		const before = existing.get(name);
+		const named = names.get(test.path) ?? `uft-${slug(test.name)}`;
+		const name = typeof named === 'string' ? named : named.name;
+		const before = typeof named === 'string' ? undefined : named.file;
 		const folder = folderFor(translation.target, folders) ?? 'webgui';
 		const out: Planned = {
 			translation,
@@ -259,7 +303,8 @@ function formatted(content: string, file: string): Promise<string> {
 		const child = execFile(
 			playwrightNode().path,
 			[bin, `--stdin-filepath=${file}`, '-c', config],
-			{ encoding: 'utf8', timeout: 30_000, maxBuffer: 20_000_000 },
+			// Without the app's secrets, as every child process of the app.
+			{ encoding: 'utf8', timeout: 30_000, maxBuffer: 20_000_000, env: childEnv() },
 			(error, stdout) => {
 				done(error || !stdout ? content : stdout);
 			}

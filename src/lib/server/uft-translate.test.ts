@@ -158,14 +158,14 @@ describe('translateLines (SAP GUI)', () => {
 	test('reads descriptive programming', () => {
 		const { items } = translate(
 			[
-				'SAPGuiSession("guicomponenttype:=12").SAPGuiWindow("name:=wnd\\[1\\]").SAPGuiButton("name:=SPOP-OPTION1", "type:=GuiButton").Click',
 				'SAPGuiSession("guicomponenttype:=12").SAPGuiWindow("guicomponenttype:=21").SAPGuiEdit("id:=/app/con\\[0\\]/ses\\[0\\]/wnd\\[0\\]/usr/pwdRSYST-BCODE").Set "x"',
+				'SAPGuiSession("guicomponenttype:=12").SAPGuiWindow("name:=wnd\\[1\\]").SAPGuiButton("name:=SPOP-OPTION1", "type:=GuiButton").Click',
 				'SAPGuiSession("Session").SAPGuiWindow("Create Standard Order").SAPGuiButton("name:=btn\\[8\\]").Click'
 			].join('\n')
 		);
 		expect(items.map((i) => result(i))).toEqual([
-			"await page.getByRoleSID('button', { name: 'SPOP-OPTION1', wnd: 1 }).click();",
 			'The SAP logon screen: page.SAPLogin signs in at the start of the test',
+			"await page.getByRoleSID('button', { name: 'SPOP-OPTION1', wnd: 1 }).click();",
 			"await pressKey(page, 'F8');"
 		]);
 	});
@@ -296,6 +296,89 @@ describe('what the translation must not do', () => {
 	test('a line break in a report text stays in its comment', () => {
 		const { items } = translate('Reporter.ReportEvent micPass, "Step", "a\u2028b"');
 		expect(items[0]?.code).toEqual(['// UFT reported: Step – a b']);
+	});
+});
+
+describe('second review', () => {
+	test('a sign-in in the middle of the test stays open, without the password', () => {
+		const { items } = translate(
+			[
+				'SAPGuiSession("Session").SAPGuiWindow("SAP Easy Access").SAPGuiOKCode("OKCode").Set "/nva01"',
+				'SAPGuiSession("Session").SAPGuiWindow("SAP Easy Access").SendKey ENTER',
+				'SAPGuiSession("S").SAPGuiWindow("name:=wnd\\[0\\]").SAPGuiEdit("id:=/app/con\\[0\\]/ses\\[0\\]/wnd\\[0\\]/usr/pwdRSYST-BCODE").Set "Welcome1"'
+			].join('\n')
+		);
+		expect(items[1]?.open).toContain('signs in again');
+		expect(items[1]?.source).not.toContain('Welcome1');
+	});
+
+	test('a password is left out of the comment of an open statement', () => {
+		const { items } = translate(
+			'SAPGuiSession("S").SAPGuiWindow("name:=wnd\\[0\\]").SAPGuiEdit("id:=/app/con\\[0\\]/ses\\[0\\]/wnd\\[0\\]/usr/pwdNEW-PASSWORD").Set "Welcome1"'
+		);
+		expect(items[0]?.source).toBe(
+			'SAPGuiSession("S").SAPGuiWindow("name:=wnd\\[0\\]").SAPGuiEdit("id:=/app/con\\[0\\]/ses\\[0\\]/wnd\\[0\\]/usr/pwdNEW-PASSWORD").Set "***"'
+		);
+		expect(items[0]?.describe).not.toContain('Welcome1');
+	});
+
+	test('a status bar text is checked by hand, with its fixed part only', () => {
+		const { items } = translate(
+			'SAPGuiSession("Session").SAPGuiWindow("Create Standard Order").SAPGuiStatusBar("StatusBar").CheckProperty "text", "Order 12345 saved"'
+		);
+		expect(items[0]?.open).toContain('expectStatusBar');
+	});
+
+	test('the OK code does not take the Enter across a loop', () => {
+		const { items } = translate(
+			[
+				'SAPGuiSession("Session").SAPGuiWindow("SAP Easy Access").SAPGuiOKCode("OKCode").Set "/nva01"',
+				"' a comment",
+				'For i = 1 To 3',
+				'Next',
+				'SAPGuiSession("Session").SAPGuiWindow("SAP Easy Access").SendKey ENTER'
+			].join('\n')
+		);
+		expect(items.map((i) => outline(i))).toEqual([
+			"await page.getByRoleSID('okCode', {}).fill('/nva01');",
+			'OPEN 3',
+			"await pressKey(page, 'Enter');"
+		]);
+	});
+
+	test('an address that starts with // stays on SAP_URL', () => {
+		const { items } = translate('Browser("B").Navigate "https://sap.example.com//evil.example/x"');
+		expect(items[0]?.code).toEqual([
+			"await page.goto(new URL('/evil.example/x', process.env.SAP_URL).href);"
+		]);
+	});
+
+	test('variables are const unless assigned again in the same step, and a write is no read', () => {
+		const files = [
+			{ path: 'T/Action1/Script.mts', text: 'x = "a"\nx = "b"' },
+			{
+				path: 'T/Action2/Script.mts',
+				text: 'x = "c"\nSAPGuiSession("Session").SAPGuiWindow("Create Sales Documents").SAPGuiEdit("Order Type").Set x'
+			},
+			{ path: 'T/ObjectRepository.xml', text: REPOSITORY_XML }
+		];
+		const [uft] = findTests(files);
+		const spec = renderSpec({
+			translation: translateTest(uft!, [uft!], indexSource(files)),
+			title: 'T',
+			tag: '@uft-t',
+			origin: 'upload',
+			specFile: 'x',
+			planFile: 'y',
+			pluginImport: '../../sap-plugin',
+			helpersImport: '../../helpers',
+			seed: { file: 'z' },
+			importedOn: '2026-11-28'
+		});
+		expect(spec).toContain(
+			"\t\t// let x = 'a'; (used only by statements still to be translated)\n\t\t// x = 'b'; (used only by statements still to be translated)"
+		);
+		expect(spec).toContain("\t\tconst x = 'c';");
 	});
 });
 

@@ -37,6 +37,8 @@ export interface Context {
 	action: string;
 	/** Statements that drive SAP GUI and Fiori: which folder the test goes to. */
 	surface: { sapgui: number; fiori: number };
+	/** SAP GUI statements translated so far, other than signing in. */
+	sapSteps: number;
 }
 
 export function newContext(repo: Repository, functions: Map<string, string> = new Map()): Context {
@@ -48,7 +50,8 @@ export function newContext(repo: Repository, functions: Map<string, string> = ne
 		vars: new Map(),
 		functions,
 		action: '',
-		surface: { sapgui: 0, fiori: 0 }
+		surface: { sapgui: 0, fiori: 0 },
+		sapSteps: 0
 	};
 }
 
@@ -519,9 +522,27 @@ const open = (line: Line, reason: string): Item => ({
 	describe: `Not translated: \`${line.source}\``
 });
 
+/**
+ * An open statement that holds a password or an encrypted value: the value is left out of the
+ * comment in the test file and the plan, which are checked in and shown to every member.
+ */
+function openSecret(line: Line, reason: string): Item {
+	const masked = line.source.replace(/"(?:[^"]|"")*"(?=[^"]*$)/, '"***"');
+	return {
+		kind: 'statement',
+		line: line.line,
+		source: masked,
+		code: [],
+		open: reason,
+		describe: `Not translated: \`${masked}\``
+	};
+}
+
 /** UFT methods that only wait or tidy up: nothing to do in Playwright, which waits for each control. */
 const NOTHING_TO_DO =
 	/^(?:sync|maximize|minimize|restore|activate|resize|move|highlight|refreshobject|init)$/i;
+
+const DECLARES = /^(?:option\s+explicit|dim\b|const\b)/i;
 
 /** Translates the lines of one action. `next` lets a statement take the one after it (OK code + Enter). */
 export function translateLines(lines: Line[], ctx: Context): Item[] {
@@ -563,7 +584,13 @@ export function translateLines(lines: Line[], ctx: Context): Item[] {
 			continue;
 		}
 		const statement = parseStatement(line.text);
-		const nextLine = statements[statements.indexOf(line) + 1];
+		// The statement after this one, which it may take (OK code + Enter), when only comments and
+		// declarations stand between them: a block or a loop between them must not be skipped.
+		const following = statements[statements.indexOf(line) + 1];
+		const between = following ? lines.slice(i + 1, lines.indexOf(following)) : [];
+		const nextLine = between.every((l) => l.comment !== undefined || DECLARES.test(l.source))
+			? following
+			: undefined;
 		const result = translateStatement(line, statement, ctx, nextLine);
 		items.push(result.item);
 		if (result.consumedNext && nextLine) i = lines.indexOf(nextLine);
@@ -798,6 +825,9 @@ function translateSapGui(
 	ctx: Context,
 	next: Line | undefined
 ): { item: Item; consumedNext?: boolean } {
+	// Signing in counts only at the start: everything else SAP GUI does before it is a step.
+	const before = ctx.sapSteps;
+	ctx.sapSteps++;
 	const m = method.toLowerCase();
 	const control = objects.at(-1);
 	const cls = control?.className.toLowerCase() ?? '';
@@ -846,16 +876,13 @@ function translateSapGui(
 					};
 				}
 			}
-			if (property === 'text' && expected) {
-				ctx.webgui.add('readStatusBar');
+			if (property === 'text' && expected)
 				return {
-					item: done(
+					item: open(
 						line,
-						[`await expect.poll(async () => (await readStatusBar(page)).text).toBe(${expected});`],
-						'The status bar shows the text'
+						`checks the whole status bar text: write expectStatusBar(page, <type S, W or E>, <its fixed part, without document numbers>), from ${expected}`
 					)
 				};
-			}
 		}
 		if (m === 'check')
 			return {
@@ -922,10 +949,24 @@ function translateSapGui(
 		};
 	}
 	const name = target.sid.split('/').at(-1) ?? '';
-	if (LOGON_FIELDS.test(name.replace(/^[a-z]+/, '')))
+	if (LOGON_FIELDS.test(name.replace(/^[a-z]+/, ''))) {
+		// At the start, the sign-in page.SAPLogin does anyway. Later in the test, another user.
+		ctx.sapSteps = before;
+		if (before === 0)
+			return {
+				item: done(
+					line,
+					[],
+					'The SAP logon screen: page.SAPLogin signs in at the start of the test'
+				)
+			};
 		return {
-			item: done(line, [], 'The SAP logon screen: page.SAPLogin signs in at the start of the test')
+			item: openSecret(
+				line,
+				'signs in again in the middle of the test, maybe as another user: sign in with page.SAPLogin and that user from a setting (a second user), and check that the test means it'
+			)
 		};
+	}
 	const locator = sidLocator(target.sid);
 	const what = control?.logical ? `"${control.logical}" (${target.sid})` : target.sid;
 	const isPassword = target.type === 'GuiPasswordField' || target.sid.includes('/pwd');
@@ -940,7 +981,7 @@ function translateSapGui(
 	if (m === 'set') {
 		if (isPassword)
 			return {
-				item: open(
+				item: openSecret(
 					line,
 					'a password field: use fillSecret(locator, process.env.<SETTING>!) with the password from a setting, never a value in the code'
 				)
@@ -974,7 +1015,7 @@ function translateSapGui(
 	}
 	if (m === 'setsecure')
 		return {
-			item: open(
+			item: openSecret(
 				line,
 				'an encrypted value (SetSecure): put it into a setting and use fillSecret(locator, process.env.<SETTING>!)'
 			)
@@ -1068,7 +1109,8 @@ function navigate(line: Line, url: string, ctx: Context): Item {
 	} catch {
 		return open(line, 'an address the import cannot read');
 	}
-	const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+	// One leading slash: `//host/x` would be another host, not a path on SAP_URL.
+	const path = `/${parsed.pathname.replace(/^\/+/, '')}${parsed.search}${parsed.hash}`;
 	return done(
 		line,
 		[`await page.goto(new URL(${str(path)}, process.env.SAP_URL).href);`],
@@ -1174,7 +1216,7 @@ function translateWeb(
 			control.properties.type?.toLowerCase() === 'password' ||
 			names.some((n) => n !== undefined && /pass(?:word|wort)|kennwort|\bpwd\b/i.test(n))
 		)
-			return open(
+			return openSecret(
 				line,
 				'a password field: use fillSecret(locator, process.env.<SETTING>!) with the password from a setting, never a value in the code'
 			);
@@ -1192,7 +1234,7 @@ function translateWeb(
 		);
 	}
 	if (m === 'setsecure')
-		return open(
+		return openSecret(
 			line,
 			'an encrypted value (SetSecure): put it into a setting and use fillSecret(locator, process.env.<SETTING>!)'
 		);
