@@ -58,6 +58,8 @@ import '@ui5/webcomponents-icons/dist/inspect.js';
 import '@ui5/webcomponents-icons/dist/lab.js';
 import '@ui5/webcomponents-icons/dist/machine.js';
 import '@ui5/webcomponents-icons/dist/delete.js';
+import '@ui5/webcomponents-icons/dist/download.js';
+import '@ui5/webcomponents-icons/dist/search.js';
 import '@ui5/webcomponents-icons/dist/paper-plane.js';
 import '@ui5/webcomponents-icons/dist/inbox.js';
 import '@ui5/webcomponents-icons/dist/database.js';

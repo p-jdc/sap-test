@@ -317,6 +317,30 @@ describe('settings in the credential store', () => {
 	});
 });
 
+describe('the Octane importer', () => {
+	test('reads its API key in the app only, never in a run, and the secret is masked', async () => {
+		const env = await withEnvFile(null);
+		const { store } = fakeStore({
+			OCTANE_URL: 'https://octane.example.com',
+			OCTANE_SHARED_SPACE: '1001',
+			OCTANE_WORKSPACE: '1002',
+			OCTANE_CLIENT_ID: 'importer'
+		});
+		await env.changeSetting('OCTANE_CLIENT_SECRET', 'octane-secret', store);
+		expect(await env.readTestEnv(store)).toMatchObject({
+			OCTANE_CLIENT_ID: 'importer',
+			OCTANE_CLIENT_SECRET: 'octane-secret'
+		});
+		expect(await env.runSettings(store)).toEqual({ env: {}, secrets: ['octane-secret'] });
+
+		// Another Octane server: the key saved for the old one is removed.
+		expect(await env.changeSetting('OCTANE_URL', 'https://other.example.net', store)).toEqual({
+			cleared: ['OCTANE_CLIENT_ID', 'OCTANE_CLIENT_SECRET']
+		});
+		expect(await env.readTestEnv(store)).not.toHaveProperty('OCTANE_CLIENT_SECRET');
+	});
+});
+
 describe('the SAP systems the IDoc receiver sends into', () => {
 	test('reach the receiver, never a run, and their passwords are masked', async () => {
 		const env = await withEnvFile(null);
@@ -386,7 +410,12 @@ describe('systems from sap-tests/systems.json', () => {
 			'IDOC_EWM_URL',
 			'IDOC_EWM_CLIENT',
 			'IDOC_EWM_USER',
-			'IDOC_EWM_PASSWORD'
+			'IDOC_EWM_PASSWORD',
+			'OCTANE_URL',
+			'OCTANE_SHARED_SPACE',
+			'OCTANE_WORKSPACE',
+			'OCTANE_CLIENT_ID',
+			'OCTANE_CLIENT_SECRET'
 		]);
 		expect((await env.runSettings(NONE)).secrets).toEqual(['sf-pw']);
 

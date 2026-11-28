@@ -16,7 +16,10 @@ export function errorMessage(e: unknown): string {
 		)
 			return body.message;
 	}
-	return e instanceof Error ? e.message : String(e);
+	// A query's `.error` is that body itself: `{ status, message }`.
+	if (typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string')
+		return e.message;
+	return String(e);
 }
 
 /**

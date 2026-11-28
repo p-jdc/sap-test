@@ -67,6 +67,34 @@
 			]
 		})),
 		{
+			title: 'OpenText Octane',
+			subtitle:
+				'Optional: only to import test cases from Octane (Import from Octane). Only this app uses these, never a test run',
+			fields: [
+				{
+					name: 'OCTANE_URL',
+					label: 'Web address',
+					hint: 'https://octane.example.com (without /ui)'
+				},
+				{
+					name: 'OCTANE_SHARED_SPACE',
+					label: 'Shared space',
+					hint: 'The first number after ?p= in a link to Octane'
+				},
+				{
+					name: 'OCTANE_WORKSPACE',
+					label: 'Workspace',
+					hint: 'The second number after ?p= in a link to Octane'
+				},
+				{
+					name: 'OCTANE_CLIENT_ID',
+					label: 'API client ID',
+					hint: 'An API access key of the workspace that can read tests'
+				},
+				{ name: 'OCTANE_CLIENT_SECRET', label: 'API client secret', secret: true }
+			]
+		},
+		{
 			title: 'Browser',
 			subtitle: 'Optional',
 			technical: true,
