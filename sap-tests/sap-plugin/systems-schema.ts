@@ -109,7 +109,13 @@ export const FIXED_SETTINGS = [
 	'IDOC_EWM_URL',
 	'IDOC_EWM_CLIENT',
 	'IDOC_EWM_USER',
-	'IDOC_EWM_PASSWORD'
+	'IDOC_EWM_PASSWORD',
+	// Where the app reads UFT tests from to translate them: a Git repository (src/lib/shared/uft.ts).
+	// Only the app reads them; test runs and recordings never get them.
+	'UFT_GIT_URL',
+	'UFT_GIT_BRANCH',
+	'UFT_GIT_USER',
+	'UFT_GIT_TOKEN'
 ] as const;
 
 // A value saved for a setting becomes an environment variable of every run. Names that the

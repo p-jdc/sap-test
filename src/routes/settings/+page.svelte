@@ -67,6 +67,30 @@
 			]
 		})),
 		{
+			title: 'UFT tests in Git',
+			subtitle:
+				'Optional: only to move UFT tests into this app from a Git repository (Move from UFT). Only this app uses these, never a test run',
+			fields: [
+				{
+					name: 'UFT_GIT_URL',
+					label: 'Repository',
+					hint: 'https://git.example.com/org/uft-tests.git'
+				},
+				{ name: 'UFT_GIT_BRANCH', label: 'Branch', hint: "Empty: the repository's default branch" },
+				{
+					name: 'UFT_GIT_USER',
+					label: 'User name',
+					hint: 'For the token; empty: git (GitHub: x-access-token)'
+				},
+				{
+					name: 'UFT_GIT_TOKEN',
+					label: 'Access token',
+					secret: true,
+					hint: 'A token that can read the repository'
+				}
+			]
+		},
+		{
 			title: 'Browser',
 			subtitle: 'Optional',
 			technical: true,

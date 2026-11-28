@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qtpRep:ObjectRepository xmlns:qtpRep="http://www.mercury.com/qtp/ObjectRepository">
+<qtpRep:Objects>
+<qtpRep:Object Class="SAPGuiSession" Name="Session">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">12</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">ses[0]</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects>
+<qtpRep:Object Class="SAPGuiWindow" Name="SAP Easy Access">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">21</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">wnd[0]</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects>
+<qtpRep:Object Class="SAPGuiOKCode" Name="OKCode">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">35</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">okcd</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+</qtpRep:ChildObjects>
+</qtpRep:Object>
+<qtpRep:Object Class="SAPGuiWindow" Name="Create Sales Documents">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">21</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="transaction" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">VA01</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects>
+<qtpRep:Object Class="SAPGuiEdit" Name="Order Type">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">32</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="id" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">/app/con[0]/ses[0]/wnd[0]/usr/ctxtVBAK-AUART</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">VBAK-AUART</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+<qtpRep:Object Class="SAPGuiEdit" Name="Sales Organization">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">32</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">VBAK-VKORG</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+</qtpRep:ChildObjects>
+</qtpRep:Object>
+<qtpRep:Object Class="SAPGuiWindow" Name="Create Standard Order">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">21</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects>
+<qtpRep:Object Class="SAPGuiButton" Name="Save">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">40</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">btn[11]</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+<qtpRep:Object Class="SAPGuiStatusBar" Name="StatusBar">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">103</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+<qtpRep:Object Class="SAPGuiComboBox" Name="Shipping Conditions">
+<qtpRep:Properties>
+<qtpRep:Property Name="guicomponenttype" Hidden="0" ReadOnly="0" Type="NUMBER"><qtpRep:Value RegularExpression="0">34</qtpRep:Value></qtpRep:Property>
+<qtpRep:Property Name="name" Hidden="0" ReadOnly="0" Type="STRING"><qtpRep:Value RegularExpression="0">VBAK-VSBED</qtpRep:Value></qtpRep:Property>
+</qtpRep:Properties>
+<qtpRep:ChildObjects/>
+</qtpRep:Object>
+</qtpRep:ChildObjects>
+</qtpRep:Object>
+</qtpRep:ChildObjects>
+</qtpRep:Object>
+</qtpRep:Objects>
+</qtpRep:ObjectRepository>

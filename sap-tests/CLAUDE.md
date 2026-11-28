@@ -107,3 +107,4 @@ Die beiden Passwortregeln erkennen Passwörter am Namen (Beschriftung des Felds,
 ## Kennzeichnung
 
 - Neue Tests erhalten den Kommentar "// KI-generiert, geprüft von: <Name>".
+- Aus UFT übersetzte Tests (Seite „Move from UFT“) tragen stattdessen "// Aus UFT übersetzt, geprüft von: <Name>". Schreibt eine KI darin Schritte (Zeilen `// TODO UFT`), kommt der Kommentar "// KI-generiert, geprüft von: <Name>" dazu.
