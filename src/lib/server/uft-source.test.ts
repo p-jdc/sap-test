@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -99,6 +99,32 @@ describe('fetchRepository', () => {
 		const second = await fetchRepository({ url: `file://${repo}`, branch: 'main' }, true);
 		expect(second.commit).not.toBe(first.commit);
 		expect((await checkoutFiles())?.files[0]?.text).toBe('Wait 2');
+	});
+
+	test('a symbolic link in the repository is not followed', async () => {
+		const repo = mkdtempSync(join(tmpdir(), 'uft-repo-'));
+		const secret = join(data, 'secret.env');
+		writeFileSync(secret, 'SAP_PASSWORD=secret');
+		run(repo, 'init', '-q', '-b', 'main');
+		run(repo, 'config', 'user.email', 'test@example.com');
+		run(repo, 'config', 'user.name', 'Test');
+		run(repo, 'config', 'uploadpack.allowFilter', 'true');
+		mkdirSync(join(repo, 'T/Action1'), { recursive: true });
+		symlinkSync(secret, join(repo, 'T/Action1/Script.mts'));
+		run(repo, 'add', '.');
+		run(repo, 'commit', '-q', '-m', 'link');
+
+		const { checkoutFiles, fetchRepository } = await source();
+		await fetchRepository({ url: `file://${repo}` }, true);
+		expect(JSON.stringify((await checkoutFiles())?.files)).not.toContain('SAP_PASSWORD');
+	});
+
+	test('the folder reader skips symbolic links', async () => {
+		const { readFolder } = await source();
+		const root = mkdtempSync(join(tmpdir(), 'uft-folder-'));
+		writeFileSync(join(data, 'secret.mts'), 'SAP_PASSWORD=secret');
+		symlinkSync(join(data, 'secret.mts'), join(root, 'Script.mts'));
+		expect(readFolder(root)).toEqual([]);
 	});
 
 	test('names what git says when the repository cannot be read', async () => {

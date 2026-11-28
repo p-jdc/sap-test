@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { readRepository, descriptive } from './uft-repository.js';
 import { newContext, sendKeyName, sidLocator, translateLines, type Item } from './uft-translate.js';
-import { findTests, renderPlan, renderSpec, translateTest } from './uft-tests.js';
+import { findTests, indexSource, renderPlan, renderSpec, translateTest } from './uft-tests.js';
 import { parseStatement, scriptLines } from './uft-vbscript.js';
 import { REPOSITORY_XML, SAP_GUI_ACTION, uftSource } from '../../test/uft/fixtures.js';
 import { decodeUftFile } from '#lib/shared/uft.js';
@@ -188,7 +188,7 @@ describe('translateTest', () => {
 			['Action1', 'Create order'],
 			['Action2', 'Check in Fiori']
 		]);
-		const t = translateTest(uft!, [uft!], files);
+		const t = translateTest(uft!, [uft!], indexSource(files));
 		expect(t.target).toBe('mixed');
 		expect([t.translated, t.statements]).toEqual([10, 15]);
 		expect(t.repositories).toEqual(['UFT/Sales/VA01_Create/ObjectRepository.xml']);
@@ -256,8 +256,73 @@ describe('translateTest', () => {
 	test('a test without a flow runs its actions in order', () => {
 		const files = uftSource().filter((f) => !f.path.includes('Action0'));
 		const [uft] = findTests(files);
-		const t = translateTest(uft!, [uft!], files);
+		const t = translateTest(uft!, [uft!], indexSource(files));
 		expect(stepTitles(t.body)).toEqual(['Action1', 'Action2']);
+	});
+});
+
+describe('what the translation must not do', () => {
+	test('a variable name that is not a plain identifier never reaches the code', () => {
+		const { items } = translate(
+			'[x=1;await fetch(String.fromCharCode(104)+process.env.SAP_PASSWORD)//] = 1'
+		);
+		expect(items[0]?.code).toEqual([]);
+		expect(items[0]?.open).toContain('not a plain identifier');
+	});
+
+	test('a reserved word or a name the test uses is renamed', () => {
+		const { items } = translate('package = "1"\nprocess = "2"');
+		expect(items.map((i) => i.code.join(' '))).toEqual([
+			"let packageValue = '1';",
+			"let processValue = '2';"
+		]);
+	});
+
+	test('every part of a one-line If after a colon is inside the If', () => {
+		const { items } = translate(
+			'If x = 1 Then Wait 1 : SAPGuiSession("Session").SAPGuiWindow("SAP Easy Access").SendKey ENTER'
+		);
+		expect(items.map((i) => i.open)).toEqual(['inside If', 'inside If']);
+	});
+
+	test('a web password field is never filled with its value', () => {
+		const { items } = translate(
+			'Browser("B").Page("P").WebEdit("placeholder:=Password").Set "Secret1"'
+		);
+		expect(items[0]?.open).toContain('fillSecret');
+		expect(items[0]?.code).toEqual([]);
+	});
+
+	test('a line break in a report text stays in its comment', () => {
+		const { items } = translate('Reporter.ReportEvent micPass, "Step", "a\u2028b"');
+		expect(items[0]?.code).toEqual(['// UFT reported: Step – a b']);
+	});
+});
+
+describe('actions', () => {
+	test('each action has its own variables', () => {
+		const files = [
+			{ path: 'T/Action1/Script.mts', text: 'sOrder = "1"' },
+			{ path: 'T/Action2/Script.mts', text: 'sOrder = "2"' }
+		];
+		const [uft] = findTests(files);
+		const t = translateTest(uft!, [uft!], indexSource(files));
+		expect(t.body).toMatchObject([
+			{ title: 'Action1', items: [{ code: ["let sOrder = '1';"] }] },
+			{ title: 'Action2', items: [{ code: ["let sOrder = '2';"] }] }
+		]);
+	});
+
+	test("a call of another test's action does not take a folder of this one", () => {
+		const files = [
+			{
+				path: 'T/Action0/Script.mts',
+				text: 'RunAction "Login [Common]", oneIteration\nRunAction "Create order", oneIteration'
+			},
+			{ path: 'T/Action1/Script.mts', text: 'Wait 1' }
+		];
+		const [uft] = findTests(files);
+		expect(uft?.actions.map((a) => a.name)).toEqual(['Create order']);
 	});
 });
 

@@ -137,7 +137,7 @@ export const importUft = command(
 			const folders: { webgui?: string; fiori?: string } = {};
 			if (input.folders?.webgui) folders.webgui = input.folders.webgui;
 			if (input.folders?.fiori) folders.fiori = input.folders.fiori;
-			const results = importTests(
+			const results = await importTests(
 				found.files,
 				{ paths: [...new Set(input.paths)], replacePlans: input.replacePlans, folders },
 				found.origin

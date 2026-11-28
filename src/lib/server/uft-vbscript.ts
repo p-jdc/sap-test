@@ -94,6 +94,8 @@ export function scriptLines(script: string): Line[] {
 			text = text.replace(/\s_\s*$|^_\s*$/, ' ') + (physical[++i] ?? '').trim();
 		}
 		const { parts, comment } = splitPhysical(text);
+		// `If x Then A : B` runs B only when x holds, like A: every part after a one-line If is in it.
+		let oneLineIf = false;
 		for (const part of parts) {
 			const source = part.trim();
 			if (!source) continue;
@@ -132,7 +134,8 @@ export function scriptLines(script: string): Line[] {
 			const line: Line = { line: start, source, text: resolved, blocks: [...blocks] };
 			if (DECLARATION.test(source)) line.structure = true;
 			// A one-line If (`If x Then y`) runs `y` only sometimes.
-			if (/^if\b.*\bthen\b\s*\S/i.test(source)) line.blocks = [...blocks, 'If'];
+			if (/^if\b.*\bthen\b\s*\S/i.test(source)) oneLineIf = true;
+			if (oneLineIf) line.blocks = [...blocks, 'If'];
 			out.push(line);
 		}
 		if (comment !== undefined && parts.every((p) => p.trim() === ''))

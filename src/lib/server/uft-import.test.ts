@@ -66,7 +66,7 @@ describe('scan', () => {
 describe('importTests', () => {
 	test('writes the test file and plan, formatted, and keeps the test file on the next import', async () => {
 		const { importTests, scan } = await importer();
-		const results = importTests(
+		const results = await importTests(
 			uftSource(),
 			{ paths: ['UFT/Sales/VA01_Create'], replacePlans: false },
 			'uploaded',
@@ -99,7 +99,7 @@ describe('importTests', () => {
 			"// Aus UFT übersetzt, geprüft von: A. Tester\ntest('VA01_Create', async () => {});\n"
 		);
 		history.rows = [{ file: 'webgui/uft-va01-create.spec.ts', streak: 10, lastStatus: 'passed' }];
-		const again = importTests(
+		const again = await importTests(
 			uftSource(),
 			{ paths: ['UFT/Sales/VA01_Create'], replacePlans: true },
 			'uploaded'
@@ -123,7 +123,7 @@ describe('importTests', () => {
 		const files = uftSource().map((f) =>
 			Object.assign({}, f, { path: f.path.replace('VA01_Create/Action2', 'Fiori_Check/Action2') })
 		);
-		const results = importTests(
+		const results = await importTests(
 			files,
 			{ paths: ['UFT/Sales/Fiori_Check'], replacePlans: false },
 			'uploaded'
@@ -133,15 +133,35 @@ describe('importTests', () => {
 
 	test('refuses a folder no SAP system records into, and a test that is not in the source', async () => {
 		const { importTests } = await importer();
-		expect(() =>
+		await expect(
 			importTests(
 				uftSource(),
 				{ paths: ['UFT/Sales/VA01_Create'], replacePlans: false, folders: { webgui: 'ariba' } },
 				'x'
 			)
-		).toThrow('No SAP system in systems.json records into tests/ariba');
-		expect(() => importTests(uftSource(), { paths: ['nope'], replacePlans: false }, 'x')).toThrow(
-			'The source has no UFT test nope'
+		).rejects.toThrow('No SAP system in systems.json records into tests/ariba');
+		await expect(
+			importTests(uftSource(), { paths: ['nope'], replacePlans: false }, 'x')
+		).rejects.toThrow('The source has no UFT test nope');
+	});
+
+	test('a test with nothing left to do counts no open step, header and all', async () => {
+		const { importTests, scan } = await importer();
+		const files = [{ path: 'Done/Action1/Script.mts', text: 'Wait 1' }];
+		await importTests(files, { paths: ['Done'], replacePlans: false }, 'uploaded');
+		expect(read('tests/webgui/uft-done.spec.ts')).toContain("test('Done',");
+		expect(scan(files, 'upload').tests[0]?.imported).toMatchObject({ open: 0, fixme: false });
+	});
+
+	test('tests of the same name get as many folders above them as make them differ', async () => {
+		const { scan } = await importer();
+		const files = ['Sales/Regression/Create', 'Purchasing/Regression/Create', 'Login'].map(
+			(path) => ({ path: `${path}/Action1/Script.mts`, text: 'Wait 1' })
 		);
+		expect(scan(files, 'upload').tests.map((t) => t.spec)).toEqual([
+			'tests/webgui/uft-login.spec.ts',
+			'tests/webgui/uft-purchasing-regression-create.spec.ts',
+			'tests/webgui/uft-sales-regression-create.spec.ts'
+		]);
 	});
 });

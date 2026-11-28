@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { playwrightNode } from './node-cli.js';
@@ -8,6 +8,7 @@ import { signInSystems, systemsOfFiles } from './systems.js';
 import { OPEN_MARKER } from './uft-translate.js';
 import {
 	findTests,
+	indexSource,
 	renderPlan,
 	renderSpec,
 	REVIEW_MARKER,
@@ -52,22 +53,39 @@ export function slug(name: string): string {
 }
 
 /**
- * The file name of each test: `uft-<test folder>`, with the folder above it where two tests of the
- * source have the same name.
+ * The file name of each test: `uft-<test folder>`. Where tests of the source share a name, as many
+ * of the folders above each as make them differ (`uft-sales-regression-create`). The same UFT test
+ * read again, uploaded or from Git, gets the same name, and so finds its earlier import.
  */
-const base = (t: UftTest) => slug(t.name);
-
 function fileNames(tests: UftTest[]): Map<string, string> {
-	const counts = new Map<string, number>();
-	for (const t of tests) counts.set(base(t), (counts.get(base(t)) ?? 0) + 1);
-	return new Map(
-		tests.map((t) => {
-			const parent = t.path.split('/').at(-2);
-			const name =
-				(counts.get(base(t)) ?? 0) > 1 && parent ? `${slug(parent)}-${base(t)}` : base(t);
-			return [t.path, `uft-${name}`];
-		})
-	);
+	const names = new Map<string, string>();
+	const groups = new Map<string, UftTest[]>();
+	for (const t of tests) groups.set(slug(t.name), [...(groups.get(slug(t.name)) ?? []), t]);
+	for (const [base, group] of groups) {
+		if (group.length === 1) {
+			names.set(group[0]?.path ?? '', `uft-${base}`);
+			continue;
+		}
+		const parts = group.map((t) =>
+			t.path
+				.split('/')
+				.slice(0, -1)
+				.map((p) => slug(p))
+		);
+		const longest = Math.max(...parts.map((p) => p.length));
+		let depth = 1;
+		const named = (i: number) => [...(parts[i] ?? []).slice(-depth), base].join('-');
+		while (depth < longest && new Set(group.map((_, i) => named(i))).size < group.length) depth++;
+		const taken = new Set<string>();
+		group.forEach((t, i) => {
+			let name = `uft-${named(i)}`;
+			// Same folders all the way up (cannot happen in one source, but cheap to rule out).
+			for (let n = 2; taken.has(name); n++) name = `uft-${named(i)}-${n}`;
+			taken.add(name);
+			names.set(t.path, name);
+		});
+	}
+	return names;
 }
 
 /** The folders the import writes to: the WebGUI and the UI5 folder of the SAP system. */
@@ -102,6 +120,8 @@ function importedSpecs(): Map<string, string> {
 }
 
 /** How far the imported test in `spec` (relative to tests/) has come. */
+const OPEN_LINE = new RegExp(`^\\s*// ${OPEN_MARKER}[ :(]`, 'gm');
+
 function migration(
 	spec: string,
 	streaks: Map<string, { lastStatus?: string; streak: number }>
@@ -112,7 +132,8 @@ function migration(
 	const run = streaks.get(spec);
 	const out: UftMigration = {
 		spec: `tests/${spec}`,
-		open: source.split(OPEN_MARKER).length - 1,
+		// The marker lines the translation wrote, not the word anywhere else in the file.
+		open: source.match(OPEN_LINE)?.length ?? 0,
 		fixme: /\btest\.fixme\(/.test(source),
 		reviewer: /<name>/i.test(reviewer) ? '' : reviewer,
 		streak: run?.streak ?? 0,
@@ -153,13 +174,16 @@ interface Planned {
 	existing?: string;
 }
 
-function plan(files: UftFile[]): { planned: Planned[]; tests: UftTest[] } {
+/** What the import makes of each test of the source, or of those in `only`. */
+function plan(files: UftFile[], only?: Set<string>): { planned: Planned[]; tests: UftTest[] } {
 	const tests = findTests(files);
 	const names = fileNames(tests);
 	const folders = importFolders();
 	const existing = importedSpecs();
-	const planned = tests.map((test): Planned => {
-		const translation = translateTest(test, tests, files);
+	const index = indexSource(files);
+	const chosen = only ? tests.filter((t) => only.has(t.path)) : tests;
+	const planned = chosen.map((test): Planned => {
+		const translation = translateTest(test, tests, index);
 		const name = names.get(test.path) ?? `uft-${slug(test.name)}`;
 		const before = existing.get(name);
 		const folder = folderFor(translation.target, folders) ?? 'webgui';
@@ -216,30 +240,32 @@ function seedFor(specUnderTests: string): RenderInput['seed'] {
 		: { file: 'sap-tests/tests/_agents/seed.spec.ts' };
 }
 
-function write(full: string, content: string) {
+async function write(full: string, content: string) {
 	mkdirSync(dirname(full), { recursive: true });
-	writeFileSync(full, formatted(content, full));
+	writeFileSync(full, await formatted(content, full));
 }
 
 /**
  * The file laid out by the project's formatter (oxfmt, with the repository's .oxfmtrc.json), so
  * that it passes `bun run format:check` as it is written. Where the formatter is not installed (an
- * app built without its development packages), the file stays as rendered: it runs the same.
+ * app built without its development packages) or fails, the file stays as rendered: it runs the
+ * same. A child process of its own, waited for without holding up the server.
  */
-function formatted(content: string, file: string): string {
+function formatted(content: string, file: string): Promise<string> {
 	const bin = resolve(APP_ROOT, 'node_modules/oxfmt/bin/oxfmt');
 	const config = resolve(APP_ROOT, '.oxfmtrc.json');
-	if (!existsSync(bin) || !existsSync(config)) return content;
-	try {
-		return execFileSync(playwrightNode().path, [bin, `--stdin-filepath=${file}`, '-c', config], {
-			input: content,
-			encoding: 'utf8',
-			stdio: ['pipe', 'pipe', 'ignore'],
-			timeout: 30_000
-		});
-	} catch {
-		return content;
-	}
+	if (!existsSync(bin) || !existsSync(config)) return Promise.resolve(content);
+	return new Promise((done) => {
+		const child = execFile(
+			playwrightNode().path,
+			[bin, `--stdin-filepath=${file}`, '-c', config],
+			{ encoding: 'utf8', timeout: 30_000, maxBuffer: 20_000_000 },
+			(error, stdout) => {
+				done(error || !stdout ? content : stdout);
+			}
+		);
+		child.stdin?.end(content);
+	});
 }
 
 export interface ImportInput {
@@ -251,13 +277,13 @@ export interface ImportInput {
 	folders?: { webgui?: string; fiori?: string };
 }
 
-export function importTests(
+export async function importTests(
 	files: UftFile[],
 	input: ImportInput,
 	origin: string,
 	now: Date = new Date()
-): UftImportResult[] {
-	const { planned } = plan(files);
+): Promise<UftImportResult[]> {
+	const { planned } = plan(files, new Set(input.paths));
 	const allowed = new Set(
 		signInSystems()
 			.filter((s) => s.method === 'sapLogin')
@@ -273,7 +299,8 @@ export function importTests(
 		return p;
 	});
 	const importedOn = now.toISOString().slice(0, 10);
-	const results = chosen.map((p): UftImportResult => {
+	const results: UftImportResult[] = [];
+	for (const p of chosen) {
 		const t = p.translation;
 		const folder = folderFor(t.target, folders) ?? 'webgui';
 		const specRel = p.existing ? `tests/${p.existing}` : `tests/${folder}/${p.name}.spec.ts`;
@@ -296,16 +323,18 @@ export function importTests(
 		let planOutcome: ImportedFile = 'kept';
 		if (!existsSync(planFull) || input.replacePlans) {
 			planOutcome = existsSync(planFull) ? 'replaced' : 'written';
-			write(planFull, renderPlan(render));
+			// oxlint-disable-next-line no-await-in-loop -- one formatter at a time, not hundreds at once
+			await write(planFull, renderPlan(render));
 		}
 		let specOutcome: ImportedFile = 'kept';
 		if (existsSync(specFull)) {
 			notes.push(`The test file was imported before and is kept as it is: ${specRel}.`);
 		} else {
 			specOutcome = 'written';
-			write(specFull, renderSpec(render));
+			// oxlint-disable-next-line no-await-in-loop -- as above
+			await write(specFull, renderSpec(render));
 		}
-		return {
+		results.push({
 			path: t.test.path,
 			name: t.test.name,
 			plan: { file: p.plan, outcome: planOutcome },
@@ -313,7 +342,7 @@ export function importTests(
 			translated: t.translated,
 			statements: t.statements,
 			notes
-		};
-	});
+		});
+	}
 	return results;
 }

@@ -41,7 +41,7 @@ const baseOf = (p: string) => p.split('/').at(-1) ?? p;
 const number = (folder: string) => Number(/\d+/.exec(folder)?.[0] ?? 0);
 
 /** Actions as the flow calls them: `RunAction "Create order [VA01]", oneIteration`. */
-const RUN_ACTION = /^\s*RunAction\s+"([^"[]+?)\s*(?:\[[^\]]*\])?"/gim;
+const RUN_ACTION = /^\s*RunAction\s+"([^"[]+?)\s*(?:\[([^\]]*)\])?"/gim;
 
 /** The tests of a source: every folder with Action<n>/Script.mts in it. */
 export function findTests(files: UftFile[]): UftTest[] {
@@ -66,7 +66,12 @@ export function findTests(files: UftFile[]): UftTest[] {
 		const flow = flowFolder ? scripts.get(flowFolder) : undefined;
 		// The names the flow calls its actions by. Which folder holds which name is in the binary
 		// Test.tsp: a name that is a folder (Action2) is that folder, the others are taken in order.
-		const called = flow ? [...flow.matchAll(RUN_ACTION)].map((c) => (c[1] ?? '').trim()) : [];
+		// A call of another test's action ("Login [Common]") names no folder of this test.
+		const called = flow
+			? [...flow.matchAll(RUN_ACTION)]
+					.filter((c) => !c[2] || c[2].trim().toLowerCase() === name.toLowerCase())
+					.map((c) => (c[1] ?? '').trim())
+			: [];
 		const free = folders.filter((f) => !called.some((c) => c.toLowerCase() === f.toLowerCase()));
 		const named = new Map<string, string>();
 		let guessed = false;
@@ -101,27 +106,37 @@ export function findTests(files: UftFile[]): UftTest[] {
 	return tests.toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
-/** The object repositories of a source (exported XML) that the tests' objects are looked up in. */
-function repositoriesOf(
-	files: UftFile[],
-	test?: UftTest
-): { repo: Repository; used: string[]; problems: string[] } {
-	const repo: Repository = new Map();
-	const used: string[] = [];
+/** What a whole source holds besides its tests: read once, used for each of them. */
+export interface SourceIndex {
+	/** Each exported object repository, by its path. */
+	repositories: { path: string; repo: Repository }[];
+	problems: string[];
+	/** The functions of the function libraries (.qfl, .vbs), by lower-case name. */
+	functions: Map<string, string>;
+}
+
+export function indexSource(files: UftFile[]): SourceIndex {
+	const repositories: SourceIndex['repositories'] = [];
 	const problems: string[] = [];
 	const xml = files.filter((f) => /\.xml$/i.test(f.path) && isRepositoryXml(f.text));
-	// The test's own repositories first: they win over shared ones for the same object.
-	const own = (f: UftFile) =>
-		test && test.path && posix(f.path).startsWith(`${test.path}/`) ? 0 : 1;
-	for (const file of xml.toSorted((a, b) => own(a) - own(b) || a.path.localeCompare(b.path))) {
+	for (const file of xml.toSorted((a, b) => a.path.localeCompare(b.path))) {
 		try {
-			readRepository(file.text, repo);
-			used.push(posix(file.path));
+			repositories.push({ path: posix(file.path), repo: readRepository(file.text) });
 		} catch (e) {
 			problems.push(`${posix(file.path)}: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	}
-	return { repo, used, problems };
+	return { repositories, problems, functions: libraryFunctions(files) };
+}
+
+/** The objects a test looks up: its own repositories first, they win over shared ones. */
+function repositoryFor(index: SourceIndex, test: UftTest): { repo: Repository; used: string[] } {
+	const own = (path: string) => (test.path && path.startsWith(`${test.path}/`) ? 0 : 1);
+	const ordered = index.repositories.toSorted((a, b) => own(a.path) - own(b.path));
+	const repo: Repository = new Map();
+	for (const { repo: objects } of ordered)
+		for (const [key, object] of objects) if (!repo.has(key)) repo.set(key, object);
+	return { repo, used: ordered.map((r) => r.path) };
 }
 
 /** The functions defined in the function libraries of a source (.qfl, .vbs), by lower-case name. */
@@ -175,10 +190,10 @@ function count(items: (Item | Step)[]): { statements: number; translated: number
 const MAX_DEPTH = 8;
 
 /** Translates one test: its flow with each called action as a step, or its actions in order. */
-export function translateTest(test: UftTest, all: UftTest[], files: UftFile[]): Translation {
-	const { repo, used, problems } = repositoriesOf(files, test);
-	const ctx = newContext(repo, libraryFunctions(files));
-	const notes = [...test.notes, ...problems.map((p) => `Object repository not read: ${p}`)];
+export function translateTest(test: UftTest, all: UftTest[], index: SourceIndex): Translation {
+	const { repo, used } = repositoryFor(index, test);
+	const ctx = newContext(repo, index.functions);
+	const notes = [...test.notes, ...index.problems.map((p) => `Object repository not read: ${p}`)];
 	const iterationNotes = new Set<string>();
 
 	const actionItems = (
@@ -187,10 +202,14 @@ export function translateTest(test: UftTest, all: UftTest[], files: UftFile[]): 
 		depth: number,
 		seen: Set<string>
 	): (Item | Step)[] => {
-		const outer = ctx.action;
+		// Each action has its own variables (as in UFT) and becomes a test.step of its own: a
+		// variable of one is no variable of the other.
+		const outer = { action: ctx.action, vars: ctx.vars };
 		ctx.action = action.name;
+		ctx.vars = new Map();
 		const items = expand(translateLines(scriptLines(action.script), ctx), owner, depth, seen);
-		ctx.action = outer;
+		ctx.action = outer.action;
+		ctx.vars = outer.vars;
 		return items;
 	};
 
@@ -366,8 +385,8 @@ export function renderSpec(input: RenderInput): string {
 	const fiori = [...t.ctx.fiori].filter((h) => uses(body, h)).toSorted();
 	const lines = [
 		`// ${REVIEW_MARKER}`,
-		`// Translated from the UFT test ${t.test.path || t.test.name} (${input.origin}) on ${input.importedOn}: ${t.translated} of ${t.statements} statements.`,
-		`// Plan: ${input.planFile}. Lines marked ${OPEN_MARKER} are UFT statements still to be written by hand;`,
+		`// Translated from the UFT test ${oneLine(t.test.path || t.test.name)} (${oneLine(input.origin)}) on ${input.importedOn}: ${t.translated} of ${t.statements} statements.`,
+		`// Plan: ${input.planFile}. The UFT statements still to be written by hand are marked as to do;`,
 		'// once there are none left and the test has passed, change test.fixme to test.',
 		`import { test${uses(body, 'expect') ? ', expect' : ''} } from ${str(input.pluginImport)};`,
 		...(webgui.length > 0
@@ -424,7 +443,7 @@ export function renderPlan(input: RenderInput): string {
 		'',
 		'## Application Overview',
 		'',
-		`Translated from the UFT test \`${t.test.path || t.test.name}\` (${input.origin}) on ${input.importedOn}. ${TARGET_TEXT[t.target]}`,
+		`Translated from the UFT test \`${oneLine(t.test.path || t.test.name)}\` (${oneLine(input.origin)}) on ${input.importedOn}. ${TARGET_TEXT[t.target]}`,
 		'',
 		`**${t.translated} of ${t.statements} statements translated.** The others are in the test file as comments marked \`${OPEN_MARKER}\`, with the reason, and listed below as "Not translated". Write them by hand, record those steps once, or let the generator agent fill them in from this plan; then run the test and check each step marked "check" once.`,
 		''

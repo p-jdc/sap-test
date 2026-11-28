@@ -8,6 +8,7 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	lstatSync,
 	statSync
 } from 'node:fs';
 import { devNull } from 'node:os';
@@ -41,7 +42,9 @@ export function readFolder(root: string): UftFile[] {
 		const path = toPosix(entry);
 		if (path.split('/').includes('.git') || !UFT_FILE.test(path)) continue;
 		const full = join(root, entry);
-		if (!statSync(full).isFile()) continue;
+		// Regular files only: a symbolic link (from a repository, say) could point anywhere on the
+		// server, and its target would end up in the test files.
+		if (!lstatSync(full).isFile()) continue;
 		const text = decodeUftFile(readFileSync(full));
 		if (text.length > UFT_LIMITS.fileChars) continue;
 		total += text.length;
@@ -89,7 +92,7 @@ function uploadSize(dir: string): { files: number; chars: number } {
 	let chars = 0;
 	for (const entry of readdirSync(dir, { recursive: true, encoding: 'utf8' })) {
 		const full = join(dir, entry);
-		const s = statSync(full);
+		const s = lstatSync(full);
 		if (!s.isFile()) continue;
 		files++;
 		chars += s.size;
@@ -190,7 +193,12 @@ function git(args: string[], env: NodeJS.ProcessEnv, cwd?: string): Promise<stri
  * this process sees (not in its arguments, which the process list shows).
  */
 function gitEnv(cfg: GitConfig, allowLocal: boolean): NodeJS.ProcessEnv {
-	const config: [string, string][] = [['credential.helper', '']];
+	// No symbolic links in the checkout: a committed link would be checked out as a plain file
+	// holding the link's text (readFolder skips links all the same).
+	const config: [string, string][] = [
+		['credential.helper', ''],
+		['core.symlinks', 'false']
+	];
 	if (cfg.token) {
 		const basic = Buffer.from(`${cfg.user || 'git'}:${cfg.token}`).toString('base64');
 		config.push(['http.extraHeader', `Authorization: Basic ${basic}`]);
@@ -214,11 +222,29 @@ function gitEnv(cfg: GitConfig, allowLocal: boolean): NodeJS.ProcessEnv {
 	};
 }
 
+let fetching: Promise<unknown> = Promise.resolve(null);
+
 /**
- * Checks the repository out anew: shallow, only the text files of the tests, into a new folder
- * that then replaces the one before. Returns the commit that was read.
+ * Checks the repository out anew; one read at a time, so that two (from two people, or two tabs)
+ * never swap the checkout folder at once.
  */
-export async function fetchRepository(
+export function fetchRepository(
+	cfg: GitConfig,
+	allowLocal = false
+): Promise<{ commit: string; branch: string }> {
+	const next = fetching.then(
+		() => checkout(cfg, allowLocal),
+		() => checkout(cfg, allowLocal)
+	);
+	fetching = next.catch(() => null);
+	return next;
+}
+
+/**
+ * Checks the repository out: shallow, only the text files of the tests, into a new folder that then
+ * replaces the one before. Returns the commit that was read.
+ */
+async function checkout(
 	cfg: GitConfig,
 	allowLocal = false
 ): Promise<{ commit: string; branch: string }> {

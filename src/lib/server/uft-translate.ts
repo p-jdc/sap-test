@@ -80,19 +80,50 @@ export type Item =
 
 // ---- Strings -----------------------------------------------------------------------------------
 
-/** A TypeScript string literal in single quotes. */
+/**
+ * A TypeScript string literal in single quotes. Line separators (U+2028, U+2029) are escaped too:
+ * in a comment next to the literal they would end the line.
+ */
 export const str = (text: string) =>
-	`'${text.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n').replaceAll('\r', '\\r')}'`;
+	`'${text
+		.replaceAll('\\', '\\\\')
+		.replaceAll("'", "\\'")
+		.replaceAll('\n', '\\n')
+		.replaceAll('\r', '\\r')
+		.replaceAll('\u2028', '\\u2028')
+		.replaceAll('\u2029', '\\u2029')}'`;
+
+/** Text on one line, for a comment: every line break (also U+2028, U+2029) becomes a space. */
+const flat = (text: string) => text.replaceAll(/\s+/g, ' ').trim();
 
 /** `DATA.Col` for a name that is an identifier, else `DATA['Order type']`. */
 const member = (object: string, key: string) =>
 	/^[A-Za-z_$][\w$]*$/.test(key) ? `${object}.${key}` : `${object}[${str(key)}]`;
 
 /** The name a script variable gets in the test: as written, unless it is a reserved word there. */
-function varName(name: string): string {
-	const reserved =
-		/^(?:page|test|expect|await|async|const|let|var|function|class|new|this|default|delete|in|of|return|typeof|void|yield|data)$/i;
-	return reserved.test(name) ? `${name}Value` : name;
+/**
+ * Words a script variable must not become in the test: JavaScript's reserved words (strict mode,
+ * as in an ES module), and the names the generated test itself uses.
+ */
+const TAKEN = new Set(
+	[
+		'arguments break case catch class const continue debugger default delete do else enum eval export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof undefined var void while with yield await async of',
+		'page test expect process requireEnv runTransaction pressKey expectStatusBar readStatusBar roundTrip popup field button tile input DATA PARAMETERS ENVIRONMENT'
+	]
+		.join(' ')
+		.toLowerCase()
+		.split(' ')
+);
+
+/**
+ * The name a script variable gets in the test, or undefined when it is not a plain identifier
+ * (VBScript allows `[any text]` as a name): such a name never reaches the code.
+ */
+function varName(name: string): string | undefined {
+	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return undefined;
+	return TAKEN.has(name.toLowerCase()) || name.toUpperCase().startsWith('DATA_')
+		? `${name}Value`
+		: name;
 }
 
 function useData(ctx: Context, constant: string, key: string): string {
@@ -625,10 +656,12 @@ function translateStatement(
 					line,
 					step
 						? [
-								`// UFT reported: ${args
-									.slice(1)
-									.map((a) => literal(a) ?? '…')
-									.join(' – ')}`
+								`// UFT reported: ${flat(
+									args
+										.slice(1)
+										.map((a) => literal(a) ?? '…')
+										.join(' – ')
+								)}`
 							]
 						: [],
 					'A report line of UFT (kept as a comment)'
@@ -697,10 +730,11 @@ function translateAssign(
 	ctx: Context
 ): Item {
 	const target = statement.target;
+	const name = varName(target);
+	if (!name) return open(line, 'a variable name that is not a plain identifier');
 	const known = ctx.vars.get(target.toLowerCase());
 	const declare = (expression: string, describe: string) => {
 		if (known) return done(line, [`${known} = ${expression};`], describe);
-		const name = varName(target);
 		ctx.vars.set(target.toLowerCase(), name);
 		return done(line, [`let ${name} = ${expression};`], describe);
 	};
@@ -1129,6 +1163,21 @@ function translateWeb(
 	}
 	if (/^(?:webedit|sapuiedit|sapuitextedit|sapedit|sapuitextarea)$/.test(cls) && m === 'set') {
 		const placeholder = control.properties.placeholder;
+		// A password field: by its type in the repository, or by what it is called.
+		const names = [
+			placeholder,
+			control.properties.name,
+			control.properties['html id'],
+			control.logical
+		];
+		if (
+			control.properties.type?.toLowerCase() === 'password' ||
+			names.some((n) => n !== undefined && /pass(?:word|wort)|kennwort|\bpwd\b/i.test(n))
+		)
+			return open(
+				line,
+				'a password field: use fillSecret(locator, process.env.<SETTING>!) with the password from a setting, never a value in the code'
+			);
 		const v = args[0] ? value(args[0], ctx) : undefined;
 		if (!v) return open(line, 'a value the import cannot translate');
 		if (placeholder)
