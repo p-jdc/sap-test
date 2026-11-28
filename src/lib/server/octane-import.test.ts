@@ -260,7 +260,10 @@ describe('the files', () => {
 			cwd: root,
 			encoding: 'utf8'
 		});
-		expect(lint.stdout + lint.stderr).toBe('');
+		// A finding reads `warning eslint(no-unused-vars): …`; in CI a clean run still prints a
+		// summary line, so the output is checked for findings, then the exit status.
+		expect(lint.stdout + lint.stderr).not.toMatch(/\b(warning|error) [\w-]+\(/);
+		expect(lint.status).toBe(0);
 	});
 });
 
